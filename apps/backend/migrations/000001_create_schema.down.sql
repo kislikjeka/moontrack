@@ -1,0 +1,7 @@
+DROP TABLE IF EXISTS price_snapshots;
+DROP TABLE IF EXISTS account_balances;
+DROP TABLE IF EXISTS entries;
+DROP TABLE IF EXISTS transactions;
+DROP TABLE IF EXISTS accounts;
+DROP TABLE IF EXISTS wallets;
+DROP TABLE IF EXISTS users;

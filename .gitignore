@@ -1,0 +1,75 @@
+# Operating System Files
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.iml
+*.suo
+*.user
+
+# Environment Variables (NEVER COMMIT SECRETS!)
+# Main .env file (root)
+.env
+.env.local
+.env.*.local
+
+# Auto-generated .env files (synced from root)
+apps/backend/.env
+apps/frontend/.env
+
+# Keep .env.example files (templates)
+!.env.example
+!apps/backend/.env.example
+!apps/frontend/.env.example
+
+# Go
+# Backend specific
+apps/backend/bin/
+apps/backend/*.exe
+apps/backend/*.test
+apps/backend/*.out
+apps/backend/vendor/
+apps/backend/coverage.out
+apps/backend/*.prof*
+
+# Node.js / React
+# Frontend specific
+apps/frontend/node_modules/
+apps/frontend/dist/
+apps/frontend/build/
+apps/frontend/.vite/
+apps/frontend/*.log
+apps/frontend/coverage/
+apps/frontend/.turbo
+apps/frontend/.next/
+apps/frontend/out/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Testing
+coverage/
+*.coverage
+.nyc_output/
+
+# Build artifacts
+dist/
+build/
+bin/
+out/
+
+# Temporary files
+tmp/
+temp/
+*.cache
+
+# Just command runner
+.just/
