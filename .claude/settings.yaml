@@ -1,0 +1,5 @@
+# Claude Code Settings
+# Configuration for the specification workflow
+
+# Path to the plans directory (relative to project root)
+plans_path: ./plans

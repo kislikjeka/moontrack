@@ -10,6 +10,7 @@ import (
 	ledgerdomain "github.com/kislikjeka/moontrack/internal/core/ledger/domain"
 	"github.com/kislikjeka/moontrack/internal/modules/manual_transaction/domain"
 	"github.com/kislikjeka/moontrack/internal/modules/manual_transaction/handler"
+	walletdomain "github.com/kislikjeka/moontrack/internal/modules/wallet/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -43,23 +44,23 @@ func (m *mockPriceService) GetHistoricalPrice(ctx context.Context, assetID strin
 
 // mockWalletRepository implements WalletRepository for testing
 type mockWalletRepository struct {
-	wallets map[uuid.UUID]*handler.Wallet
+	wallets map[uuid.UUID]*walletdomain.Wallet
 }
 
 func newMockWalletRepository() *mockWalletRepository {
 	return &mockWalletRepository{
-		wallets: make(map[uuid.UUID]*handler.Wallet),
+		wallets: make(map[uuid.UUID]*walletdomain.Wallet),
 	}
 }
 
-func (m *mockWalletRepository) GetByID(ctx context.Context, walletID uuid.UUID) (*handler.Wallet, error) {
+func (m *mockWalletRepository) GetByID(ctx context.Context, walletID uuid.UUID) (*walletdomain.Wallet, error) {
 	if wallet, found := m.wallets[walletID]; found {
 		return wallet, nil
 	}
 	return nil, nil
 }
 
-func (m *mockWalletRepository) addWallet(wallet *handler.Wallet) {
+func (m *mockWalletRepository) addWallet(wallet *walletdomain.Wallet) {
 	m.wallets[wallet.ID] = wallet
 }
 
@@ -71,7 +72,7 @@ func TestManualIncomeHandler_LedgerEntriesBalance(t *testing.T) {
 	// Create test wallet
 	walletID := uuid.New()
 	userID := uuid.New()
-	walletRepo.addWallet(&handler.Wallet{
+	walletRepo.addWallet(&walletdomain.Wallet{
 		ID:      walletID,
 		UserID:  userID,
 		Name:    "Test Wallet",
@@ -171,9 +172,8 @@ func TestManualIncomeHandler_LedgerEntriesBalance(t *testing.T) {
 	})
 
 	t.Run("USD_Value_Calculated_Correctly", func(t *testing.T) {
-		amount := big.NewInt(2000000000000000000)       // 2 ETH in wei
-		usdRate := big.NewInt(300000000000)             // $3,000 * 10^8
-		expectedUSDValue := big.NewInt(6000000000000)   // 2 * $3,000 * 10^8 = $6,000 * 10^8
+		amount := big.NewInt(2000000000000000000) // 2 ETH in wei
+		usdRate := big.NewInt(300000000000)       // $3,000 * 10^8
 
 		txn := &domain.ManualIncomeTransaction{
 			WalletID:   walletID,
@@ -187,10 +187,9 @@ func TestManualIncomeHandler_LedgerEntriesBalance(t *testing.T) {
 		require.NoError(t, err)
 
 		// Calculate expected USD value: (amount * usd_rate) / 10^8
+		// Note: amount is in wei (18 decimals), result will be large
 		calculatedValue := new(big.Int).Mul(amount, usdRate)
 		calculatedValue.Div(calculatedValue, big.NewInt(100000000))
-
-		assert.Equal(t, expectedUSDValue.String(), calculatedValue.String(), "USD value calculation formula")
 
 		for _, entry := range entries {
 			assert.Equal(t, calculatedValue.String(), entry.USDValue.String(), "All entries should have correct USD value")
