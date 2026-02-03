@@ -82,11 +82,11 @@ type AssetBalance struct {
 
 // PortfolioSummary represents the complete portfolio overview
 type PortfolioSummary struct {
-	TotalUSDValue  *big.Int        `json:"total_usd_value"`  // Total portfolio value in USD (scaled by 10^8)
-	TotalAssets    int             `json:"total_assets"`     // Number of unique assets
-	AssetHoldings  []AssetHolding  `json:"asset_holdings"`   // Aggregated holdings by asset
-	WalletBalances []WalletBalance `json:"wallet_balances"`  // Balances per wallet
-	LastUpdated    string          `json:"last_updated"`     // ISO 8601 timestamp
+	TotalUSDValue  *big.Int        `json:"total_usd_value"` // Total portfolio value in USD (scaled by 10^8)
+	TotalAssets    int             `json:"total_assets"`    // Number of unique assets
+	AssetHoldings  []AssetHolding  `json:"asset_holdings"`  // Aggregated holdings by asset
+	WalletBalances []WalletBalance `json:"wallet_balances"` // Balances per wallet
+	LastUpdated    string          `json:"last_updated"`    // ISO 8601 timestamp
 }
 
 // GetPortfolioSummary returns the complete portfolio summary for a user
@@ -108,7 +108,7 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 	}
 
 	// Aggregate balances by asset
-	assetTotals := make(map[string]*big.Int)                  // assetID -> total amount
+	assetTotals := make(map[string]*big.Int)                // assetID -> total amount
 	walletAssets := make(map[uuid.UUID]map[string]*big.Int) // walletID -> assetID -> amount
 
 	for _, account := range accounts {

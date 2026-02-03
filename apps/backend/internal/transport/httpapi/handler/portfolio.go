@@ -30,7 +30,7 @@ func NewPortfolioHandler(portfolioService PortfolioServiceInterface) *PortfolioH
 
 // PortfolioSummaryResponse represents the portfolio summary API response
 type PortfolioSummaryResponse struct {
-	TotalUSDValue  string                  `json:"total_usd_value"`  // String representation of big.Int
+	TotalUSDValue  string                  `json:"total_usd_value"` // String representation of big.Int
 	TotalAssets    int                     `json:"total_assets"`
 	AssetHoldings  []AssetHoldingResponse  `json:"asset_holdings"`
 	WalletBalances []WalletBalanceResponse `json:"wallet_balances"`

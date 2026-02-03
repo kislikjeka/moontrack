@@ -66,10 +66,10 @@ type PriceResponse struct {
 
 // PriceHistoryResponse represents price history in the API response
 type PriceHistoryResponse struct {
-	AssetID  string              `json:"asset_id"`
-	From     string              `json:"from"`
-	To       string              `json:"to"`
-	Interval string              `json:"interval"`
+	AssetID  string               `json:"asset_id"`
+	From     string               `json:"from"`
+	To       string               `json:"to"`
+	Interval string               `json:"interval"`
 	Prices   []PricePointResponse `json:"prices"`
 }
 

@@ -12,9 +12,9 @@ import (
 type AssetAdjustmentTransaction struct {
 	WalletID    uuid.UUID     `json:"wallet_id"`
 	AssetID     string        `json:"asset_id"`
-	Decimals    int           `json:"decimals"`              // Asset decimals for USD value calculation
-	NewBalance  *money.BigInt `json:"new_balance"`           // Target balance in base units
-	USDRate     *money.BigInt `json:"usd_rate,omitempty"`    // Optional: USD rate scaled by 10^8
+	Decimals    int           `json:"decimals"`           // Asset decimals for USD value calculation
+	NewBalance  *money.BigInt `json:"new_balance"`        // Target balance in base units
+	USDRate     *money.BigInt `json:"usd_rate,omitempty"` // Optional: USD rate scaled by 10^8
 	OccurredAt  time.Time     `json:"occurred_at"`
 	Notes       string        `json:"notes,omitempty"`        // Reason for adjustment
 	PriceSource string        `json:"price_source,omitempty"` // "manual" or "coingecko"

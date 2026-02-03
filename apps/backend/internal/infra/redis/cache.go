@@ -46,7 +46,7 @@ func NewCacheWithTTL(client *redis.Client, ttl time.Duration) *Cache {
 // CachedPrice represents a cached price with metadata
 type CachedPrice struct {
 	AssetID   string    `json:"asset_id"`
-	USDPrice  string    `json:"usd_price"`  // big.Int serialized as string
+	USDPrice  string    `json:"usd_price"` // big.Int serialized as string
 	UpdatedAt time.Time `json:"updated_at"`
 	Source    string    `json:"source"` // "coingecko" or "manual"
 }

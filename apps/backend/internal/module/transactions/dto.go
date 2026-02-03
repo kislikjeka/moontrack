@@ -4,7 +4,7 @@ package transactions
 type TransactionListItem struct {
 	ID            string `json:"id"`
 	Type          string `json:"type"`
-	TypeLabel     string `json:"type_label"`     // "Income", "Outcome", "Adjustment"
+	TypeLabel     string `json:"type_label"` // "Income", "Outcome", "Adjustment"
 	AssetID       string `json:"asset_id"`
 	AssetSymbol   string `json:"asset_symbol"`   // "BTC", "ETH"
 	Amount        string `json:"amount"`         // Base units as string

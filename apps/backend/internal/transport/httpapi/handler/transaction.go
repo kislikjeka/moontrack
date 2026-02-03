@@ -52,15 +52,15 @@ func NewTransactionHandler(ledgerService LedgerServiceInterface, transactionServ
 
 // CreateTransactionRequest represents the transaction creation request
 type CreateTransactionRequest struct {
-	Type        string                 `json:"type"`                     // manual_income, manual_outcome, asset_adjustment
+	Type        string                 `json:"type"` // manual_income, manual_outcome, asset_adjustment
 	WalletID    string                 `json:"wallet_id"`
 	AssetID     string                 `json:"asset_id"`
-	CoingeckoID *string                `json:"coingecko_id,omitempty"`   // CoinGecko ID for price lookup (e.g., "bitcoin" for BTC)
-	Amount      string                 `json:"amount"`                   // String representation of big.Int
-	USDRate     *string                `json:"usd_rate,omitempty"`       // Optional: manual USD rate (string representation of big.Int scaled by 10^8)
-	OccurredAt  string                 `json:"occurred_at"`              // RFC3339 format
+	CoingeckoID *string                `json:"coingecko_id,omitempty"` // CoinGecko ID for price lookup (e.g., "bitcoin" for BTC)
+	Amount      string                 `json:"amount"`                 // String representation of big.Int
+	USDRate     *string                `json:"usd_rate,omitempty"`     // Optional: manual USD rate (string representation of big.Int scaled by 10^8)
+	OccurredAt  string                 `json:"occurred_at"`            // RFC3339 format
 	Notes       string                 `json:"notes,omitempty"`
-	Data        map[string]interface{} `json:"data,omitempty"`           // Additional transaction-specific data
+	Data        map[string]interface{} `json:"data,omitempty"` // Additional transaction-specific data
 }
 
 // TransactionResponse represents a transaction response (used for create/single)

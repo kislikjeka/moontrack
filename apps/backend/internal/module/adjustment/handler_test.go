@@ -417,14 +417,14 @@ func TestAssetAdjustmentHandler_USDValueCalculation(t *testing.T) {
 	}{
 		{
 			name:        "calculate USD value for 1 ETH at $2000",
-			newBalance:  mustParseBigInt("1000000000000000000"),    // 1 ETH in wei
+			newBalance:  mustParseBigInt("1000000000000000000"), // 1 ETH in wei
 			currentBal:  big.NewInt(0),
 			usdRate:     mustParseBigInt("200000000000"),           // $2000 * 10^8
 			expectedUSD: mustParseBigInt("2000000000000000000000"), // (10^18 wei * 2000 * 10^8) / 10^8 = 2000 * 10^18
 		},
 		{
 			name:        "calculate USD value for 0.5 BTC at $40000",
-			newBalance:  mustParseBigInt("50000000"),      // 0.5 BTC in satoshis (50,000,000 satoshis)
+			newBalance:  mustParseBigInt("50000000"), // 0.5 BTC in satoshis (50,000,000 satoshis)
 			currentBal:  big.NewInt(0),
 			usdRate:     mustParseBigInt("4000000000000"), // $40000 * 10^8
 			expectedUSD: mustParseBigInt("2000000000000"), // (50000000 * 4000000000000) / 10^8 = 2000000000000

@@ -20,10 +20,10 @@ const (
 // Asset represents a cryptocurrency or token in the registry
 type Asset struct {
 	ID              uuid.UUID
-	Symbol          string  // BTC, ETH, USDC
-	Name            string  // Bitcoin, Ethereum, USD Coin
-	CoinGeckoID     string  // bitcoin, ethereum, usd-coin
-	Decimals        int     // 8 for BTC, 18 for ETH, 6 for USDC
+	Symbol          string // BTC, ETH, USDC
+	Name            string // Bitcoin, Ethereum, USD Coin
+	CoinGeckoID     string // bitcoin, ethereum, usd-coin
+	Decimals        int    // 8 for BTC, 18 for ETH, 6 for USDC
 	AssetType       AssetType
 	ChainID         *string // ethereum, solana, polygon (nil for native L1)
 	ContractAddress *string // 0xA0b86991c6218... (nil for native)

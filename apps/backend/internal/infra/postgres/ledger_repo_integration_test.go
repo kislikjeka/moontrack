@@ -214,7 +214,7 @@ func TestLedgerRepository_CreateTransaction_WithEntries(t *testing.T) {
 	require.NoError(t, repo.CreateAccount(ctx, incomeAccount))
 
 	now := time.Now()
-	amount := big.NewInt(100000000) // 1 BTC in satoshi
+	amount := big.NewInt(100000000)      // 1 BTC in satoshi
 	usdRate := big.NewInt(5000000000000) // $50,000 scaled by 10^8
 	usdValue := big.NewInt(5000000000000)
 
