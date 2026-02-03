@@ -1,9 +1,15 @@
+/* ============================================================
+   MoonTrack Sidebar - "Lunar Finance" Dark Theme
+   ============================================================ */
+
 .sidebar {
-  width: 250px;
-  background: #f7fafc;
-  border-right: 1px solid #e2e8f0;
-  padding: 1.5rem 0;
-  min-height: calc(100vh - 73px); /* Adjust based on header height */
+  width: 240px;
+  background: var(--surface-1, #12121a);
+  border-right: 1px solid var(--border-color, rgba(255, 255, 255, 0.06));
+  padding: 1.5rem 0.75rem;
+  min-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
 }
 
 .sidebar-nav {
@@ -16,31 +22,79 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.75rem 1.5rem;
-  color: #4a5568;
+  padding: 0.75rem 1rem;
+  color: var(--text-secondary, #9898a8);
   text-decoration: none;
-  transition: all 0.2s;
-  border-left: 3px solid transparent;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: 10px;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.sidebar-link::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 0;
+  background: var(--accent-primary, #3b82f6);
+  border-radius: 0 2px 2px 0;
+  transition: height 0.2s ease;
 }
 
 .sidebar-link:hover {
-  background: #edf2f7;
-  color: #2d3748;
+  background: var(--surface-2, #1a1a24);
+  color: var(--text-primary, #f0f0f5);
 }
 
 .sidebar-link.active {
-  background: #e6f2ff;
-  color: #3182ce;
-  border-left-color: #3182ce;
-  font-weight: 600;
+  background: var(--surface-2, #1a1a24);
+  color: var(--text-primary, #f0f0f5);
+}
+
+.sidebar-link.active::before {
+  height: 24px;
 }
 
 .sidebar-icon {
-  font-size: 1.25rem;
+  font-size: 1.125rem;
+  opacity: 0.9;
 }
 
 .sidebar-label {
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
+}
+
+/* Add Transaction Button */
+.sidebar-action {
+  margin-top: auto;
+  padding: 0.75rem;
+}
+
+.sidebar-action .btn {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(135deg, var(--accent-primary, #3b82f6) 0%, var(--accent-secondary, #6366f1) 100%);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.sidebar-action .btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.4);
 }
 
 /* Responsive */

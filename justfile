@@ -103,18 +103,42 @@ backend-deps:
     cd apps/backend && go mod tidy
     @echo "✅ Backend dependencies installed"
 
-# Run backend server
+# Run backend server (kills existing process on port 8080 first)
 backend-run:
+    @-lsof -ti:8080 | xargs kill -9 2>/dev/null || true
     cd apps/backend && go run cmd/api/main.go
+
+# Restart backend server (rebuild and run)
+backend-restart:
+    @echo "🔄 Restarting backend..."
+    @-lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+    @just backend-build
+    cd apps/backend && ./bin/api
 
 # Build backend binary
 backend-build:
     cd apps/backend && go build -o bin/api cmd/api/main.go
     @echo "✅ Backend built: apps/backend/bin/api"
 
-# Run backend tests
+# Run backend unit tests (fast, no Docker required)
 backend-test:
-    cd apps/backend && go test ./... -v
+    cd apps/backend && go test ./... -v -short
+
+# Run backend unit tests only (alias)
+backend-test-unit:
+    cd apps/backend && go test ./... -v -short
+
+# Run backend integration tests (requires Docker)
+backend-test-integration:
+    @echo "🐳 Running integration tests (requires Docker)..."
+    cd apps/backend && TESTCONTAINERS_RYUK_DISABLED=true go test ./... -v -tags=integration -count=1 -timeout=5m
+
+# Run all backend tests (unit + integration)
+backend-test-all:
+    @echo "🧪 Running all backend tests..."
+    @just backend-test-unit
+    @just backend-test-integration
+    @echo "✅ All backend tests passed!"
 
 # Run backend tests with coverage
 backend-coverage:

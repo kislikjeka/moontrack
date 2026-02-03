@@ -24,7 +24,7 @@ export const createWallet = async (walletData) => {
  */
 export const getWallets = async () => {
   const response = await api.get('/wallets');
-  return response.data;
+  return response.data.wallets || [];
 };
 
 /**

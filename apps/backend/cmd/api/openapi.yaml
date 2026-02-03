@@ -36,6 +36,8 @@ tags:
     description: Manual transaction recording
   - name: Portfolio
     description: Portfolio balance and valuation
+  - name: Assets
+    description: Asset search and price lookup
 
 paths:
   /auth/register:
@@ -367,6 +369,127 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /transactions/{transactionId}:
+    get:
+      tags:
+        - Transactions
+      summary: Get transaction details
+      description: Returns full transaction details including ledger entries
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          description: Transaction UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Transaction details with ledger entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Transaction not found or unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /assets/search:
+    get:
+      tags:
+        - Assets
+      summary: Search cryptocurrency assets
+      description: |
+        Searches for cryptocurrency assets by name or symbol using CoinGecko API.
+        Results are cached for 24 hours and sorted by market cap rank.
+        Returns maximum 10 results.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Search query (min 2, max 50 characters)
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 50
+          example: BTC
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SearchAsset'
+        '400':
+          description: Invalid query parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missing:
+                  value:
+                    error: "query parameter is required"
+                too_short:
+                  value:
+                    error: "query must be at least 2 characters"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          description: Search service temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /assets/{assetId}/price:
+    get:
+      tags:
+        - Assets
+      summary: Get current asset price
+      description: |
+        Returns the current USD price for an asset using its CoinGecko ID.
+        Price is returned as a scaled integer (multiplied by 10^8) for precision.
+      parameters:
+        - name: assetId
+          in: path
+          required: true
+          description: CoinGecko asset ID (e.g., "bitcoin", "ethereum")
+          schema:
+            type: string
+          example: bitcoin
+      responses:
+        '200':
+          description: Asset price
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetPrice'
+        '400':
+          description: Invalid asset ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Asset not found or price unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /portfolio:
     get:
       tags:
@@ -500,39 +623,107 @@ components:
           type: string
           enum: [manual_income, manual_outcome, asset_adjustment]
           example: manual_income
+        type_label:
+          type: string
+          description: Human-readable type label
+          example: "Income"
         wallet_id:
           type: string
           format: uuid
+        wallet_name:
+          type: string
+          description: Wallet name for display
+          example: "My Main Wallet"
         asset_id:
           type: string
           example: BTC
+        asset_symbol:
+          type: string
+          description: Asset ticker symbol (uppercase)
+          example: "BTC"
         amount:
           type: string
           description: Amount in base units
           example: "100000000"
         display_amount:
           type: string
-          example: "1.0"
+          description: Human-readable amount with asset symbol
+          example: "1.0 BTC"
+        direction:
+          type: string
+          enum: [in, out, adjustment]
+          description: Transaction direction for UI display
+          example: "in"
         usd_value:
           type: string
           example: "45678.90"
         occurred_at:
           type: string
           format: date-time
-        recorded_at:
-          type: string
-          format: date-time
-        notes:
-          type: string
-          nullable: true
         status:
           type: string
           enum: [COMPLETED, FAILED]
-        price_source:
+
+    TransactionDetail:
+      allOf:
+        - $ref: '#/components/schemas/Transaction'
+        - type: object
+          properties:
+            source:
+              type: string
+              description: Transaction source
+              example: "manual"
+            external_id:
+              type: string
+              nullable: true
+              description: External transaction ID (e.g., blockchain tx hash)
+            recorded_at:
+              type: string
+              format: date-time
+            notes:
+              type: string
+              nullable: true
+            raw_data:
+              type: object
+              description: Original transaction data for debugging
+            entries:
+              type: array
+              description: Ledger entries for this transaction
+              items:
+                $ref: '#/components/schemas/LedgerEntry'
+
+    LedgerEntry:
+      type: object
+      properties:
+        id:
           type: string
-          enum: [manual, coingecko]
-          description: Indicates whether price was manually specified or fetched from API
-          example: coingecko
+          format: uuid
+        account_code:
+          type: string
+          description: Account identifier code
+          example: "wallet.abc123.btc"
+        account_label:
+          type: string
+          description: Human-readable account label
+          example: "My Main Wallet - BTC"
+        debit_credit:
+          type: string
+          enum: [DEBIT, CREDIT]
+        entry_type:
+          type: string
+          enum: [asset_increase, asset_decrease, income, expense, gas_fee]
+        amount:
+          type: string
+          description: Amount in base units
+        display_amount:
+          type: string
+          description: Human-readable amount
+        asset_id:
+          type: string
+        asset_symbol:
+          type: string
+        usd_value:
+          type: string
 
     ManualIncomeRequest:
       type: object
@@ -636,6 +827,48 @@ components:
           type: string
           description: Reason for adjustment
           maxLength: 500
+
+    SearchAsset:
+      type: object
+      properties:
+        id:
+          type: string
+          description: CoinGecko asset ID
+          example: bitcoin
+        symbol:
+          type: string
+          description: Asset ticker symbol
+          example: BTC
+        name:
+          type: string
+          description: Full asset name
+          example: Bitcoin
+        market_cap_rank:
+          type: integer
+          description: Market cap ranking (1 = highest)
+          example: 1
+
+    AssetPrice:
+      type: object
+      properties:
+        asset_id:
+          type: string
+          description: CoinGecko asset ID
+          example: bitcoin
+        price:
+          type: string
+          description: USD price scaled by 10^8 (for precision)
+          example: "4567890000000"
+        source:
+          type: string
+          enum: [coingecko, cache]
+          description: Price data source
+          example: coingecko
+        updated_at:
+          type: string
+          format: date-time
+          description: When the price was last updated
+          example: "2026-02-02T12:30:00Z"
 
     Error:
       type: object

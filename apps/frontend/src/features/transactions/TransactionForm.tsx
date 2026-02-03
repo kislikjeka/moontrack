@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import transactionService, { CreateTransactionRequest } from '../../services/transaction';
 import { getWallets } from '../../services/wallet';
+import { assetService, Asset } from '../../services/asset';
+import AssetAutocomplete from '../../components/AssetAutocomplete';
 
 interface TransactionFormProps {
   onSuccess?: () => void;
@@ -27,6 +29,9 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [useManualPrice, setUseManualPrice] = useState(false);
+  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+  const [priceSource, setPriceSource] = useState<'coingecko' | 'manual' | 'unknown'>('unknown');
+  const [isFetchingPrice, setIsFetchingPrice] = useState(false);
 
   // Fetch user's wallets for the selector
   const { data: walletsData } = useQuery({
@@ -100,8 +105,13 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({
     }
 
     // Prepare data for submission
+    // Convert datetime-local format to RFC3339 for backend
+    const occurredAtRFC3339 = new Date(formData.occurred_at).toISOString();
+
     const submitData: CreateTransactionRequest = {
       ...formData,
+      occurred_at: occurredAtRFC3339,
+      coingecko_id: selectedAsset?.id, // Pass CoinGecko ID for price lookup
       usd_rate: useManualPrice ? formData.usd_rate : undefined,
     };
 
@@ -124,8 +134,64 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({
     }
   };
 
-  // Common crypto assets
-  const commonAssets = ['BTC', 'ETH', 'USDC', 'USDT', 'BNB', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX'];
+  // Handle asset selection from autocomplete
+  const handleAssetChange = useCallback((asset: Asset | null, symbol: string) => {
+    setFormData((prev) => ({ ...prev, asset_id: symbol }));
+    setSelectedAsset(asset);
+
+    // Clear asset_id error
+    setErrors((prev) => {
+      if (prev.asset_id) {
+        const newErrors = { ...prev };
+        delete newErrors.asset_id;
+        return newErrors;
+      }
+      return prev;
+    });
+
+    // Fetch price if we have a valid CoinGecko asset and manual price is not enabled
+    if (asset && !useManualPrice) {
+      fetchAssetPrice(asset.id);
+    } else if (!asset) {
+      // Unknown asset - show warning
+      setPriceSource('unknown');
+      if (!useManualPrice) {
+        setFormData((prev) => ({ ...prev, usd_rate: '' }));
+      }
+    }
+  }, [useManualPrice]);
+
+  // Fetch price for a CoinGecko asset
+  const fetchAssetPrice = async (coinGeckoId: string) => {
+    setIsFetchingPrice(true);
+    try {
+      const priceData = await assetService.getPrice(coinGeckoId);
+      // Convert scaled price (10^8) to human-readable
+      const priceValue = parseFloat(priceData.price) / 100000000;
+      setFormData((prev) => ({ ...prev, usd_rate: priceValue.toString() }));
+      setPriceSource('coingecko');
+    } catch (error) {
+      // Price fetch failed - user can still enter manually
+      setPriceSource('unknown');
+      setFormData((prev) => ({ ...prev, usd_rate: '' }));
+    } finally {
+      setIsFetchingPrice(false);
+    }
+  };
+
+  // Handle manual price toggle
+  const handleManualPriceToggle = (enabled: boolean) => {
+    setUseManualPrice(enabled);
+    if (enabled) {
+      setPriceSource('manual');
+    } else if (selectedAsset) {
+      // Re-fetch price from CoinGecko
+      fetchAssetPrice(selectedAsset.id);
+    } else {
+      setPriceSource('unknown');
+      setFormData((prev) => ({ ...prev, usd_rate: '' }));
+    }
+  };
 
   return (
     <form onSubmit={handleSubmit} className="transaction-form">
@@ -159,7 +225,7 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({
           className={errors.wallet_id ? 'error' : ''}
         >
           <option value="">-- Select Wallet --</option>
-          {walletsData?.wallets.map((wallet) => (
+          {walletsData?.map((wallet: any) => (
             <option key={wallet.id} value={wallet.id}>
               {wallet.name} ({wallet.chain_id})
             </option>
@@ -168,35 +234,20 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({
         {errors.wallet_id && <span className="error-message">{errors.wallet_id}</span>}
       </div>
 
-      {/* Asset Selector */}
+      {/* Asset Selector with Autocomplete */}
       <div className="form-group">
         <label htmlFor="asset_id">Asset *</label>
-        <select
-          id="asset_id"
-          name="asset_id"
+        <AssetAutocomplete
           value={formData.asset_id}
-          onChange={handleChange}
-          className={errors.asset_id ? 'error' : ''}
-        >
-          {commonAssets.map((asset) => (
-            <option key={asset} value={asset}>
-              {asset}
-            </option>
-          ))}
-          <option value="custom">-- Custom (type below) --</option>
-        </select>
-
-        {formData.asset_id === 'custom' && (
-          <input
-            type="text"
-            name="asset_id"
-            placeholder="Enter custom asset ID (e.g., DOGE)"
-            value={formData.asset_id === 'custom' ? '' : formData.asset_id}
-            onChange={handleChange}
-            className={errors.asset_id ? 'error' : ''}
-          />
+          onChange={handleAssetChange}
+          placeholder="Search asset (e.g., BTC, Bitcoin)"
+          error={errors.asset_id}
+        />
+        {priceSource === 'unknown' && formData.asset_id && formData.asset_id.length >= 2 && !selectedAsset && (
+          <span className="help-text warning">
+            Asset not found in CoinGecko. Price must be entered manually.
+          </span>
         )}
-        {errors.asset_id && <span className="error-message">{errors.asset_id}</span>}
       </div>
 
       {/* Amount Input */}
@@ -221,21 +272,32 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({
         {errors.amount && <span className="error-message">{errors.amount}</span>}
       </div>
 
-      {/* Manual Price Override */}
+      {/* Price Section */}
       <div className="form-group">
         <label>
           <input
             type="checkbox"
             checked={useManualPrice}
-            onChange={(e) => setUseManualPrice(e.target.checked)}
+            onChange={(e) => handleManualPriceToggle(e.target.checked)}
           />
           <span>Manually enter USD price (optional)</span>
         </label>
+
+        {/* Price source indicator */}
+        {!useManualPrice && formData.usd_rate && (
+          <span className={`price-source ${priceSource}`}>
+            {isFetchingPrice ? (
+              'Fetching price...'
+            ) : priceSource === 'coingecko' ? (
+              <>Price from CoinGecko: ${parseFloat(formData.usd_rate).toLocaleString()}</>
+            ) : null}
+          </span>
+        )}
       </div>
 
-      {useManualPrice && (
+      {(useManualPrice || priceSource === 'unknown') && (
         <div className="form-group">
-          <label htmlFor="usd_rate">USD Price per Unit *</label>
+          <label htmlFor="usd_rate">USD Price per Unit {priceSource === 'unknown' ? '*' : ''}</label>
           <input
             type="number"
             id="usd_rate"
@@ -248,7 +310,9 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({
             className={errors.usd_rate ? 'error' : ''}
           />
           <span className="help-text">
-            Price in USD (e.g., 42000.50 for BTC). Leave unchecked to auto-fetch from CoinGecko.
+            {priceSource === 'unknown'
+              ? 'Asset not found in CoinGecko. Please enter the USD price manually.'
+              : 'Price in USD (e.g., 42000.50 for BTC). Uncheck above to auto-fetch from CoinGecko.'}
           </span>
           {errors.usd_rate && <span className="error-message">{errors.usd_rate}</span>}
         </div>

@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './features/auth/AuthContext'
+import { ToastProvider } from './components/Toast'
 import ProtectedRoute from './features/auth/ProtectedRoute'
 import ErrorBoundary from './components/ErrorBoundary'
 import LoginForm from './features/auth/LoginForm'
@@ -11,6 +12,7 @@ import WalletList from './features/wallets/WalletList'
 import WalletDetail from './features/wallets/WalletDetail'
 import TransactionForm from './features/transactions/TransactionForm'
 import TransactionList from './features/transactions/TransactionList'
+import TransactionDetail from './features/transactions/TransactionDetail'
 import './App.css'
 
 const queryClient = new QueryClient()
@@ -19,6 +21,7 @@ function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
+        <ToastProvider>
         <Router>
           <AuthProvider>
           <Routes>
@@ -81,6 +84,16 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/transactions/:id"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <TransactionDetail />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
 
             {/* Default redirect */}
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -90,6 +103,7 @@ function App() {
           </Routes>
           </AuthProvider>
         </Router>
+        </ToastProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   )

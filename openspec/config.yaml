@@ -1,0 +1,89 @@
+schema: spec-driven
+
+context: |
+  # MoonTrack - Crypto Portfolio Tracker
+
+  ## Tech Stack
+  - Backend: Go 1.21+ with Chi router
+  - Frontend: React 18+ with Vite, TanStack Query, React Router v6
+  - Database: PostgreSQL 14+ with NUMERIC(78,0) for financial precision
+  - Cache: Redis 7+
+  - Auth: JWT tokens with bcrypt password hashing
+  - Price Data: CoinGecko API with Redis caching
+
+  ## Architecture: Modular Monolith
+
+  ## Core Principles
+
+  ### 1. Financial Precision (NON-NEGOTIABLE)
+  - ALL financial amounts: `NUMERIC(78,0)` in PostgreSQL, `math/big.Int` in Go
+  - NEVER use float64, float32, or shopspring/decimal for financial calculations
+  - Store amounts in base units ONLY (wei, satoshi, lamports)
+  - Amount conversions to display units happen ONLY at presentation layer
+  - Zero amounts: `big.NewInt(0)`, not nil
+
+  ### 2. Double-Entry Accounting (NON-NEGOTIABLE)
+  - Every transaction creates at least two ledger entries (debit and credit)
+  - Invariant: `SUM(DEBIT) = SUM(CREDIT)` for every transaction
+  - Verify ledger balance BEFORE committing transaction
+  - Ledger entries are IMMUTABLE - never update or delete
+  - ALL financial operations go through ledger interface ONLY
+
+  ### 3. Handler Registry Pattern (NON-NEGOTIABLE)
+  - Each transaction type has its own module under `internal/modules/`
+  - Implement `TransactionHandler[T]` interface with `Validate()` and `ToEntries()`
+  - Register handler via `handler.Register()` in main.go
+  - Adding new transaction type requires ZERO changes to ledger core
+
+  ### 4. Security by Design
+  - Input validation at all system boundaries
+  - Auth/authz checks before all protected operations
+  - Secrets NEVER in version control
+  - SQL injection, XSS, CSRF protections required
+
+  ### 5. Simplicity First
+  - YAGNI: Don't build for hypothetical future requirements
+  - No abstractions until 3+ concrete use cases
+  - Delete unused code completely
+
+  ## Ledger Architecture
+
+  ### Core Tables
+  ```sql
+  accounts (id, code, type, asset_id, identifier, chain_id, metadata)
+  transactions (id, type, source, external_id, status, raw_data, metadata)
+  entries (id, transaction_id, account_id, debit_credit, amount NUMERIC(78,0), asset_id, usd_rate, usd_value)
+  account_balances (account_id, asset_id, balance NUMERIC(78,0), usd_value)
+  ```
+
+  ### Handler Interface
+  ```go
+  type TransactionHandler[T any] interface {
+      Validate(ctx context.Context, tx T) error
+      ToEntries(ctx context.Context, tx T, resolver AccountResolver) ([]Entry, error)
+  }
+  ```
+
+  ## React Standards
+  - Feature-based folder structure
+  - Functional components with hooks
+  - Centralized API client layer
+  - NEVER parse amount strings as JavaScript numbers (use BigInt or string)
+  - Error handling and loading states for all API calls
+
+  ## API Response Format
+  - Standard HTTP status codes
+  - Consistent error format: `{"error": {"code": "...", "message": "..."}}`
+  - Amounts as strings in JSON responses
+
+rules:
+  proposal:
+    - Ask questions with AskQuestion tool for clarity and completeness
+    - Keep proposals focused and concise
+    - Include security implications for features touching auth or user data
+    - For financial features, describe ledger entry flow
+
+  tasks:
+    - Each task should be independently completable
+    - Financial tasks must specify which ledger entries are created
+    - Include acceptance criteria

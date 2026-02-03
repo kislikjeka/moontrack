@@ -4,32 +4,29 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	stdlog "log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/kislikjeka/moontrack/internal/api/handlers"
-	"github.com/kislikjeka/moontrack/internal/api/router"
-	"github.com/kislikjeka/moontrack/internal/core/ledger/handler"
-	ledgerPostgres "github.com/kislikjeka/moontrack/internal/core/ledger/postgres"
-	ledgerService "github.com/kislikjeka/moontrack/internal/core/ledger/service"
-	pricingCache "github.com/kislikjeka/moontrack/internal/core/pricing/cache"
-	pricingCoinGecko "github.com/kislikjeka/moontrack/internal/core/pricing/coingecko"
-	pricingService "github.com/kislikjeka/moontrack/internal/core/pricing/service"
-	"github.com/kislikjeka/moontrack/internal/core/user/auth"
-	userPostgres "github.com/kislikjeka/moontrack/internal/core/user/repository/postgres"
-	userService "github.com/kislikjeka/moontrack/internal/core/user/service"
-	assetAdjustmentHandler "github.com/kislikjeka/moontrack/internal/modules/asset_adjustment/handler"
-	manualTxHandler "github.com/kislikjeka/moontrack/internal/modules/manual_transaction/handler"
-	portfolioAdapter "github.com/kislikjeka/moontrack/internal/modules/portfolio/adapter"
-	portfolioService "github.com/kislikjeka/moontrack/internal/modules/portfolio/service"
-	walletPostgres "github.com/kislikjeka/moontrack/internal/modules/wallet/repository/postgres"
-	walletService "github.com/kislikjeka/moontrack/internal/modules/wallet/service"
-	"github.com/kislikjeka/moontrack/internal/shared/config"
-	"github.com/kislikjeka/moontrack/internal/shared/database"
-	"github.com/kislikjeka/moontrack/internal/shared/logger"
+	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/internal/platform/asset"
+	"github.com/kislikjeka/moontrack/internal/platform/user"
+	"github.com/kislikjeka/moontrack/internal/platform/wallet"
+	"github.com/kislikjeka/moontrack/internal/transport/httpapi"
+	"github.com/kislikjeka/moontrack/internal/transport/httpapi/handler"
+	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
+	"github.com/kislikjeka/moontrack/internal/infra/gateway/coingecko"
+	"github.com/kislikjeka/moontrack/internal/infra/postgres"
+	infraRedis "github.com/kislikjeka/moontrack/internal/infra/redis"
+	"github.com/kislikjeka/moontrack/internal/module/adjustment"
+	"github.com/kislikjeka/moontrack/internal/module/manual"
+	"github.com/kislikjeka/moontrack/internal/module/portfolio"
+	"github.com/kislikjeka/moontrack/internal/module/transactions"
+	"github.com/kislikjeka/moontrack/pkg/config"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -56,10 +53,10 @@ func main() {
 	)
 
 	// Initialize database connection pool
-	dbCfg := database.Config{
+	dbCfg := postgres.Config{
 		URL: cfg.DatabaseURL,
 	}
-	db, err := database.NewPool(ctx, dbCfg)
+	db, err := postgres.NewPool(ctx, dbCfg)
 	if err != nil {
 		log.Error("Failed to connect to database", "error", err)
 		os.Exit(1)
@@ -83,56 +80,66 @@ func main() {
 	log.Info("Redis connection established")
 
 	// Initialize pricing components
-	coinGeckoClient := pricingCoinGecko.NewClient(cfg.CoinGeckoAPIKey)
-	priceCache := pricingCache.NewCache(redisClient)
-	priceSvc := pricingService.NewPriceService(coinGeckoClient, priceCache, nil) // TODO: Add price repository when implemented
-	log.Info("Pricing service initialized")
+	coinGeckoClient := coingecko.NewClient(cfg.CoinGeckoAPIKey)
+	priceCache := infraRedis.NewCache(redisClient)
+
+	// Initialize Asset components (unified asset + price service)
+	assetRepo := postgres.NewAssetRepository(db.Pool)
+	priceHistoryRepo := postgres.NewPriceRepository(db.Pool)
+	priceProvider := coingecko.NewPriceProviderAdapter(coinGeckoClient)
+	assetSvc := asset.NewService(assetRepo, priceHistoryRepo, priceCache, priceProvider)
+	log.Info("Asset service initialized")
 
 	// Initialize repositories
-	userRepo := userPostgres.NewUserRepository(db.Pool)
-	ledgerRepo := ledgerPostgres.NewLedgerRepository(db.Pool)
-	walletRepo := walletPostgres.NewWalletRepository(db.Pool)
+	userRepo := postgres.NewUserRepository(db.Pool)
+	ledgerRepo := postgres.NewLedgerRepository(db.Pool)
+	walletRepo := postgres.NewWalletRepository(db.Pool)
 
 	// Initialize handler registry for transaction types
-	handlerRegistry := handler.NewRegistry()
+	handlerRegistry := ledger.NewRegistry()
 
 	// Initialize services
-	userSvc := userService.NewUserService(userRepo)
-	jwtSvc := auth.NewJWTService(cfg.JWTSecret)
-	ledgerSvc := ledgerService.NewLedgerService(ledgerRepo, handlerRegistry)
-	walletSvc := walletService.NewWalletService(walletRepo)
+	userSvc := user.NewService(userRepo)
+	jwtSvc := middleware.NewJWTService(cfg.JWTSecret)
+	ledgerSvc := ledger.NewService(ledgerRepo, handlerRegistry)
+	walletSvc := wallet.NewService(walletRepo)
 
 	// Register transaction handlers with the registry
-	assetAdjHandler := assetAdjustmentHandler.NewAssetAdjustmentHandler(ledgerSvc)
+	assetAdjHandler := adjustment.NewAssetAdjustmentHandler(ledgerSvc)
 	handlerRegistry.Register(assetAdjHandler)
 	log.Info("Registered asset adjustment handler")
 
-	// Register manual transaction handlers
-	manualIncomeHandler := manualTxHandler.NewManualIncomeHandler(priceSvc, walletRepo)
+	// Register manual transaction handlers (using AssetService)
+	manualIncomeHandler := manual.NewManualIncomeHandler(assetSvc, walletRepo)
 	handlerRegistry.Register(manualIncomeHandler)
 	log.Info("Registered manual income handler")
 
-	manualOutcomeHandler := manualTxHandler.NewManualOutcomeHandler(priceSvc, walletRepo, ledgerSvc)
+	manualOutcomeHandler := manual.NewManualOutcomeHandler(assetSvc, walletRepo, ledgerSvc)
 	handlerRegistry.Register(manualOutcomeHandler)
 	log.Info("Registered manual outcome handler")
 
-	// Initialize portfolio service
-	walletAdapter := portfolioAdapter.NewWalletRepositoryAdapter(walletRepo)
-	portfolioSvc := portfolioService.NewPortfolioService(ledgerRepo, walletAdapter, priceSvc)
+	// Initialize portfolio service (using AssetService for prices)
+	walletAdapter := portfolio.NewWalletRepositoryAdapter(walletRepo)
+	portfolioSvc := portfolio.NewPortfolioService(ledgerRepo, walletAdapter, assetSvc)
 	log.Info("Portfolio service initialized")
 
+	// Initialize transaction service (read-only, for enriched views)
+	transactionSvc := transactions.NewTransactionService(ledgerSvc, walletRepo)
+	log.Info("Transaction service initialized")
+
 	// Initialize HTTP handlers
-	authHandler := handlers.NewAuthHandler(userSvc, jwtSvc)
-	walletHandler := handlers.NewWalletHandler(walletSvc)
-	transactionHandler := handlers.NewTransactionHandler(ledgerSvc)
-	portfolioHandler := handlers.NewPortfolioHandler(portfolioSvc)
-	docsHandler := handlers.NewDocsHandler(openAPISpec)
+	authHandler := handler.NewAuthHandler(userSvc, jwtSvc)
+	walletHandler := handler.NewWalletHandler(walletSvc)
+	transactionHandler := handler.NewTransactionHandler(ledgerSvc, transactionSvc, assetSvc)
+	portfolioHandler := handler.NewPortfolioHandler(portfolioSvc)
+	assetHandler := handler.NewAssetHandler(assetSvc)
+	docsHandler := handler.NewDocsHandler(openAPISpec)
 
 	// Create JWT middleware
-	jwtMiddleware := auth.JWTMiddleware(jwtSvc)
+	jwtMiddleware := middleware.JWTMiddleware(jwtSvc)
 
 	// Determine allowed origins for CORS
-	allowedOrigins := []string{"http://localhost:5173"} // Vite default port
+	allowedOrigins := []string{"http://localhost:5173", "http://localhost:5174"} // Vite ports
 	if cfg.IsProduction() {
 		// In production, read from environment variable
 		if origins := os.Getenv("ALLOWED_ORIGINS"); origins != "" {
@@ -141,17 +148,18 @@ func main() {
 	}
 
 	// Create HTTP router
-	routerCfg := router.Config{
+	routerCfg := httpapi.Config{
 		Logger:             log,
 		AllowedOrigins:     allowedOrigins,
 		AuthHandler:        authHandler,
 		WalletHandler:      walletHandler,
 		TransactionHandler: transactionHandler,
 		PortfolioHandler:   portfolioHandler,
+		AssetHandler:       assetHandler,
 		DocsHandler:        docsHandler,
 		JWTMiddleware:      jwtMiddleware,
 	}
-	r := router.New(routerCfg)
+	r := httpapi.NewRouter(routerCfg)
 
 	// Create HTTP server
 	srv := &http.Server{
@@ -162,33 +170,20 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Start background price refresh job (every 5 minutes)
-	priceRefreshTicker := time.NewTicker(5 * time.Minute)
-	go func() {
-		// Initial refresh on startup
-		log.Info("Running initial price refresh")
-		if err := priceSvc.RefreshPrices(ctx, pricingService.DefaultAssets()); err != nil {
-			log.Warn("Initial price refresh failed", "error", err)
-		}
-
-		for {
-			select {
-			case <-ctx.Done():
-				priceRefreshTicker.Stop()
-				log.Info("Price refresh job stopped")
-				return
-			case <-priceRefreshTicker.C:
-				log.Info("Running scheduled price refresh")
-				refreshCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				if err := priceSvc.RefreshPrices(refreshCtx, pricingService.DefaultAssets()); err != nil {
-					log.Warn("Scheduled price refresh failed", "error", err)
-				} else {
-					log.Info("Price refresh completed successfully")
-				}
-				cancel()
-			}
-		}
-	}()
+	// Start background price refresh job using Asset PriceUpdater
+	priceUpdater := asset.NewPriceUpdater(
+		assetRepo,
+		priceHistoryRepo,
+		priceCache,
+		priceProvider,
+		&asset.PriceUpdaterConfig{
+			Interval:  5 * time.Minute,
+			BatchSize: 50,
+			Logger:    stdlog.New(os.Stdout, "[PriceUpdater] ", stdlog.LstdFlags),
+		},
+	)
+	go priceUpdater.Run(ctx)
+	log.Info("Price updater started (5 minute interval)")
 
 	// Start server in a goroutine
 	go func() {

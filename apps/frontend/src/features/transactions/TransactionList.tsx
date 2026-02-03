@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import transactionService, { Transaction } from '../../services/transaction';
+import { Link } from 'react-router-dom';
+import transactionService from '../../services/transaction';
 import TransactionItem from './TransactionItem';
+import './Transactions.css';
 
 interface TransactionListProps {
   walletId?: string; // Optional filter by wallet
@@ -86,12 +88,17 @@ export const TransactionList: React.FC<TransactionListProps> = ({
   return (
     <div className="transaction-list">
       <div className="transaction-list-header">
-        <h2>Transaction History</h2>
-        {data && (
-          <p className="transaction-count">
-            Showing {transactions.length} of {data.total} transactions
-          </p>
-        )}
+        <div className="header-title">
+          <h2>Transaction History</h2>
+          {data && (
+            <p className="transaction-count">
+              Showing {transactions.length} of {data.total} transactions
+            </p>
+          )}
+        </div>
+        <Link to="/transactions/new" className="btn btn-primary">
+          + Add Transaction
+        </Link>
       </div>
 
       {/* Filters */}

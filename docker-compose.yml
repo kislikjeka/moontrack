@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:15-alpine
+    image: timescale/timescaledb:latest-pg15
     container_name: moontrack-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB}

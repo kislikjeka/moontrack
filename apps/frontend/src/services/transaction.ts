@@ -1,23 +1,68 @@
 import api from './api';
 
+export type TransactionType = 'manual_income' | 'manual_outcome' | 'asset_adjustment';
+export type TransactionDirection = 'in' | 'out' | 'adjustment';
+
+// List view item with enriched fields
+export interface TransactionListItem {
+  id: string;
+  type: TransactionType;
+  type_label: string; // "Income", "Outcome", "Adjustment"
+  asset_id: string;
+  asset_symbol: string; // "BTC", "ETH"
+  amount: string; // Base units as string
+  display_amount: string; // "0.5 BTC"
+  direction: TransactionDirection;
+  wallet_id: string;
+  wallet_name: string;
+  status: 'COMPLETED' | 'FAILED';
+  occurred_at: string; // ISO timestamp
+  usd_value?: string;
+}
+
+// Ledger entry for detail view
+export interface LedgerEntry {
+  id: string;
+  account_code: string;
+  account_label: string; // "My Wallet - BTC"
+  debit_credit: 'DEBIT' | 'CREDIT';
+  entry_type: string; // "asset_increase", "income", etc.
+  amount: string;
+  display_amount: string;
+  asset_id: string;
+  asset_symbol: string;
+  usd_value?: string;
+}
+
+// Detail view with full information
+export interface TransactionDetail extends TransactionListItem {
+  source: string;
+  external_id?: string;
+  recorded_at: string;
+  notes?: string;
+  raw_data?: Record<string, unknown>;
+  entries: LedgerEntry[];
+}
+
+// Legacy interface for backwards compatibility
 export interface Transaction {
   id: string;
-  type: 'manual_income' | 'manual_outcome' | 'asset_adjustment';
+  type: TransactionType;
   wallet_id: string;
   wallet_name?: string;
   asset_id: string;
-  amount: string; // Big number as string
-  usd_rate?: string; // Big number as string (scaled by 10^8)
-  usd_value: string; // Big number as string
-  occurred_at: string; // ISO timestamp
-  recorded_at: string; // ISO timestamp
+  amount: string;
+  usd_rate?: string;
+  usd_value: string;
+  occurred_at: string;
+  recorded_at: string;
   notes?: string;
   price_source?: 'manual' | 'coingecko';
   status: 'COMPLETED' | 'FAILED';
 }
 
 export interface TransactionListResponse {
-  transactions: Transaction[];
+  transactions: TransactionListItem[];
   total: number;
   page: number;
   page_size: number;
@@ -27,6 +72,7 @@ export interface CreateTransactionRequest {
   type: 'manual_income' | 'manual_outcome' | 'asset_adjustment';
   wallet_id: string;
   asset_id: string;
+  coingecko_id?: string; // CoinGecko ID for price lookup (e.g., "bitcoin" for BTC)
   amount: string;
   usd_rate?: string; // Optional manual price override
   occurred_at?: string; // ISO timestamp, defaults to now
@@ -62,10 +108,10 @@ export const transactionService = {
   },
 
   /**
-   * Get a single transaction by ID
+   * Get a single transaction by ID with full details and ledger entries
    */
-  async getById(id: string): Promise<Transaction> {
-    const response = await api.get<Transaction>(`/transactions/${id}`);
+  async getById(id: string): Promise<TransactionDetail> {
+    const response = await api.get<TransactionDetail>(`/transactions/${id}`);
     return response.data;
   },
 };

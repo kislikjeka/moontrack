@@ -141,3 +141,34 @@ body {
 .mt-2 { margin-top: 1rem; }
 .mt-3 { margin-top: 1.5rem; }
 .mt-4 { margin-top: 2rem; }
+
+/* Price source indicator */
+.price-source {
+  display: block;
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.price-source.coingecko {
+  color: #059669;
+  background-color: #ecfdf5;
+}
+
+.price-source.manual {
+  color: #d97706;
+  background-color: #fffbeb;
+}
+
+.price-source.unknown {
+  color: #6b7280;
+}
+
+/* Warning text style */
+.help-text.warning {
+  color: #d97706;
+  background-color: #fffbeb;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}

@@ -1,8 +1,53 @@
+/* ============================================================
+   MoonTrack Layout - "Lunar Finance" Dark Theme
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+/* CSS Variables - Design Tokens */
+:root {
+  /* Surface Colors - Layered depth */
+  --surface-0: #0a0a0f;
+  --surface-1: #12121a;
+  --surface-2: #1a1a24;
+  --surface-3: #22222e;
+  --surface-4: #2a2a38;
+
+  /* Text Colors */
+  --text-primary: #f0f0f5;
+  --text-secondary: #9898a8;
+  --text-tertiary: #686878;
+  --text-muted: #484858;
+
+  /* Accent Colors */
+  --accent-primary: #3b82f6;
+  --accent-secondary: #6366f1;
+  --income-primary: #10b981;
+  --outcome-primary: #f43f5e;
+  --adjustment-primary: #3b82f6;
+
+  /* UI Colors */
+  --border-color: rgba(255, 255, 255, 0.06);
+  --border-hover: rgba(255, 255, 255, 0.12);
+  --focus-ring: rgba(99, 102, 241, 0.5);
+
+  /* Typography */
+  --font-display: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+}
+
+/* Global resets for dark theme */
+body {
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font-family: var(--font-display);
+}
+
 .layout {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #f8f9fa;
+  background: var(--surface-0);
 }
 
 .layout-body {
@@ -13,8 +58,9 @@
 .layout-content {
   flex: 1;
   padding: 2rem;
-  background: #ffffff;
-  min-height: calc(100vh - 73px); /* Adjust based on header height */
+  background: var(--surface-0);
+  min-height: calc(100vh - 64px);
+  overflow-y: auto;
 }
 
 /* Responsive */
