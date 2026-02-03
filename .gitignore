@@ -34,7 +34,9 @@ apps/backend/*.test
 apps/backend/*.out
 apps/backend/vendor/
 apps/backend/coverage.out
+apps/backend/coverage.html
 apps/backend/*.prof*
+apps/backend/tmp/
 
 # Node.js / React
 # Frontend specific

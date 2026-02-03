@@ -44,6 +44,32 @@ services:
     env_file:
       - .env
 
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile.dev
+    container_name: moontrack-backend
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      - ./apps/backend:/app
+      - backend_go_mod:/go/pkg/mod
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      REDIS_URL: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      COINGECKO_API_KEY: ${COINGECKO_API_KEY}
+      ENV: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+
 volumes:
   postgres_data:
   redis_data:
+  backend_go_mod:
