@@ -54,7 +54,7 @@ export function CreateWalletDialog({ open, onOpenChange }: CreateWalletDialogPro
       })
       toast.success('Wallet created successfully')
       handleClose()
-    } catch (error) {
+    } catch (_error) {
       toast.error('Failed to create wallet')
     }
   }

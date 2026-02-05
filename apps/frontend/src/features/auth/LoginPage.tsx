@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Moon, Mail, Lock, Loader2 } from 'lucide-react'
-import { useAuth } from './AuthContext'
+import { useAuth } from './useAuth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -115,7 +115,7 @@ export default function LoginPage() {
 
         {/* Register link */}
         <p className="text-center text-sm text-muted-foreground">
-          Don't have an account?{' '}
+          Don&apos;t have an account?{' '}
           <Link
             to="/register"
             className="font-medium text-primary hover:underline"

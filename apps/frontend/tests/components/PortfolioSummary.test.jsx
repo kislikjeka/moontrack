@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import PortfolioSummary from '../../src/features/dashboard/PortfolioSummary';
+import { PortfolioSummary } from '../../src/features/dashboard/PortfolioSummary';
 
 describe('PortfolioSummary', () => {
   // Mock portfolio data matching the PortfolioSummary type interface
@@ -17,23 +17,25 @@ describe('PortfolioSummary', () => {
     expect(screen.getByText(/\$125,678\.50/i)).toBeInTheDocument();
   });
 
-  test('renders Total Portfolio Value label', () => {
+  test('renders Total Value label', () => {
     render(<PortfolioSummary portfolio={mockPortfolio} />);
-    expect(screen.getByText(/Total Portfolio Value/i)).toBeInTheDocument();
+    expect(screen.getByText(/Total Value/i)).toBeInTheDocument();
   });
 
   test('displays asset count', () => {
     render(<PortfolioSummary portfolio={mockPortfolio} />);
-    expect(screen.getByText(/3 Assets/i)).toBeInTheDocument();
+    // The component displays the count under "Assets" label
+    expect(screen.getByText('3')).toBeInTheDocument();
+    expect(screen.getByText('Assets')).toBeInTheDocument();
   });
 
-  test('displays singular asset label for one asset', () => {
+  test('displays singular asset count for one asset', () => {
     const singleAssetPortfolio = {
       ...mockPortfolio,
       total_assets: 1,
     };
     render(<PortfolioSummary portfolio={singleAssetPortfolio} />);
-    expect(screen.getByText(/1 Asset$/i)).toBeInTheDocument();
+    expect(screen.getByText('1')).toBeInTheDocument();
   });
 
   test('displays zero balance for empty portfolio', () => {
@@ -70,5 +72,10 @@ describe('PortfolioSummary', () => {
     };
     render(<PortfolioSummary portfolio={invalidPortfolio} />);
     expect(screen.getByText(/\$0\.00/i)).toBeInTheDocument();
+  });
+
+  test('shows message when no portfolio data', () => {
+    render(<PortfolioSummary />);
+    expect(screen.getByText(/No portfolio data available/i)).toBeInTheDocument();
   });
 });

@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import * as React from 'react'
 import { ResponsiveContainer } from 'recharts'
 import { cn } from '@/lib/utils'
@@ -15,17 +16,10 @@ type ChartContextProps = {
   config: ChartConfig
 }
 
-const ChartContext = React.createContext<ChartContextProps | null>(null)
+export const ChartContext = React.createContext<ChartContextProps | null>(null)
 
-export function useChart() {
-  const context = React.useContext(ChartContext)
-
-  if (!context) {
-    throw new Error('useChart must be used within a <ChartContainer />')
-  }
-
-  return context
-}
+// Re-export useChart from separate file to satisfy react-refresh/only-export-components
+export { useChart } from './use-chart'
 
 interface ChartContainerProps extends React.ComponentProps<'div'> {
   config: ChartConfig

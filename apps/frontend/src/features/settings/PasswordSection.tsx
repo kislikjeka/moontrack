@@ -36,7 +36,7 @@ export function PasswordSection() {
       setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
-    } catch (error) {
+    } catch (_error) {
       toast.error('Failed to update password')
     } finally {
       setIsLoading(false)

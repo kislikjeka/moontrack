@@ -62,7 +62,7 @@ export default function WalletDetailPage() {
       await deleteWallet.mutateAsync(id)
       toast.success('Wallet deleted successfully')
       navigate('/wallets')
-    } catch (error) {
+    } catch (_error) {
       toast.error('Failed to delete wallet')
     }
   }
@@ -137,7 +137,7 @@ export default function WalletDetailPage() {
               <DialogHeader>
                 <DialogTitle>Delete Wallet</DialogTitle>
                 <DialogDescription>
-                  Are you sure you want to delete "{wallet.name}"? This action cannot be undone.
+                  Are you sure you want to delete &quot;{wallet.name}&quot;? This action cannot be undone.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>

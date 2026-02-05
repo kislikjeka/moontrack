@@ -90,7 +90,7 @@ export default function TransactionFormPage() {
       const result = await createTransaction.mutateAsync(request)
       toast.success('Transaction created successfully')
       navigate(`/transactions/${result.id}`)
-    } catch (error) {
+    } catch (_error) {
       toast.error('Failed to create transaction')
     }
   }

@@ -1,7 +1,6 @@
 import {
   createContext,
   useState,
-  useContext,
   useEffect,
   type ReactNode,
 } from 'react'
@@ -19,7 +18,7 @@ interface AuthResult {
   error?: string
 }
 
-interface AuthContextValue {
+export interface AuthContextValue {
   user: User | null
   loading: boolean
   register: (email: string, password: string) => Promise<AuthResult>
@@ -89,14 +88,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-}
-
-export function useAuth(): AuthContextValue {
-  const context = useContext(AuthContext)
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider')
-  }
-  return context
 }
 
 export default AuthContext

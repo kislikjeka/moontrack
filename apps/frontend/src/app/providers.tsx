@@ -1,16 +1,17 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+/* eslint-disable react-refresh/only-export-components */
+import { createContext, useEffect, useState, type ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 // Theme context
 type Theme = 'light' | 'dark' | 'system'
 
-interface ThemeContextValue {
+export interface ThemeContextValue {
   theme: Theme
   setTheme: (theme: Theme) => void
   resolvedTheme: 'light' | 'dark'
 }
 
-const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
+export const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
 
 function getSystemTheme(): 'light' | 'dark' {
   if (typeof window === 'undefined') return 'light'
@@ -80,14 +81,6 @@ export function ThemeProvider({
       {children}
     </ThemeContext.Provider>
   )
-}
-
-export function useTheme() {
-  const context = useContext(ThemeContext)
-  if (!context) {
-    throw new Error('useTheme must be used within a ThemeProvider')
-  }
-  return context
 }
 
 // Query client
