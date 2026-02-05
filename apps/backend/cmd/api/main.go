@@ -11,15 +11,17 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kislikjeka/moontrack/internal/infra/gateway/alchemy"
 	"github.com/kislikjeka/moontrack/internal/infra/gateway/coingecko"
 	"github.com/kislikjeka/moontrack/internal/infra/postgres"
 	infraRedis "github.com/kislikjeka/moontrack/internal/infra/redis"
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/module/adjustment"
-	"github.com/kislikjeka/moontrack/internal/module/manual"
 	"github.com/kislikjeka/moontrack/internal/module/portfolio"
 	"github.com/kislikjeka/moontrack/internal/module/transactions"
+	"github.com/kislikjeka/moontrack/internal/module/transfer"
 	"github.com/kislikjeka/moontrack/internal/platform/asset"
+	"github.com/kislikjeka/moontrack/internal/platform/sync"
 	"github.com/kislikjeka/moontrack/internal/platform/user"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi"
@@ -27,6 +29,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
 	"github.com/kislikjeka/moontrack/pkg/config"
 	"github.com/kislikjeka/moontrack/pkg/logger"
+
 	"github.com/redis/go-redis/v9"
 )
 
@@ -105,18 +108,24 @@ func main() {
 	walletSvc := wallet.NewService(walletRepo)
 
 	// Register transaction handlers with the registry
+
+	// Asset adjustment handler
 	assetAdjHandler := adjustment.NewAssetAdjustmentHandler(ledgerSvc)
 	handlerRegistry.Register(assetAdjHandler)
 	log.Info("Registered asset adjustment handler")
 
-	// Register manual transaction handlers (using AssetService)
-	manualIncomeHandler := manual.NewManualIncomeHandler(assetSvc, walletRepo)
-	handlerRegistry.Register(manualIncomeHandler)
-	log.Info("Registered manual income handler")
+	// Transfer handlers (blockchain-native transfers)
+	transferInHandler := transfer.NewTransferInHandler(walletRepo)
+	handlerRegistry.Register(transferInHandler)
+	log.Info("Registered transfer in handler")
 
-	manualOutcomeHandler := manual.NewManualOutcomeHandler(assetSvc, walletRepo, ledgerSvc)
-	handlerRegistry.Register(manualOutcomeHandler)
-	log.Info("Registered manual outcome handler")
+	transferOutHandler := transfer.NewTransferOutHandler(walletRepo)
+	handlerRegistry.Register(transferOutHandler)
+	log.Info("Registered transfer out handler")
+
+	internalTransferHandler := transfer.NewInternalTransferHandler(walletRepo)
+	handlerRegistry.Register(internalTransferHandler)
+	log.Info("Registered internal transfer handler")
 
 	// Initialize portfolio service (using AssetService for prices)
 	walletAdapter := portfolio.NewWalletRepositoryAdapter(walletRepo)
@@ -126,6 +135,38 @@ func main() {
 	// Initialize transaction service (read-only, for enriched views)
 	transactionSvc := transactions.NewTransactionService(ledgerSvc, walletRepo)
 	log.Info("Transaction service initialized")
+
+	// Initialize blockchain sync service (if Alchemy API key is configured)
+	var syncSvc *sync.Service
+	if cfg.AlchemyAPIKey != "" {
+		// Load chains configuration
+		chainsConfig, err := config.LoadChainsConfig(cfg.ChainsConfigPath)
+		if err != nil {
+			log.Warn("Failed to load chains config, sync service disabled", "error", err)
+		} else {
+			// Create Alchemy client
+			alchemyClient := alchemy.NewClient(cfg.AlchemyAPIKey, chainsConfig)
+			blockchainClient := alchemy.NewSyncClientAdapter(alchemyClient, chainsConfig)
+
+			// Create asset adapter for sync (maps symbol → CoinGecko ID → price)
+			syncAssetAdapter := sync.NewSyncAssetAdapter(assetSvc)
+
+			// Create sync service
+			syncConfig := &sync.Config{
+				PollInterval:             cfg.SyncPollInterval,
+				ConcurrentWallets:        3,
+				InitialSyncBlockLookback: 1000000,
+				MaxBlocksPerSync:         10000,
+				Enabled:                  true,
+			}
+			syncSvc = sync.NewService(syncConfig, blockchainClient, walletRepo, ledgerSvc, syncAssetAdapter, log.Logger)
+			log.Info("Blockchain sync service initialized",
+				"poll_interval", cfg.SyncPollInterval,
+				"chains_loaded", len(chainsConfig.Chains))
+		}
+	} else {
+		log.Warn("ALCHEMY_API_KEY not configured, blockchain sync disabled")
+	}
 
 	// Initialize HTTP handlers
 	authHandler := handler.NewAuthHandler(userSvc, jwtSvc)
@@ -185,6 +226,12 @@ func main() {
 	go priceUpdater.Run(ctx)
 	log.Info("Price updater started (5 minute interval)")
 
+	// Start blockchain sync service (if initialized)
+	if syncSvc != nil {
+		go syncSvc.Run(ctx)
+		log.Info("Blockchain sync service started")
+	}
+
 	// Start server in a goroutine
 	go func() {
 		log.Info("Server listening", "addr", srv.Addr)
@@ -197,6 +244,12 @@ func main() {
 	// Wait for termination signal
 	<-ctx.Done()
 	log.Info("Shutdown signal received")
+
+	// Stop sync service gracefully
+	if syncSvc != nil {
+		syncSvc.Stop()
+		log.Info("Blockchain sync service stopped")
+	}
 
 	// Graceful shutdown with timeout
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
