@@ -27,6 +27,9 @@ export interface RegistryAsset {
   is_active: boolean;
 }
 
+// Type alias for backward compatibility
+export type Asset = RegistryAsset;
+
 /**
  * PriceHistoryPoint represents a single price point in history
  */

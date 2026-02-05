@@ -1,54 +1,38 @@
-import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../features/auth/AuthContext';
-import './Header.css';
+import { Menu, Moon } from 'lucide-react'
+import { useSidebar } from '@/hooks/useSidebar'
+import { ThemeToggle } from './ThemeToggle'
+import { Button } from '@/components/ui/button'
 
-/**
- * Header component - Top navigation bar
- * Shows app logo, navigation links, and user menu
- */
-const Header: React.FC = () => {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
-
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
+export function Header() {
+  const { setMobileOpen } = useSidebar()
 
   return (
-    <header className="header">
-      <div className="header-container">
-        <Link to="/" className="logo">
-          <span className="logo-icon">🌙</span>
-          <span className="logo-text">MoonTrack</span>
-        </Link>
+    <header className="sticky top-0 z-40 h-16 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="flex h-full items-center justify-between px-4">
+        {/* Mobile menu trigger */}
+        <div className="flex items-center gap-2 md:hidden">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setMobileOpen(true)}
+          >
+            <Menu className="h-5 w-5" />
+            <span className="sr-only">Open menu</span>
+          </Button>
+          <div className="flex items-center gap-2">
+            <Moon className="h-5 w-5 text-primary" />
+            <span className="font-semibold">MoonTrack</span>
+          </div>
+        </div>
 
-        {user && (
-          <>
-            <nav className="main-nav">
-              <Link to="/" className="nav-link">
-                Dashboard
-              </Link>
-              <Link to="/wallets" className="nav-link">
-                Wallets
-              </Link>
-              <Link to="/transactions" className="nav-link">
-                Transactions
-              </Link>
-            </nav>
+        {/* Desktop: empty space where breadcrumbs could go */}
+        <div className="hidden md:block" />
 
-            <div className="user-menu">
-              <span className="user-email">{user.email}</span>
-              <button onClick={handleLogout} className="btn-logout">
-                Logout
-              </button>
-            </div>
-          </>
-        )}
+        {/* Right side */}
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+        </div>
       </div>
     </header>
-  );
-};
-
-export default Header;
+  )
+}

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="light">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -8,6 +8,11 @@
     <meta name="keywords" content="cryptocurrency, portfolio, tracker, bitcoin, ethereum, crypto, wallet, investment" />
     <meta name="theme-color" content="#1a1a2e" />
     <meta name="author" content="MoonTrack" />
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 
     <!-- Open Graph / Social Media -->
     <meta property="og:type" content="website" />
@@ -21,9 +26,21 @@
     <meta name="twitter:description" content="Track your cryptocurrency portfolio with real-time valuations." />
 
     <title>MoonTrack - Crypto Portfolio Tracker</title>
+
+    <!-- Prevent FOUC (Flash of Unstyled Content) for theme -->
+    <script>
+      (function() {
+        const theme = localStorage.getItem('moontrack-theme') || 'system';
+        const root = document.documentElement;
+        if (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          root.classList.remove('light');
+          root.classList.add('dark');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

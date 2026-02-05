@@ -1,46 +1,78 @@
-import React from 'react';
-import { PortfolioSummary as PortfolioSummaryType } from '../../services/portfolio';
-import './PortfolioSummary.css';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { formatRelativeDate } from '@/lib/format'
+import type { PortfolioSummary as PortfolioSummaryType } from '@/types/portfolio'
 
 interface PortfolioSummaryProps {
-  portfolio: PortfolioSummaryType;
+  portfolio?: PortfolioSummaryType
 }
 
-/**
- * PortfolioSummary component - Displays total portfolio balance
- * Shows the total USD value of all assets
- */
-const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({ portfolio }) => {
-  // Convert big.Int string to formatted USD value
-  // Assuming total_usd_value is scaled by 10^8
-  const formatUSD = (value: string): string => {
-    try {
-      const bigIntValue = BigInt(value);
-      const dollars = Number(bigIntValue) / 100000000; // Divide by 10^8
-      return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(dollars);
-    } catch (e) {
-      return '$0.00';
-    }
-  };
+// Format big.Int string to USD value (scaled by 10^8)
+function formatPortfolioUSD(value: string): string {
+  try {
+    const bigIntValue = BigInt(value)
+    const dollars = Number(bigIntValue) / 100000000
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(dollars)
+  } catch {
+    return '$0.00'
+  }
+}
+
+export function PortfolioSummary({ portfolio }: PortfolioSummaryProps) {
+  if (!portfolio) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Portfolio Summary</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground">No portfolio data available</p>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
-    <div className="portfolio-summary">
-      <div className="summary-card">
-        <div className="summary-label">Total Portfolio Value</div>
-        <div className="summary-value">{formatUSD(portfolio.total_usd_value)}</div>
-        <div className="summary-meta">
-          <span className="asset-count">
-            {portfolio.total_assets} {portfolio.total_assets === 1 ? 'Asset' : 'Assets'}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-};
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base font-medium">Portfolio Summary</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4">
+          {/* Total value */}
+          <div>
+            <p className="text-sm text-muted-foreground">Total Value</p>
+            <p className="text-3xl font-bold tracking-tight">
+              {formatPortfolioUSD(portfolio.total_usd_value)}
+            </p>
+          </div>
 
-export default PortfolioSummary;
+          {/* Stats */}
+          <div className="grid grid-cols-2 gap-4 pt-2">
+            <div>
+              <p className="text-sm text-muted-foreground">Assets</p>
+              <p className="text-lg font-semibold">{portfolio.total_assets}</p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Wallets</p>
+              <p className="text-lg font-semibold">
+                {portfolio.wallet_balances.length}
+              </p>
+            </div>
+          </div>
+
+          {/* Last updated */}
+          {portfolio.last_updated && (
+            <p className="text-xs text-muted-foreground pt-2">
+              Last updated {formatRelativeDate(portfolio.last_updated)}
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
