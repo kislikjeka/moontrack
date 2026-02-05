@@ -1,0 +1,51 @@
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+docs/
+specs/
+.specify/
+
+# Environment files (NEVER include secrets in Docker images!)
+.env
+.env.local
+.env*.local
+apps/backend/.env
+apps/frontend/.env
+
+# Node.js
+apps/frontend/node_modules/
+apps/frontend/dist/
+apps/frontend/build/
+apps/frontend/.vite/
+npm-debug.log*
+yarn-debug.log*
+
+# Go
+apps/backend/bin/
+apps/backend/*.exe
+apps/backend/*.test
+apps/backend/vendor/
+apps/backend/coverage.out
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test coverage
+coverage/
+
+# Temporary files
+tmp/
+temp/
+*.cache

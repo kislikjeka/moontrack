@@ -1,0 +1,167 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * MoonTrack Design Tokens
+ * Light and dark theme for DeFi Portfolio Tracker
+ * Integrates with shadcn/ui
+ */
+
+@layer base {
+  /* === LIGHT THEME (default) === */
+  :root {
+    /* Background */
+    --background: 0 0% 100%;
+    --background-subtle: 210 20% 98%;
+    --background-muted: 210 20% 96%;
+
+    /* Foreground - text */
+    --foreground: 220 20% 10%;
+    --foreground-muted: 215 16% 47%;
+
+    /* Border */
+    --border: 214 20% 88%;
+    --border-hover: 214 20% 78%;
+
+    /* Primary - cyan/teal */
+    --primary: 174 72% 40%;
+    --primary-foreground: 0 0% 100%;
+    --primary-muted: 174 50% 92%;
+
+    /* Profit/Loss */
+    --profit: 142 76% 36%;
+    --profit-bg: 142 76% 95%;
+    --loss: 0 84% 50%;
+    --loss-bg: 0 84% 96%;
+
+    /* Transaction types - light theme */
+    --tx-liquidity: 270 60% 55%;
+    --tx-liquidity-bg: 270 60% 95%;
+
+    --tx-gm-pool: 38 92% 45%;
+    --tx-gm-pool-bg: 38 92% 95%;
+
+    --tx-transfer: 215 16% 47%;
+    --tx-transfer-bg: 215 16% 95%;
+
+    --tx-swap: 142 76% 36%;
+    --tx-swap-bg: 142 76% 95%;
+
+    --tx-bridge: 174 72% 40%;
+    --tx-bridge-bg: 174 50% 92%;
+
+    /* shadcn/ui standard */
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 20% 10%;
+
+    --secondary: 210 20% 96%;
+    --secondary-foreground: 220 20% 10%;
+
+    --muted: 210 20% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 210 20% 96%;
+    --accent-foreground: 220 20% 10%;
+
+    --destructive: 0 84% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --input: 214 20% 88%;
+    --ring: 174 72% 40%;
+    --radius: 0.5rem;
+
+    /* Chart colors */
+    --chart-1: 174 72% 40%;
+    --chart-2: 142 76% 36%;
+    --chart-3: 270 60% 55%;
+    --chart-4: 38 92% 45%;
+    --chart-5: 0 84% 50%;
+  }
+
+  /* === DARK THEME === */
+  .dark {
+    /* Background */
+    --background: 220 20% 6%;
+    --background-subtle: 220 18% 10%;
+    --background-muted: 220 16% 14%;
+
+    /* Foreground */
+    --foreground: 210 40% 98%;
+    --foreground-muted: 215 20% 55%;
+
+    /* Border */
+    --border: 215 20% 20%;
+    --border-hover: 215 20% 30%;
+
+    /* Primary */
+    --primary: 174 72% 56%;
+    --primary-foreground: 220 20% 6%;
+    --primary-muted: 174 72% 15%;
+
+    /* Profit/Loss */
+    --profit: 142 76% 46%;
+    --profit-bg: 142 76% 12%;
+    --loss: 0 84% 60%;
+    --loss-bg: 0 84% 12%;
+
+    /* Transaction types - dark theme */
+    --tx-liquidity: 270 60% 65%;
+    --tx-liquidity-bg: 270 60% 15%;
+
+    --tx-gm-pool: 38 92% 55%;
+    --tx-gm-pool-bg: 38 92% 15%;
+
+    --tx-transfer: 215 20% 55%;
+    --tx-transfer-bg: 215 20% 15%;
+
+    --tx-swap: 142 76% 46%;
+    --tx-swap-bg: 142 76% 12%;
+
+    --tx-bridge: 174 72% 56%;
+    --tx-bridge-bg: 174 72% 12%;
+
+    /* shadcn/ui standard */
+    --card: 220 18% 10%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 220 18% 10%;
+    --popover-foreground: 210 40% 98%;
+
+    --secondary: 215 20% 20%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 215 20% 20%;
+    --muted-foreground: 215 20% 55%;
+
+    --accent: 215 20% 20%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --input: 215 20% 20%;
+    --ring: 174 72% 56%;
+
+    /* Chart colors */
+    --chart-1: 174 72% 56%;
+    --chart-2: 142 76% 46%;
+    --chart-3: 270 60% 65%;
+    --chart-4: 38 92% 55%;
+    --chart-5: 0 84% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}

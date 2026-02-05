@@ -1,0 +1,75 @@
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg15
+    container_name: moontrack-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    env_file:
+      - .env
+
+  redis:
+    image: redis:7-alpine
+    container_name: moontrack-redis
+    command: >
+      sh -c "if [ -n \"${REDIS_PASSWORD}\" ]; then
+               redis-server --requirepass ${REDIS_PASSWORD};
+             else
+               redis-server;
+             fi"
+    ports:
+      - "${REDIS_PORT}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: >
+        sh -c "if [ -n \"${REDIS_PASSWORD}\" ]; then
+                 redis-cli -a ${REDIS_PASSWORD} ping;
+               else
+                 redis-cli ping;
+               fi"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    env_file:
+      - .env
+
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile.dev
+    container_name: moontrack-backend
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      - ./apps/backend:/app
+      - backend_go_mod:/go/pkg/mod
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      REDIS_URL: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      COINGECKO_API_KEY: ${COINGECKO_API_KEY}
+      ENV: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_go_mod:
