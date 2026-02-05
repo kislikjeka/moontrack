@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -35,27 +36,30 @@ func NewWalletHandler(walletService WalletServiceInterface) *WalletHandler {
 
 // CreateWalletRequest represents the wallet creation request
 type CreateWalletRequest struct {
-	Name    string  `json:"name"`
-	ChainID string  `json:"chain_id"`
-	Address *string `json:"address,omitempty"`
+	Name    string `json:"name"`
+	ChainID int64  `json:"chain_id"`
+	Address string `json:"address"`
 }
 
 // UpdateWalletRequest represents the wallet update request
 type UpdateWalletRequest struct {
-	Name    string  `json:"name"`
-	ChainID string  `json:"chain_id"`
-	Address *string `json:"address,omitempty"`
+	Name string `json:"name"`
 }
 
 // WalletResponse represents a wallet response
 type WalletResponse struct {
-	ID        string  `json:"id"`
-	UserID    string  `json:"user_id"`
-	Name      string  `json:"name"`
-	ChainID   string  `json:"chain_id"`
-	Address   *string `json:"address,omitempty"`
-	CreatedAt string  `json:"created_at"`
-	UpdatedAt string  `json:"updated_at"`
+	ID            string  `json:"id"`
+	UserID        string  `json:"user_id"`
+	Name          string  `json:"name"`
+	ChainID       int64   `json:"chain_id"`
+	ChainName     string  `json:"chain_name"`
+	Address       string  `json:"address"`
+	SyncStatus    string  `json:"sync_status"`
+	LastSyncBlock *int64  `json:"last_sync_block,omitempty"`
+	LastSyncAt    *string `json:"last_sync_at,omitempty"`
+	SyncError     *string `json:"sync_error,omitempty"`
+	CreatedAt     string  `json:"created_at"`
+	UpdatedAt     string  `json:"updated_at"`
 }
 
 // WalletsListResponse represents the response for listing wallets
@@ -93,11 +97,27 @@ func (h *WalletHandler) CreateWallet(w http.ResponseWriter, r *http.Request) {
 			respondWithError(w, http.StatusConflict, "wallet name already exists")
 			return
 		}
+		if err == wallet.ErrDuplicateAddress {
+			respondWithError(w, http.StatusConflict, "wallet address already exists for this chain")
+			return
+		}
 		if err == wallet.ErrInvalidChainID {
 			respondWithError(w, http.StatusBadRequest, "invalid chain ID")
 			return
 		}
-		respondWithError(w, http.StatusInternalServerError, "failed to create wallet")
+		if err == wallet.ErrInvalidAddress {
+			respondWithError(w, http.StatusBadRequest, "invalid EVM address format")
+			return
+		}
+		if err == wallet.ErrMissingAddress {
+			respondWithError(w, http.StatusBadRequest, "wallet address is required")
+			return
+		}
+		if err == wallet.ErrInvalidChecksum {
+			respondWithError(w, http.StatusBadRequest, "invalid EVM address checksum")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create wallet: %v", err))
 		return
 	}
 
@@ -191,12 +211,10 @@ func (h *WalletHandler) UpdateWallet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create wallet domain object
+	// Create wallet domain object (only name can be updated)
 	wlt := &wallet.Wallet{
-		ID:      walletID,
-		Name:    req.Name,
-		ChainID: req.ChainID,
-		Address: req.Address,
+		ID:   walletID,
+		Name: req.Name,
 	}
 
 	// Update wallet via service
@@ -212,10 +230,6 @@ func (h *WalletHandler) UpdateWallet(w http.ResponseWriter, r *http.Request) {
 		}
 		if err == wallet.ErrDuplicateWalletName {
 			respondWithError(w, http.StatusConflict, "wallet name already exists")
-			return
-		}
-		if err == wallet.ErrInvalidChainID {
-			respondWithError(w, http.StatusBadRequest, "invalid chain ID")
 			return
 		}
 		respondWithError(w, http.StatusInternalServerError, "failed to update wallet")
@@ -263,13 +277,24 @@ func (h *WalletHandler) DeleteWallet(w http.ResponseWriter, r *http.Request) {
 
 // Helper function to convert domain wallet to response
 func toWalletResponse(wlt *wallet.Wallet) WalletResponse {
-	return WalletResponse{
-		ID:        wlt.ID.String(),
-		UserID:    wlt.UserID.String(),
-		Name:      wlt.Name,
-		ChainID:   wlt.ChainID,
-		Address:   wlt.Address,
-		CreatedAt: wlt.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt: wlt.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+	resp := WalletResponse{
+		ID:            wlt.ID.String(),
+		UserID:        wlt.UserID.String(),
+		Name:          wlt.Name,
+		ChainID:       wlt.ChainID,
+		ChainName:     wallet.GetChainName(wlt.ChainID),
+		Address:       wlt.Address,
+		SyncStatus:    string(wlt.SyncStatus),
+		LastSyncBlock: wlt.LastSyncBlock,
+		SyncError:     wlt.SyncError,
+		CreatedAt:     wlt.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:     wlt.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
+
+	if wlt.LastSyncAt != nil {
+		syncAt := wlt.LastSyncAt.Format("2006-01-02T15:04:05Z07:00")
+		resp.LastSyncAt = &syncAt
+	}
+
+	return resp
 }

@@ -14,7 +14,7 @@ type Wallet struct {
 	ID      uuid.UUID
 	UserID  uuid.UUID
 	Name    string
-	ChainID string
+	ChainID int64
 }
 
 // WalletRepository defines the interface for wallet operations

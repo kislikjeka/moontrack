@@ -23,7 +23,7 @@ dev:
     @just migrate-up || true
     @echo ""
     @echo "Starting frontend..."
-    cd apps/frontend && npm run dev
+    cd apps/frontend && bun run dev
 
 # Stop all containers
 down:
@@ -93,14 +93,14 @@ backend-test:
 
 # Run frontend tests
 frontend-test:
-    cd apps/frontend && npm test
+    cd apps/frontend && bun test
 
 # Generate coverage reports
 coverage:
     @echo "Generating coverage reports..."
     cd apps/backend && go test ./... -cover -coverprofile=coverage.out
     cd apps/backend && go tool cover -html=coverage.out -o coverage.html
-    cd apps/frontend && npm test -- --coverage || true
+    cd apps/frontend && bun test -- --coverage || true
     @echo "Coverage reports generated"
 
 # =============================================================================
@@ -115,7 +115,7 @@ fmt:
 # Lint all code
 lint:
     cd apps/backend && golangci-lint run || echo "golangci-lint not installed"
-    cd apps/frontend && npm run lint || true
+    cd apps/frontend && bun run lint || true
     @echo "Linting complete"
 
 # Run all checks (format, lint, test)
@@ -142,7 +142,7 @@ setup:
     fi
     @echo ""
     @echo "Installing frontend dependencies..."
-    cd apps/frontend && npm install
+    cd apps/frontend && bun install
     @echo ""
     @echo "Setup complete!"
     @echo ""

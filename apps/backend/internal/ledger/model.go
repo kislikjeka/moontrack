@@ -11,16 +11,21 @@ import (
 type TransactionType string
 
 const (
-	TxTypeManualIncome    TransactionType = "manual_income"
-	TxTypeManualOutcome   TransactionType = "manual_outcome"
-	TxTypeAssetAdjustment TransactionType = "asset_adjustment"
+	// Blockchain-native transfer types
+	TxTypeTransferIn       TransactionType = "transfer_in"       // Incoming transfer from external address
+	TxTypeTransferOut      TransactionType = "transfer_out"      // Outgoing transfer to external address
+	TxTypeInternalTransfer TransactionType = "internal_transfer" // Transfer between own wallets
+
+	// Manual adjustment type
+	TxTypeAssetAdjustment TransactionType = "asset_adjustment" // Manual balance corrections
 )
 
 // AllTransactionTypes returns all valid transaction types
 func AllTransactionTypes() []TransactionType {
 	return []TransactionType{
-		TxTypeManualIncome,
-		TxTypeManualOutcome,
+		TxTypeTransferIn,
+		TxTypeTransferOut,
+		TxTypeInternalTransfer,
 		TxTypeAssetAdjustment,
 	}
 }
@@ -28,7 +33,7 @@ func AllTransactionTypes() []TransactionType {
 // IsValid checks if the transaction type is valid
 func (t TransactionType) IsValid() bool {
 	switch t {
-	case TxTypeManualIncome, TxTypeManualOutcome, TxTypeAssetAdjustment:
+	case TxTypeTransferIn, TxTypeTransferOut, TxTypeInternalTransfer, TxTypeAssetAdjustment:
 		return true
 	}
 	return false
@@ -42,10 +47,12 @@ func (t TransactionType) String() string {
 // Label returns human-readable label for UI
 func (t TransactionType) Label() string {
 	switch t {
-	case TxTypeManualIncome:
-		return "Income"
-	case TxTypeManualOutcome:
-		return "Outcome"
+	case TxTypeTransferIn:
+		return "Transfer In"
+	case TxTypeTransferOut:
+		return "Transfer Out"
+	case TxTypeInternalTransfer:
+		return "Internal Transfer"
 	case TxTypeAssetAdjustment:
 		return "Adjustment"
 	default:

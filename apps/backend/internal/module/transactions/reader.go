@@ -13,7 +13,7 @@ type ListFields struct {
 	WalletID  uuid.UUID
 	AssetID   string
 	Amount    *big.Int
-	Direction string // "in", "out", "adjustment"
+	Direction string // "in", "out", "adjustment", "internal"
 }
 
 // DetailFields contains the fields needed for transaction detail view
@@ -47,8 +47,9 @@ func NewReaderRegistry() *ReaderRegistry {
 	}
 
 	// Register all readers at creation time
-	r.register(&IncomeReader{})
-	r.register(&OutcomeReader{})
+	r.register(&TransferInReader{})
+	r.register(&TransferOutReader{})
+	r.register(&InternalTransferReader{})
 	r.register(&AdjustmentReader{})
 
 	return r
@@ -65,94 +66,147 @@ func (r *ReaderRegistry) GetReader(txType ledger.TransactionType) (TransactionRe
 	return reader, ok
 }
 
-// IncomeReader parses manual_income transactions
-type IncomeReader struct{}
+// TransferInReader parses transfer_in transactions
+type TransferInReader struct{}
 
 // Type returns the transaction type this reader handles
-func (r *IncomeReader) Type() ledger.TransactionType {
-	return ledger.TxTypeManualIncome
+func (r *TransferInReader) Type() ledger.TransactionType {
+	return ledger.TxTypeTransferIn
 }
 
 // ReadForList extracts display fields for list view
-func (r *IncomeReader) ReadForList(raw map[string]interface{}) (*ListFields, error) {
-	income, err := rawdata.ParseIncomeFromRawData(raw)
+func (r *TransferInReader) ReadForList(raw map[string]interface{}) (*ListFields, error) {
+	transfer, err := rawdata.ParseTransferInFromRawData(raw)
 	if err != nil {
 		return nil, err
 	}
 
 	return &ListFields{
-		WalletID:  income.WalletID,
-		AssetID:   income.AssetID,
-		Amount:    income.GetAmount(),
+		WalletID:  transfer.WalletID,
+		AssetID:   transfer.AssetID,
+		Amount:    transfer.GetAmount(),
 		Direction: "in",
 	}, nil
 }
 
 // ReadForDetail extracts all fields for detail view
-func (r *IncomeReader) ReadForDetail(raw map[string]interface{}) (*DetailFields, error) {
-	income, err := rawdata.ParseIncomeFromRawData(raw)
+func (r *TransferInReader) ReadForDetail(raw map[string]interface{}) (*DetailFields, error) {
+	transfer, err := rawdata.ParseTransferInFromRawData(raw)
 	if err != nil {
 		return nil, err
 	}
 
 	return &DetailFields{
 		ListFields: ListFields{
-			WalletID:  income.WalletID,
-			AssetID:   income.AssetID,
-			Amount:    income.GetAmount(),
+			WalletID:  transfer.WalletID,
+			AssetID:   transfer.AssetID,
+			Amount:    transfer.GetAmount(),
 			Direction: "in",
 		},
-		Notes: income.Notes,
 		ExtraFields: map[string]interface{}{
-			"price_asset_id": income.PriceAssetID,
-			"price_source":   income.PriceSource,
-			"occurred_at":    income.OccurredAt,
+			"tx_hash":          transfer.TxHash,
+			"block_number":     transfer.BlockNumber,
+			"from_address":     transfer.FromAddress,
+			"chain_id":         transfer.ChainID,
+			"contract_address": transfer.ContractAddress,
+			"occurred_at":      transfer.OccurredAt,
 		},
 	}, nil
 }
 
-// OutcomeReader parses manual_outcome transactions
-type OutcomeReader struct{}
+// TransferOutReader parses transfer_out transactions
+type TransferOutReader struct{}
 
 // Type returns the transaction type this reader handles
-func (r *OutcomeReader) Type() ledger.TransactionType {
-	return ledger.TxTypeManualOutcome
+func (r *TransferOutReader) Type() ledger.TransactionType {
+	return ledger.TxTypeTransferOut
 }
 
 // ReadForList extracts display fields for list view
-func (r *OutcomeReader) ReadForList(raw map[string]interface{}) (*ListFields, error) {
-	outcome, err := rawdata.ParseOutcomeFromRawData(raw)
+func (r *TransferOutReader) ReadForList(raw map[string]interface{}) (*ListFields, error) {
+	transfer, err := rawdata.ParseTransferOutFromRawData(raw)
 	if err != nil {
 		return nil, err
 	}
 
 	return &ListFields{
-		WalletID:  outcome.WalletID,
-		AssetID:   outcome.AssetID,
-		Amount:    outcome.GetAmount(),
+		WalletID:  transfer.WalletID,
+		AssetID:   transfer.AssetID,
+		Amount:    transfer.GetAmount(),
 		Direction: "out",
 	}, nil
 }
 
 // ReadForDetail extracts all fields for detail view
-func (r *OutcomeReader) ReadForDetail(raw map[string]interface{}) (*DetailFields, error) {
-	outcome, err := rawdata.ParseOutcomeFromRawData(raw)
+func (r *TransferOutReader) ReadForDetail(raw map[string]interface{}) (*DetailFields, error) {
+	transfer, err := rawdata.ParseTransferOutFromRawData(raw)
 	if err != nil {
 		return nil, err
 	}
 
 	return &DetailFields{
 		ListFields: ListFields{
-			WalletID:  outcome.WalletID,
-			AssetID:   outcome.AssetID,
-			Amount:    outcome.GetAmount(),
+			WalletID:  transfer.WalletID,
+			AssetID:   transfer.AssetID,
+			Amount:    transfer.GetAmount(),
 			Direction: "out",
 		},
-		Notes: outcome.Notes,
 		ExtraFields: map[string]interface{}{
-			"price_asset_id": outcome.PriceAssetID,
-			"price_source":   outcome.PriceSource,
-			"occurred_at":    outcome.OccurredAt,
+			"tx_hash":          transfer.TxHash,
+			"block_number":     transfer.BlockNumber,
+			"to_address":       transfer.ToAddress,
+			"chain_id":         transfer.ChainID,
+			"contract_address": transfer.ContractAddress,
+			"occurred_at":      transfer.OccurredAt,
+		},
+	}, nil
+}
+
+// InternalTransferReader parses internal_transfer transactions
+type InternalTransferReader struct{}
+
+// Type returns the transaction type this reader handles
+func (r *InternalTransferReader) Type() ledger.TransactionType {
+	return ledger.TxTypeInternalTransfer
+}
+
+// ReadForList extracts display fields for list view
+func (r *InternalTransferReader) ReadForList(raw map[string]interface{}) (*ListFields, error) {
+	transfer, err := rawdata.ParseInternalTransferFromRawData(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ListFields{
+		WalletID:  transfer.SourceWalletID,
+		AssetID:   transfer.AssetID,
+		Amount:    transfer.GetAmount(),
+		Direction: "internal",
+	}, nil
+}
+
+// ReadForDetail extracts all fields for detail view
+func (r *InternalTransferReader) ReadForDetail(raw map[string]interface{}) (*DetailFields, error) {
+	transfer, err := rawdata.ParseInternalTransferFromRawData(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DetailFields{
+		ListFields: ListFields{
+			WalletID:  transfer.SourceWalletID,
+			AssetID:   transfer.AssetID,
+			Amount:    transfer.GetAmount(),
+			Direction: "internal",
+		},
+		ExtraFields: map[string]interface{}{
+			"source_wallet_id": transfer.SourceWalletID,
+			"dest_wallet_id":   transfer.DestWalletID,
+			"tx_hash":          transfer.TxHash,
+			"block_number":     transfer.BlockNumber,
+			"chain_id":         transfer.ChainID,
+			"contract_address": transfer.ContractAddress,
+			"occurred_at":      transfer.OccurredAt,
 		},
 	}, nil
 }

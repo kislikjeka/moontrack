@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -26,8 +27,8 @@ func NewWalletRepository(pool *pgxpool.Pool) *WalletRepository {
 // Create creates a new wallet
 func (r *WalletRepository) Create(ctx context.Context, w *wallet.Wallet) error {
 	query := `
-		INSERT INTO wallets (id, user_id, name, chain_id, address, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO wallets (id, user_id, name, chain_id, address, sync_status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 
 	now := time.Now()
@@ -38,19 +39,28 @@ func (r *WalletRepository) Create(ctx context.Context, w *wallet.Wallet) error {
 		w.ID = uuid.New()
 	}
 
+	// Default sync status to pending
+	if w.SyncStatus == "" {
+		w.SyncStatus = wallet.SyncStatusPending
+	}
+
 	_, err := r.pool.Exec(ctx, query,
 		w.ID,
 		w.UserID,
 		w.Name,
 		w.ChainID,
 		w.Address,
+		w.SyncStatus,
 		w.CreatedAt,
 		w.UpdatedAt,
 	)
 
 	if err != nil {
-		// Check for unique constraint violation
-		if errors.Is(err, pgx.ErrNoRows) {
+		errStr := err.Error()
+		if strings.Contains(errStr, "idx_wallets_user_chain_address") {
+			return wallet.ErrDuplicateAddress
+		}
+		if strings.Contains(errStr, "wallets_user_id_name_key") {
 			return wallet.ErrDuplicateWalletName
 		}
 		return fmt.Errorf("failed to create wallet: %w", err)
@@ -62,7 +72,7 @@ func (r *WalletRepository) Create(ctx context.Context, w *wallet.Wallet) error {
 // GetByID retrieves a wallet by ID
 func (r *WalletRepository) GetByID(ctx context.Context, id uuid.UUID) (*wallet.Wallet, error) {
 	query := `
-		SELECT id, user_id, name, chain_id, address, created_at, updated_at
+		SELECT id, user_id, name, chain_id, address, sync_status, last_sync_block, last_sync_at, sync_error, created_at, updated_at
 		FROM wallets
 		WHERE id = $1
 	`
@@ -74,6 +84,10 @@ func (r *WalletRepository) GetByID(ctx context.Context, id uuid.UUID) (*wallet.W
 		&w.Name,
 		&w.ChainID,
 		&w.Address,
+		&w.SyncStatus,
+		&w.LastSyncBlock,
+		&w.LastSyncAt,
+		&w.SyncError,
 		&w.CreatedAt,
 		&w.UpdatedAt,
 	)
@@ -91,7 +105,7 @@ func (r *WalletRepository) GetByID(ctx context.Context, id uuid.UUID) (*wallet.W
 // GetByUserID retrieves all wallets for a user
 func (r *WalletRepository) GetByUserID(ctx context.Context, userID uuid.UUID) ([]*wallet.Wallet, error) {
 	query := `
-		SELECT id, user_id, name, chain_id, address, created_at, updated_at
+		SELECT id, user_id, name, chain_id, address, sync_status, last_sync_block, last_sync_at, sync_error, created_at, updated_at
 		FROM wallets
 		WHERE user_id = $1
 		ORDER BY created_at DESC
@@ -112,6 +126,10 @@ func (r *WalletRepository) GetByUserID(ctx context.Context, userID uuid.UUID) ([
 			&w.Name,
 			&w.ChainID,
 			&w.Address,
+			&w.SyncStatus,
+			&w.LastSyncBlock,
+			&w.LastSyncAt,
+			&w.SyncError,
 			&w.CreatedAt,
 			&w.UpdatedAt,
 		)
@@ -184,4 +202,196 @@ func (r *WalletRepository) ExistsByUserAndName(ctx context.Context, userID uuid.
 	}
 
 	return exists, nil
+}
+
+// ExistsByUserChainAndAddress checks if a wallet with the given chain/address exists for the user
+func (r *WalletRepository) ExistsByUserChainAndAddress(ctx context.Context, userID uuid.UUID, chainID int64, address string) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM wallets WHERE user_id = $1 AND chain_id = $2 AND lower(address) = lower($3))`
+
+	var exists bool
+	err := r.pool.QueryRow(ctx, query, userID, chainID, address).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check wallet existence: %w", err)
+	}
+
+	return exists, nil
+}
+
+// GetWalletsForSync retrieves wallets that need syncing (pending or error status)
+func (r *WalletRepository) GetWalletsForSync(ctx context.Context) ([]*wallet.Wallet, error) {
+	query := `
+		SELECT id, user_id, name, chain_id, address, sync_status, last_sync_block, last_sync_at, sync_error, created_at, updated_at
+		FROM wallets
+		WHERE sync_status IN ('pending', 'error', 'synced')
+		ORDER BY
+			CASE sync_status
+				WHEN 'pending' THEN 1
+				WHEN 'error' THEN 2
+				ELSE 3
+			END,
+			last_sync_at NULLS FIRST
+	`
+
+	rows, err := r.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query wallets for sync: %w", err)
+	}
+	defer rows.Close()
+
+	var wallets []*wallet.Wallet
+	for rows.Next() {
+		w := &wallet.Wallet{}
+		err := rows.Scan(
+			&w.ID,
+			&w.UserID,
+			&w.Name,
+			&w.ChainID,
+			&w.Address,
+			&w.SyncStatus,
+			&w.LastSyncBlock,
+			&w.LastSyncAt,
+			&w.SyncError,
+			&w.CreatedAt,
+			&w.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan wallet: %w", err)
+		}
+		wallets = append(wallets, w)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating wallets: %w", err)
+	}
+
+	return wallets, nil
+}
+
+// GetWalletsByAddress retrieves wallets by address across all chains (for internal transfer detection)
+func (r *WalletRepository) GetWalletsByAddress(ctx context.Context, address string) ([]*wallet.Wallet, error) {
+	query := `
+		SELECT id, user_id, name, chain_id, address, sync_status, last_sync_block, last_sync_at, sync_error, created_at, updated_at
+		FROM wallets
+		WHERE lower(address) = lower($1)
+	`
+
+	rows, err := r.pool.Query(ctx, query, address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query wallets by address: %w", err)
+	}
+	defer rows.Close()
+
+	var wallets []*wallet.Wallet
+	for rows.Next() {
+		w := &wallet.Wallet{}
+		err := rows.Scan(
+			&w.ID,
+			&w.UserID,
+			&w.Name,
+			&w.ChainID,
+			&w.Address,
+			&w.SyncStatus,
+			&w.LastSyncBlock,
+			&w.LastSyncAt,
+			&w.SyncError,
+			&w.CreatedAt,
+			&w.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan wallet: %w", err)
+		}
+		wallets = append(wallets, w)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating wallets: %w", err)
+	}
+
+	return wallets, nil
+}
+
+// UpdateSyncState updates the sync status and related fields for a wallet
+func (r *WalletRepository) UpdateSyncState(ctx context.Context, walletID uuid.UUID, status wallet.SyncStatus, lastBlock *int64, syncError *string) error {
+	query := `
+		UPDATE wallets
+		SET sync_status = $1, last_sync_block = $2, last_sync_at = $3, sync_error = $4, updated_at = $5
+		WHERE id = $6
+	`
+
+	now := time.Now()
+	var lastSyncAt *time.Time
+	if status == wallet.SyncStatusSynced {
+		lastSyncAt = &now
+	}
+
+	result, err := r.pool.Exec(ctx, query, status, lastBlock, lastSyncAt, syncError, now, walletID)
+	if err != nil {
+		return fmt.Errorf("failed to update sync state: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return wallet.ErrWalletNotFound
+	}
+
+	return nil
+}
+
+// SetSyncInProgress marks a wallet as currently syncing
+func (r *WalletRepository) SetSyncInProgress(ctx context.Context, walletID uuid.UUID) error {
+	query := `
+		UPDATE wallets
+		SET sync_status = $1, sync_error = NULL, updated_at = $2
+		WHERE id = $3
+	`
+
+	result, err := r.pool.Exec(ctx, query, wallet.SyncStatusSyncing, time.Now(), walletID)
+	if err != nil {
+		return fmt.Errorf("failed to set sync in progress: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return wallet.ErrWalletNotFound
+	}
+
+	return nil
+}
+
+// SetSyncCompleted marks a wallet sync as completed
+func (r *WalletRepository) SetSyncCompleted(ctx context.Context, walletID uuid.UUID, lastBlock int64, syncAt time.Time) error {
+	query := `
+		UPDATE wallets
+		SET sync_status = $1, last_sync_block = $2, last_sync_at = $3, sync_error = NULL, updated_at = $4
+		WHERE id = $5
+	`
+
+	result, err := r.pool.Exec(ctx, query, wallet.SyncStatusSynced, lastBlock, syncAt, time.Now(), walletID)
+	if err != nil {
+		return fmt.Errorf("failed to set sync completed: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return wallet.ErrWalletNotFound
+	}
+
+	return nil
+}
+
+// SetSyncError marks a wallet sync as failed with an error message
+func (r *WalletRepository) SetSyncError(ctx context.Context, walletID uuid.UUID, errMsg string) error {
+	query := `
+		UPDATE wallets
+		SET sync_status = $1, sync_error = $2, updated_at = $3
+		WHERE id = $4
+	`
+
+	result, err := r.pool.Exec(ctx, query, wallet.SyncStatusError, errMsg, time.Now(), walletID)
+	if err != nil {
+		return fmt.Errorf("failed to set sync error: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return wallet.ErrWalletNotFound
+	}
+
+	return nil
 }
