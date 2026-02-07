@@ -15,9 +15,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from 'sonner'
-import type { TransactionType, CreateTransactionRequest } from '@/types/transaction'
+import type { CreateTransactionRequest } from '@/types/transaction'
 import type { Asset } from '@/types/asset'
 
 export default function TransactionFormPage() {
@@ -25,11 +24,9 @@ export default function TransactionFormPage() {
   const location = useLocation()
   const prefillWalletId = (location.state as { walletId?: string })?.walletId
 
-  const [type, setType] = useState<TransactionType>('manual_income')
   const [walletId, setWalletId] = useState(prefillWalletId || '')
   const [assetQuery, setAssetQuery] = useState('')
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
-  const [amount, setAmount] = useState('')
   const [newBalance, setNewBalance] = useState('')
   const [usdRate, setUsdRate] = useState('')
   const [notes, setNotes] = useState('')
@@ -63,35 +60,28 @@ export default function TransactionFormPage() {
       return
     }
 
-    if (type === 'asset_adjustment') {
-      if (!newBalance) {
-        toast.error('Please enter the new balance')
-        return
-      }
-    } else {
-      if (!amount) {
-        toast.error('Please enter an amount')
-        return
-      }
+    if (!newBalance) {
+      toast.error('Please enter the new balance')
+      return
     }
 
     const request: CreateTransactionRequest = {
-      type,
+      type: 'asset_adjustment',
       wallet_id: walletId,
       asset_id: selectedAsset.id,
       coingecko_id: selectedAsset.coingecko_id,
-      amount: type === 'asset_adjustment' ? '0' : amount,
-      new_balance: type === 'asset_adjustment' ? newBalance : undefined,
+      amount: '0',
+      new_balance: newBalance,
       usd_rate: usdRate || undefined,
       notes: notes || undefined,
     }
 
     try {
       const result = await createTransaction.mutateAsync(request)
-      toast.success('Transaction created successfully')
+      toast.success('Balance adjustment created successfully')
       navigate(`/transactions/${result.id}`)
     } catch (_error) {
-      toast.error('Failed to create transaction')
+      toast.error('Failed to create balance adjustment')
     }
   }
 
@@ -106,45 +96,20 @@ export default function TransactionFormPage() {
       </Button>
 
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">New Transaction</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Balance Adjustment</h1>
         <p className="text-muted-foreground">
-          Record a new transaction in your portfolio
+          Correct an asset balance to match your actual holdings. Regular transactions are synced automatically from the blockchain.
         </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Transaction type */}
+        {/* Adjustment details */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Transaction Type</CardTitle>
+            <CardTitle className="text-base">Adjustment Details</CardTitle>
             <CardDescription>
-              Select the type of transaction you want to record
+              Set the correct balance for an asset in your wallet
             </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs value={type} onValueChange={(v) => setType(v as TransactionType)}>
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="manual_income">Income</TabsTrigger>
-                <TabsTrigger value="manual_outcome">Outcome</TabsTrigger>
-                <TabsTrigger value="asset_adjustment">Adjustment</TabsTrigger>
-              </TabsList>
-              <TabsContent value="manual_income" className="pt-4 text-sm text-muted-foreground">
-                Record incoming assets to your wallet (purchases, airdrops, rewards)
-              </TabsContent>
-              <TabsContent value="manual_outcome" className="pt-4 text-sm text-muted-foreground">
-                Record outgoing assets from your wallet (sales, transfers, payments)
-              </TabsContent>
-              <TabsContent value="asset_adjustment" className="pt-4 text-sm text-muted-foreground">
-                Correct the balance of an asset to match your actual holdings
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
-
-        {/* Transaction details */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Transaction Details</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Wallet */}
@@ -219,35 +184,21 @@ export default function TransactionFormPage() {
               )}
             </div>
 
-            {/* Amount or New Balance */}
-            {type === 'asset_adjustment' ? (
-              <div className="space-y-2">
-                <Label htmlFor="newBalance">New Balance</Label>
-                <Input
-                  id="newBalance"
-                  type="number"
-                  step="any"
-                  placeholder="Enter the correct balance"
-                  value={newBalance}
-                  onChange={(e) => setNewBalance(e.target.value)}
-                />
-                <p className="text-sm text-muted-foreground">
-                  The total amount you should have in this wallet
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <Label htmlFor="amount">Amount</Label>
-                <Input
-                  id="amount"
-                  type="number"
-                  step="any"
-                  placeholder="0.00"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                />
-              </div>
-            )}
+            {/* New Balance */}
+            <div className="space-y-2">
+              <Label htmlFor="newBalance">New Balance</Label>
+              <Input
+                id="newBalance"
+                type="number"
+                step="any"
+                placeholder="Enter the correct balance"
+                value={newBalance}
+                onChange={(e) => setNewBalance(e.target.value)}
+              />
+              <p className="text-sm text-muted-foreground">
+                The total amount you should have in this wallet
+              </p>
+            </div>
 
             {/* USD Rate (optional) */}
             <div className="space-y-2">
@@ -276,7 +227,7 @@ export default function TransactionFormPage() {
               </Label>
               <Input
                 id="notes"
-                placeholder="Add any notes about this transaction"
+                placeholder="Add any notes about this adjustment"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
               />
@@ -301,7 +252,7 @@ export default function TransactionFormPage() {
                 Creating...
               </>
             ) : (
-              'Create Transaction'
+              'Create Adjustment'
             )}
           </Button>
         </div>

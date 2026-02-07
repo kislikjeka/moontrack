@@ -2,8 +2,9 @@ import { Link } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { AddressDisplay } from './AddressDisplay'
+import { SyncStatusBadge } from './SyncStatusBadge'
 import { cn } from '@/lib/utils'
-import { formatUSD } from '@/lib/format'
+import { formatUSD, formatRelativeDate } from '@/lib/format'
 import type { Wallet as WalletType } from '@/types/wallet'
 
 interface WalletCardProps {
@@ -13,15 +14,22 @@ interface WalletCardProps {
   className?: string
 }
 
-// Chain icons mapping - using emoji for simplicity, could be replaced with proper icons
-const chainIcons: Record<string, string> = {
+// Chain labels - supports both numeric and string chain IDs for backwards compatibility
+const chainLabels: Record<string | number, string> = {
+  1: 'ETH',
+  137: 'MATIC',
+  42161: 'ARB',
+  10: 'OP',
+  8453: 'BASE',
+  // Legacy string IDs
   ethereum: 'ETH',
-  bitcoin: 'BTC',
-  solana: 'SOL',
   polygon: 'MATIC',
-  'binance-smart-chain': 'BSC',
   arbitrum: 'ARB',
   optimism: 'OP',
+  base: 'BASE',
+  bitcoin: 'BTC',
+  solana: 'SOL',
+  'binance-smart-chain': 'BSC',
   avalanche: 'AVAX',
 }
 
@@ -31,7 +39,7 @@ export function WalletCard({
   assetCount = 0,
   className,
 }: WalletCardProps) {
-  const chainLabel = chainIcons[wallet.chain_id] || wallet.chain_id.toUpperCase()
+  const chainLabel = chainLabels[wallet.chain_id] || String(wallet.chain_id)
   const numValue = typeof totalValue === 'string' ? parseFloat(totalValue) : totalValue
 
   return (
@@ -43,9 +51,11 @@ export function WalletCard({
         )}
       >
         <CardContent className="p-4">
+          {/* Header row: chain badge + info | status + link */}
           <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary font-mono text-xs font-medium">
+            {/* Left: chain badge + wallet info */}
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary font-mono text-xs font-medium flex-shrink-0">
                 {chainLabel}
               </div>
               <div className="min-w-0">
@@ -58,7 +68,11 @@ export function WalletCard({
                 )}
               </div>
             </div>
-            <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+            {/* Right: status badge + external link */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <SyncStatusBadge status={wallet.sync_status} />
+              <ExternalLink className="h-4 w-4 text-muted-foreground" />
+            </div>
           </div>
 
           <div className="mt-4 flex items-end justify-between">
@@ -68,6 +82,11 @@ export function WalletCard({
                 {assetCount} {assetCount === 1 ? 'asset' : 'assets'}
               </p>
             </div>
+            {wallet.last_sync_at && (
+              <p className="text-xs text-muted-foreground">
+                Synced {formatRelativeDate(wallet.last_sync_at)}
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -81,7 +100,7 @@ export function WalletCardCompact({
   totalValue = 0,
   className,
 }: Omit<WalletCardProps, 'assetCount'>) {
-  const chainLabel = chainIcons[wallet.chain_id] || wallet.chain_id.toUpperCase()
+  const chainLabel = chainLabels[wallet.chain_id] || String(wallet.chain_id)
   const numValue = typeof totalValue === 'string' ? parseFloat(totalValue) : totalValue
 
   return (
@@ -97,7 +116,10 @@ export function WalletCardCompact({
             {chainLabel}
           </div>
           <div>
-            <p className="font-medium text-sm">{wallet.name}</p>
+            <div className="flex items-center gap-2">
+              <p className="font-medium text-sm">{wallet.name}</p>
+              <SyncStatusBadge status={wallet.sync_status} />
+            </div>
             {wallet.address && (
               <AddressDisplay
                 address={wallet.address}

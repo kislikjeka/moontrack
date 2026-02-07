@@ -14,8 +14,9 @@ interface TransactionFiltersProps {
 }
 
 const transactionTypes: { value: TransactionType; label: string }[] = [
-  { value: 'manual_income', label: 'Income' },
-  { value: 'manual_outcome', label: 'Outcome' },
+  { value: 'transfer_in', label: 'Transfer In' },
+  { value: 'transfer_out', label: 'Transfer Out' },
+  { value: 'internal_transfer', label: 'Internal Transfer' },
   { value: 'asset_adjustment', label: 'Adjustment' },
 ]
 

@@ -1,12 +1,14 @@
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
-import { useWallet, useDeleteWallet } from '@/hooks/useWallets'
+import { ArrowLeft, Trash2, RefreshCw, AlertCircle } from 'lucide-react'
+import { useWallet, useDeleteWallet, useTriggerSync } from '@/hooks/useWallets'
 import { usePortfolio } from '@/hooks/usePortfolio'
 import { useTransactions } from '@/hooks/useTransactions'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AddressDisplay } from '@/components/domain/AddressDisplay'
+import { SyncStatusBadge } from '@/components/domain/SyncStatusBadge'
 import {
   Dialog,
   DialogContent,
@@ -20,18 +22,8 @@ import { WalletAssets } from './WalletAssets'
 import { WalletTransactions } from './WalletTransactions'
 import { toast } from 'sonner'
 import { useState } from 'react'
-
-// Chain display names
-const chainNames: Record<string, string> = {
-  ethereum: 'Ethereum',
-  bitcoin: 'Bitcoin',
-  solana: 'Solana',
-  polygon: 'Polygon',
-  'binance-smart-chain': 'BSC',
-  arbitrum: 'Arbitrum',
-  optimism: 'Optimism',
-  avalanche: 'Avalanche',
-}
+import { formatRelativeDate } from '@/lib/format'
+import { getChainName, getChainSymbol } from '@/types/wallet'
 
 export default function WalletDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -45,6 +37,7 @@ export default function WalletDetailPage() {
     page_size: 20,
   })
   const deleteWallet = useDeleteWallet()
+  const triggerSync = useTriggerSync()
 
   const isLoading = walletLoading || portfolioLoading
 
@@ -67,6 +60,17 @@ export default function WalletDetailPage() {
     }
   }
 
+  const handleSync = async () => {
+    if (!id) return
+
+    try {
+      await triggerSync.mutateAsync(id)
+      toast.success('Sync started')
+    } catch (_error) {
+      toast.error('Failed to start sync')
+    }
+  }
+
   if (isLoading) {
     return <WalletDetailSkeleton />
   }
@@ -82,7 +86,8 @@ export default function WalletDetailPage() {
     )
   }
 
-  const chainName = chainNames[wallet.chain_id] || wallet.chain_id
+  const chainName = getChainName(wallet.chain_id)
+  const chainLabel = getChainSymbol(wallet.chain_id)
 
   return (
     <div className="space-y-6">
@@ -99,10 +104,13 @@ export default function WalletDetailPage() {
         <div className="space-y-1">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary font-mono text-sm font-medium">
-              {chainName.slice(0, 3).toUpperCase()}
+              {chainLabel}
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">{wallet.name}</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-bold tracking-tight">{wallet.name}</h1>
+                <SyncStatusBadge status={wallet.sync_status} />
+              </div>
               <p className="text-muted-foreground">{chainName}</p>
             </div>
           </div>
@@ -117,13 +125,12 @@ export default function WalletDetailPage() {
 
         <div className="flex gap-2">
           <Button
-            asChild
-            onClick={() => navigate('/transactions/new', { state: { walletId: id } })}
+            variant="outline"
+            onClick={handleSync}
+            disabled={triggerSync.isPending || wallet.sync_status === 'syncing'}
           >
-            <Link to="/transactions/new" state={{ walletId: id }}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Transaction
-            </Link>
+            <RefreshCw className={`mr-2 h-4 w-4 ${triggerSync.isPending || wallet.sync_status === 'syncing' ? 'animate-spin' : ''}`} />
+            {wallet.sync_status === 'syncing' ? 'Syncing...' : 'Sync Now'}
           </Button>
 
           <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
@@ -161,15 +168,32 @@ export default function WalletDetailPage() {
         </div>
       </div>
 
+      {/* Sync error alert */}
+      {wallet.sync_status === 'error' && wallet.sync_error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Sync Error</AlertTitle>
+          <AlertDescription>{wallet.sync_error}</AlertDescription>
+        </Alert>
+      )}
+
       {/* Total value card */}
       <div className="rounded-lg border border-border bg-card p-6">
         <p className="text-sm text-muted-foreground">Total Value</p>
         <p className="text-3xl font-bold tracking-tight">
           ${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </p>
-        <p className="text-sm text-muted-foreground mt-1">
-          {assets.length} {assets.length === 1 ? 'asset' : 'assets'}
-        </p>
+        <div className="flex items-center gap-4 mt-1">
+          <p className="text-sm text-muted-foreground">
+            {assets.length} {assets.length === 1 ? 'asset' : 'assets'}
+          </p>
+          {wallet.last_sync_at && (
+            <p className="text-sm text-muted-foreground">
+              Last synced {formatRelativeDate(wallet.last_sync_at)}
+              {wallet.last_sync_block && ` (block ${wallet.last_sync_block.toLocaleString()})`}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}
@@ -207,7 +231,7 @@ function WalletDetailSkeleton() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Skeleton className="h-10 w-36" />
+          <Skeleton className="h-10 w-28" />
           <Skeleton className="h-10 w-24" />
         </div>
       </div>

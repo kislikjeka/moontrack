@@ -60,7 +60,7 @@ export function Sidebar() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className="flex-1 flex flex-col gap-1 px-3 py-4">
           {navItems.map((item) => (
             <NavItem
               key={item.to}
@@ -144,26 +144,32 @@ interface NavItemProps {
 }
 
 function NavItem({ to, label, icon: Icon, isCollapsed }: NavItemProps) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <NavLink
-          to={to}
-          className={({ isActive }) =>
-            cn(
-              'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-              isActive
-                ? 'bg-primary/10 text-primary'
-                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-              isCollapsed && 'justify-center px-2'
-            )
-          }
-        >
-          <Icon className="h-4 w-4 flex-shrink-0" />
-          {!isCollapsed && <span>{label}</span>}
-        </NavLink>
-      </TooltipTrigger>
-      {isCollapsed && <TooltipContent side="right">{label}</TooltipContent>}
-    </Tooltip>
+  const link = (
+    <NavLink
+      to={to}
+      className={({ isActive }) =>
+        cn(
+          'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+          isActive
+            ? 'bg-primary/10 text-primary'
+            : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+          isCollapsed && 'justify-center px-2'
+        )
+      }
+    >
+      <Icon className="h-4 w-4 flex-shrink-0" />
+      {!isCollapsed && <span>{label}</span>}
+    </NavLink>
   )
+
+  if (isCollapsed) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{link}</TooltipTrigger>
+        <TooltipContent side="right">{label}</TooltipContent>
+      </Tooltip>
+    )
+  }
+
+  return link
 }

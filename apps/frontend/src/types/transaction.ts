@@ -1,5 +1,11 @@
-export type TransactionType = 'manual_income' | 'manual_outcome' | 'asset_adjustment'
-export type TransactionDirection = 'in' | 'out' | 'adjustment'
+// Transaction types - transfer_in/transfer_out from sync, internal_transfer between own wallets, asset_adjustment manual
+export type TransactionType =
+  | 'transfer_in'
+  | 'transfer_out'
+  | 'internal_transfer'
+  | 'asset_adjustment'
+
+export type TransactionDirection = 'in' | 'out' | 'adjustment' | 'internal'
 export type TransactionStatus = 'COMPLETED' | 'FAILED'
 
 export interface TransactionListItem {
@@ -47,16 +53,17 @@ export interface TransactionListResponse {
   page_size: number
 }
 
+// CreateTransactionRequest - only for asset_adjustment (transfers come from sync)
 export interface CreateTransactionRequest {
-  type: TransactionType
+  type: 'asset_adjustment'
   wallet_id: string
   asset_id: string
   coingecko_id?: string
   amount: string
+  new_balance: string
   usd_rate?: string
   occurred_at?: string
   notes?: string
-  new_balance?: string
 }
 
 export interface TransactionFilters {

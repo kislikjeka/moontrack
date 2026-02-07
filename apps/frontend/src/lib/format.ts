@@ -116,3 +116,30 @@ export function truncateAddress(address: string, startChars = 6, endChars = 4): 
   }
   return `${address.slice(0, startChars)}...${address.slice(-endChars)}`
 }
+
+// Block explorer URLs for supported chains
+const EXPLORER_URLS: Record<number, string> = {
+  1: 'https://etherscan.io',
+  137: 'https://polygonscan.com',
+  42161: 'https://arbiscan.io',
+  10: 'https://optimistic.etherscan.io',
+  8453: 'https://basescan.org',
+}
+
+/**
+ * Get block explorer URL for a transaction hash
+ */
+export function getExplorerTxUrl(chainId: number, txHash: string): string {
+  const baseUrl = EXPLORER_URLS[chainId]
+  if (!baseUrl) return ''
+  return `${baseUrl}/tx/${txHash}`
+}
+
+/**
+ * Get block explorer URL for an address
+ */
+export function getExplorerAddressUrl(chainId: number, address: string): string {
+  const baseUrl = EXPLORER_URLS[chainId]
+  if (!baseUrl) return ''
+  return `${baseUrl}/address/${address}`
+}

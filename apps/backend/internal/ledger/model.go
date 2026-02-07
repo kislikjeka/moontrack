@@ -16,6 +16,10 @@ const (
 	TxTypeTransferOut      TransactionType = "transfer_out"      // Outgoing transfer to external address
 	TxTypeInternalTransfer TransactionType = "internal_transfer" // Transfer between own wallets
 
+	// Manual transaction types
+	TxTypeManualIncome  TransactionType = "manual_income"  // Manual income entry
+	TxTypeManualOutcome TransactionType = "manual_outcome" // Manual outcome entry
+
 	// Manual adjustment type
 	TxTypeAssetAdjustment TransactionType = "asset_adjustment" // Manual balance corrections
 )
@@ -26,6 +30,8 @@ func AllTransactionTypes() []TransactionType {
 		TxTypeTransferIn,
 		TxTypeTransferOut,
 		TxTypeInternalTransfer,
+		TxTypeManualIncome,
+		TxTypeManualOutcome,
 		TxTypeAssetAdjustment,
 	}
 }
@@ -33,7 +39,8 @@ func AllTransactionTypes() []TransactionType {
 // IsValid checks if the transaction type is valid
 func (t TransactionType) IsValid() bool {
 	switch t {
-	case TxTypeTransferIn, TxTypeTransferOut, TxTypeInternalTransfer, TxTypeAssetAdjustment:
+	case TxTypeTransferIn, TxTypeTransferOut, TxTypeInternalTransfer,
+		TxTypeManualIncome, TxTypeManualOutcome, TxTypeAssetAdjustment:
 		return true
 	}
 	return false
@@ -53,6 +60,10 @@ func (t TransactionType) Label() string {
 		return "Transfer Out"
 	case TxTypeInternalTransfer:
 		return "Internal Transfer"
+	case TxTypeManualIncome:
+		return "Manual Income"
+	case TxTypeManualOutcome:
+		return "Manual Outcome"
 	case TxTypeAssetAdjustment:
 		return "Adjustment"
 	default:
