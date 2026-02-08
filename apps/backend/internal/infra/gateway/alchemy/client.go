@@ -225,7 +225,7 @@ func (c *Client) GetIncomingTransfers(ctx context.Context, chainID int64, addres
 		FromBlock:  fromBlock,
 		ToBlock:    toBlock,
 		Direction:  "to",
-		Categories: DefaultTransferCategories(),
+		Categories: TransferCategoriesForChain(chainID),
 	})
 }
 
@@ -237,7 +237,7 @@ func (c *Client) GetOutgoingTransfers(ctx context.Context, chainID int64, addres
 		FromBlock:  fromBlock,
 		ToBlock:    toBlock,
 		Direction:  "from",
-		Categories: DefaultTransferCategories(),
+		Categories: TransferCategoriesForChain(chainID),
 	})
 }
 

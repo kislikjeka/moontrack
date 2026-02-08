@@ -129,6 +129,25 @@ func DefaultTransferCategories() []string {
 	}
 }
 
+// chainsWithInternalSupport lists chain IDs where Alchemy supports the "internal" category.
+// Per Alchemy docs, only Ethereum and Polygon support internal transfers.
+var chainsWithInternalSupport = map[int64]bool{
+	1:   true, // Ethereum Mainnet
+	137: true, // Polygon
+}
+
+// TransferCategoriesForChain returns supported transfer categories for a given chain.
+// The "internal" category is only available on Ethereum and Polygon.
+func TransferCategoriesForChain(chainID int64) []string {
+	if chainsWithInternalSupport[chainID] {
+		return DefaultTransferCategories()
+	}
+	return []string{
+		CategoryExternal,
+		CategoryERC20,
+	}
+}
+
 // ParseHexValue converts a hex value string to *big.Int
 func ParseHexValue(hexStr string) *big.Int {
 	if hexStr == "" || hexStr == "0x" || hexStr == "0x0" {
