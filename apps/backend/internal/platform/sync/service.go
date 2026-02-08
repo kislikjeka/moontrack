@@ -174,9 +174,14 @@ func (s *Service) syncWallet(ctx context.Context, w *wallet.Wallet) error {
 		"chain_id", w.ChainID,
 		"last_sync_block", w.LastSyncBlock)
 
-	// Mark as syncing
-	if err := s.walletRepo.SetSyncInProgress(ctx, w.ID); err != nil {
-		return fmt.Errorf("failed to set sync in progress: %w", err)
+	// Atomically claim the wallet for syncing
+	claimed, err := s.walletRepo.ClaimWalletForSync(ctx, w.ID)
+	if err != nil {
+		return fmt.Errorf("failed to claim wallet for sync: %w", err)
+	}
+	if !claimed {
+		s.logger.Debug("wallet already being synced, skipping", "wallet_id", w.ID)
+		return nil
 	}
 
 	// Get current block

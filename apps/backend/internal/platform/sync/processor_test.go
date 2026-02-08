@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -41,6 +42,19 @@ func (m *MockWalletRepository) GetWalletsByAddress(ctx context.Context, address 
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]*wallet.Wallet), args.Error(1)
+}
+
+func (m *MockWalletRepository) GetWalletsByAddressAndUserID(ctx context.Context, address string, userID uuid.UUID) ([]*wallet.Wallet, error) {
+	args := m.Called(ctx, address, userID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*wallet.Wallet), args.Error(1)
+}
+
+func (m *MockWalletRepository) ClaimWalletForSync(ctx context.Context, walletID uuid.UUID) (bool, error) {
+	args := m.Called(ctx, walletID)
+	return args.Bool(0), args.Error(1)
 }
 
 func (m *MockWalletRepository) SetSyncInProgress(ctx context.Context, walletID uuid.UUID) error {
@@ -154,8 +168,8 @@ func TestProcessor_ClassifyTransfer_Incoming(t *testing.T) {
 	ledgerSvc := new(MockLedgerService)
 	assetSvc := new(MockAssetService)
 
-	// External address is not a user wallet
-	walletRepo.On("GetWalletsByAddress", ctx, externalAddress).Return([]*wallet.Wallet{}, nil)
+	// External address is not a user wallet (user-scoped)
+	walletRepo.On("GetWalletsByAddressAndUserID", ctx, externalAddress, userID).Return([]*wallet.Wallet{}, nil)
 
 	// Mock ledger to record incoming transfer
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "blockchain", mock.Anything, mock.Anything, mock.Anything).
@@ -186,8 +200,8 @@ func TestProcessor_ClassifyTransfer_Outgoing(t *testing.T) {
 	ledgerSvc := new(MockLedgerService)
 	assetSvc := new(MockAssetService)
 
-	// External address is not a user wallet
-	walletRepo.On("GetWalletsByAddress", ctx, externalAddress).Return([]*wallet.Wallet{}, nil)
+	// External address is not a user wallet (user-scoped)
+	walletRepo.On("GetWalletsByAddressAndUserID", ctx, externalAddress, userID).Return([]*wallet.Wallet{}, nil)
 
 	// Mock ledger to record outgoing transfer
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferOut, "blockchain", mock.Anything, mock.Anything, mock.Anything).
@@ -219,8 +233,8 @@ func TestProcessor_ClassifyTransfer_Internal_FromOutgoing(t *testing.T) {
 	ledgerSvc := new(MockLedgerService)
 	assetSvc := new(MockAssetService)
 
-	// Dest address IS a user wallet
-	walletRepo.On("GetWalletsByAddress", ctx, destAddress).Return([]*wallet.Wallet{
+	// Dest address IS a user wallet (user-scoped)
+	walletRepo.On("GetWalletsByAddressAndUserID", ctx, destAddress, userID).Return([]*wallet.Wallet{
 		{ID: destWalletID, UserID: userID, Address: destAddress, ChainID: 1},
 	}, nil)
 
@@ -259,8 +273,8 @@ func TestProcessor_ClassifyTransfer_Internal_FromIncoming_Skipped(t *testing.T) 
 	ledgerSvc := new(MockLedgerService)
 	assetSvc := new(MockAssetService)
 
-	// Source address IS a user wallet (internal transfer)
-	walletRepo.On("GetWalletsByAddress", ctx, sourceAddress).Return([]*wallet.Wallet{
+	// Source address IS a user wallet (internal transfer, user-scoped)
+	walletRepo.On("GetWalletsByAddressAndUserID", ctx, sourceAddress, userID).Return([]*wallet.Wallet{
 		{ID: sourceWalletID, UserID: userID, Address: sourceAddress, ChainID: 1},
 	}, nil)
 
@@ -289,7 +303,7 @@ func TestProcessor_USDRate_Available(t *testing.T) {
 	ledgerSvc := new(MockLedgerService)
 	assetSvc := new(MockAssetService)
 
-	walletRepo.On("GetWalletsByAddress", ctx, externalAddress).Return([]*wallet.Wallet{}, nil)
+	walletRepo.On("GetWalletsByAddressAndUserID", ctx, externalAddress, userID).Return([]*wallet.Wallet{}, nil)
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "blockchain", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
@@ -320,7 +334,7 @@ func TestProcessor_USDRate_GracefulDegradation_NilPrice(t *testing.T) {
 	ledgerSvc := new(MockLedgerService)
 	assetSvc := new(MockAssetService)
 
-	walletRepo.On("GetWalletsByAddress", ctx, externalAddress).Return([]*wallet.Wallet{}, nil)
+	walletRepo.On("GetWalletsByAddressAndUserID", ctx, externalAddress, userID).Return([]*wallet.Wallet{}, nil)
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "blockchain", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
@@ -350,7 +364,7 @@ func TestProcessor_USDRate_GracefulDegradation_Error(t *testing.T) {
 	ledgerSvc := new(MockLedgerService)
 	assetSvc := new(MockAssetService)
 
-	walletRepo.On("GetWalletsByAddress", ctx, externalAddress).Return([]*wallet.Wallet{}, nil)
+	walletRepo.On("GetWalletsByAddressAndUserID", ctx, externalAddress, userID).Return([]*wallet.Wallet{}, nil)
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "blockchain", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
@@ -379,7 +393,7 @@ func TestProcessor_USDRate_GracefulDegradation_NoAssetService(t *testing.T) {
 	walletRepo := new(MockWalletRepository)
 	ledgerSvc := new(MockLedgerService)
 
-	walletRepo.On("GetWalletsByAddress", ctx, externalAddress).Return([]*wallet.Wallet{}, nil)
+	walletRepo.On("GetWalletsByAddressAndUserID", ctx, externalAddress, userID).Return([]*wallet.Wallet{}, nil)
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "blockchain", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
@@ -411,15 +425,15 @@ func TestProcessor_Idempotency_DuplicateIgnored(t *testing.T) {
 	ledgerSvc := new(MockLedgerService)
 	assetSvc := new(MockAssetService)
 
-	walletRepo.On("GetWalletsByAddress", ctx, externalAddress).Return([]*wallet.Wallet{}, nil)
+	walletRepo.On("GetWalletsByAddressAndUserID", ctx, externalAddress, userID).Return([]*wallet.Wallet{}, nil)
 	assetSvc.On("GetPriceBySymbol", ctx, "ETH", int64(1)).Return(big.NewInt(200000000000), nil)
 
 	// First call succeeds
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "blockchain", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil).Once()
 
-	// Second call returns duplicate error
-	duplicateError := assert.AnError
+	// Second call returns PostgreSQL unique constraint violation (code 23505)
+	duplicateError := &pgconn.PgError{Code: "23505", Message: "duplicate key value violates unique constraint"}
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "blockchain", mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, duplicateError).Once()
 
@@ -431,6 +445,11 @@ func TestProcessor_Idempotency_DuplicateIgnored(t *testing.T) {
 	err := processor.ProcessTransfer(ctx, w, transfer)
 	require.NoError(t, err)
 	assert.Len(t, ledgerSvc.recordedTransactions, 1)
+
+	// Second processing (duplicate) — should be silently ignored
+	err = processor.ProcessTransfer(ctx, w, transfer)
+	require.NoError(t, err)
+	assert.Len(t, ledgerSvc.recordedTransactions, 2) // recorded in mock but error was handled
 }
 
 // =============================================================================
@@ -447,7 +466,7 @@ func TestProcessor_TransferData_AllFieldsPopulated(t *testing.T) {
 	ledgerSvc := new(MockLedgerService)
 	assetSvc := new(MockAssetService)
 
-	walletRepo.On("GetWalletsByAddress", ctx, externalAddress).Return([]*wallet.Wallet{}, nil)
+	walletRepo.On("GetWalletsByAddressAndUserID", ctx, externalAddress, userID).Return([]*wallet.Wallet{}, nil)
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "blockchain", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 	assetSvc.On("GetPriceBySymbol", ctx, "USDC", int64(1)).Return(big.NewInt(100000000), nil)

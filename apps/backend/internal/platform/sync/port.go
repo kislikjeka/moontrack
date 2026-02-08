@@ -67,6 +67,12 @@ type WalletRepository interface {
 	// GetWalletsByAddress retrieves all wallets with a given address (for internal transfer detection)
 	GetWalletsByAddress(ctx context.Context, address string) ([]*wallet.Wallet, error)
 
+	// GetWalletsByAddressAndUserID retrieves wallets with a given address for a specific user
+	GetWalletsByAddressAndUserID(ctx context.Context, address string, userID uuid.UUID) ([]*wallet.Wallet, error)
+
+	// ClaimWalletForSync atomically claims a wallet for syncing (returns false if already syncing)
+	ClaimWalletForSync(ctx context.Context, walletID uuid.UUID) (bool, error)
+
 	// SetSyncInProgress marks a wallet as syncing
 	SetSyncInProgress(ctx context.Context, walletID uuid.UUID) error
 

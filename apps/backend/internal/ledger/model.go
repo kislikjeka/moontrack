@@ -22,6 +22,12 @@ const (
 
 	// Manual adjustment type
 	TxTypeAssetAdjustment TransactionType = "asset_adjustment" // Manual balance corrections
+
+	// DeFi transaction types
+	TxTypeSwap        TransactionType = "swap"         // Token swap (DEX)
+	TxTypeDefiDeposit TransactionType = "defi_deposit"  // Deposit into DeFi protocol
+	TxTypeDefiWithdraw TransactionType = "defi_withdraw" // Withdraw from DeFi protocol
+	TxTypeDefiClaim   TransactionType = "defi_claim"    // Claim DeFi rewards
 )
 
 // AllTransactionTypes returns all valid transaction types
@@ -33,6 +39,10 @@ func AllTransactionTypes() []TransactionType {
 		TxTypeManualIncome,
 		TxTypeManualOutcome,
 		TxTypeAssetAdjustment,
+		TxTypeSwap,
+		TxTypeDefiDeposit,
+		TxTypeDefiWithdraw,
+		TxTypeDefiClaim,
 	}
 }
 
@@ -40,7 +50,8 @@ func AllTransactionTypes() []TransactionType {
 func (t TransactionType) IsValid() bool {
 	switch t {
 	case TxTypeTransferIn, TxTypeTransferOut, TxTypeInternalTransfer,
-		TxTypeManualIncome, TxTypeManualOutcome, TxTypeAssetAdjustment:
+		TxTypeManualIncome, TxTypeManualOutcome, TxTypeAssetAdjustment,
+		TxTypeSwap, TxTypeDefiDeposit, TxTypeDefiWithdraw, TxTypeDefiClaim:
 		return true
 	}
 	return false
@@ -66,6 +77,14 @@ func (t TransactionType) Label() string {
 		return "Manual Outcome"
 	case TxTypeAssetAdjustment:
 		return "Adjustment"
+	case TxTypeSwap:
+		return "Swap"
+	case TxTypeDefiDeposit:
+		return "DeFi Deposit"
+	case TxTypeDefiWithdraw:
+		return "DeFi Withdraw"
+	case TxTypeDefiClaim:
+		return "DeFi Claim"
 	default:
 		return "Unknown"
 	}
@@ -200,6 +219,7 @@ const (
 	EntryTypeIncome        EntryType = "income"
 	EntryTypeExpense       EntryType = "expense"
 	EntryTypeGasFee        EntryType = "gas_fee"
+	EntryTypeClearing      EntryType = "clearing"
 )
 
 // Entry represents a single debit or credit entry in the double-entry ledger
@@ -275,6 +295,7 @@ const (
 	AccountTypeIncome       AccountType = "INCOME"
 	AccountTypeExpense      AccountType = "EXPENSE"
 	AccountTypeGasFee       AccountType = "GAS_FEE"
+	AccountTypeClearing     AccountType = "CLEARING"
 )
 
 // Account represents a ledger account for tracking balances
@@ -325,7 +346,7 @@ func (a *Account) Validate() error {
 		if a.WalletID == nil {
 			return ErrWalletAccountRequiresWalletID
 		}
-	case AccountTypeIncome, AccountTypeExpense, AccountTypeGasFee:
+	case AccountTypeIncome, AccountTypeExpense, AccountTypeGasFee, AccountTypeClearing:
 		// These accounts should not have a wallet ID
 		if a.WalletID != nil {
 			return ErrNonWalletAccountCannotHaveWalletID

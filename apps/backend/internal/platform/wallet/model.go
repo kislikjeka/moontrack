@@ -36,6 +36,7 @@ type Wallet struct {
 	LastSyncBlock *int64     `json:"last_sync_block" db:"last_sync_block"`
 	LastSyncAt    *time.Time `json:"last_sync_at" db:"last_sync_at"`
 	SyncError     *string    `json:"sync_error,omitempty" db:"sync_error"`
+	SyncStartedAt *time.Time `json:"sync_started_at,omitempty" db:"sync_started_at"`
 	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
 }

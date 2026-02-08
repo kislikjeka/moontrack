@@ -30,6 +30,9 @@ type Config struct {
 	AlchemyAPIKey    string
 	SyncPollInterval time.Duration
 	ChainsConfigPath string
+
+	// Zerion API configuration (for DeFi data)
+	ZerionAPIKey string
 }
 
 // Load loads configuration from environment variables
@@ -45,6 +48,7 @@ func Load() (*Config, error) {
 		AlchemyAPIKey:    getEnv("ALCHEMY_API_KEY", ""),
 		SyncPollInterval: getEnvAsDuration("SYNC_POLL_INTERVAL", 5*time.Minute),
 		ChainsConfigPath: getEnv("CHAINS_CONFIG_PATH", "config/chains.yaml"),
+		ZerionAPIKey:     getEnv("ZERION_API_KEY", ""),
 	}
 
 	// Validate required configuration

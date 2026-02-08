@@ -2,12 +2,14 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
@@ -85,8 +87,8 @@ func (p *Processor) classifyTransfer(ctx context.Context, w *wallet.Wallet, tran
 		counterpartyAddr = toAddr
 	}
 
-	// Check if counterparty is user's wallet
-	isCounterpartyOurs := p.isUserWallet(ctx, counterpartyAddr)
+	// Check if counterparty is user's wallet (scoped to this user)
+	isCounterpartyOurs := p.isUserWallet(ctx, counterpartyAddr, w.UserID)
 
 	if transfer.Direction == DirectionIn {
 		if isCounterpartyOurs {
@@ -114,7 +116,7 @@ func (p *Processor) classifyTransfer(ctx context.Context, w *wallet.Wallet, tran
 }
 
 // isUserWallet checks if an address belongs to any of the user's wallets
-func (p *Processor) isUserWallet(ctx context.Context, address string) bool {
+func (p *Processor) isUserWallet(ctx context.Context, address string, userID uuid.UUID) bool {
 	address = strings.ToLower(address)
 
 	// Check cache first
@@ -122,10 +124,10 @@ func (p *Processor) isUserWallet(ctx context.Context, address string) bool {
 		return true
 	}
 
-	// Query database
-	wallets, err := p.walletRepo.GetWalletsByAddress(ctx, address)
+	// Query database (scoped to user)
+	wallets, err := p.walletRepo.GetWalletsByAddressAndUserID(ctx, address, userID)
 	if err != nil {
-		p.logger.Error("failed to check wallet ownership", "address", address, "error", err)
+		p.logger.Error("failed to check wallet ownership", "address", address, "user_id", userID, "error", err)
 		return false
 	}
 
@@ -142,11 +144,11 @@ func (p *Processor) isUserWallet(ctx context.Context, address string) bool {
 	return false
 }
 
-// getWalletByAddress returns the wallet ID for an address (if it exists)
-func (p *Processor) getWalletByAddress(ctx context.Context, address string) *uuid.UUID {
+// getWalletByAddress returns the wallet ID for an address belonging to a specific user
+func (p *Processor) getWalletByAddress(ctx context.Context, address string, userID uuid.UUID) *uuid.UUID {
 	address = strings.ToLower(address)
 
-	wallets, err := p.walletRepo.GetWalletsByAddress(ctx, address)
+	wallets, err := p.walletRepo.GetWalletsByAddressAndUserID(ctx, address, userID)
 	if err != nil || len(wallets) == 0 {
 		return nil
 	}
@@ -231,7 +233,7 @@ func (p *Processor) recordInternalTransfer(ctx context.Context, w *wallet.Wallet
 	if transfer.Direction == DirectionIn {
 		// This wallet is receiving
 		destWalletID = w.ID
-		srcWallet := p.getWalletByAddress(ctx, transfer.From)
+		srcWallet := p.getWalletByAddress(ctx, transfer.From, w.UserID)
 		if srcWallet == nil {
 			// Counterparty not found, treat as regular incoming
 			return p.recordIncomingTransfer(ctx, w, transfer)
@@ -240,7 +242,7 @@ func (p *Processor) recordInternalTransfer(ctx context.Context, w *wallet.Wallet
 	} else {
 		// This wallet is sending
 		sourceWalletID = w.ID
-		dstWallet := p.getWalletByAddress(ctx, transfer.To)
+		dstWallet := p.getWalletByAddress(ctx, transfer.To, w.UserID)
 		if dstWallet == nil {
 			// Counterparty not found, treat as regular outgoing
 			return p.recordOutgoingTransfer(ctx, w, transfer)
@@ -289,15 +291,13 @@ func (p *Processor) recordInternalTransfer(ctx context.Context, w *wallet.Wallet
 	return nil
 }
 
-// isDuplicateError checks if the error is due to duplicate external_id
+// isDuplicateError checks if the error is due to a unique constraint violation (PostgreSQL error code 23505)
 func isDuplicateError(err error) bool {
 	if err == nil {
 		return false
 	}
-	errStr := err.Error()
-	return strings.Contains(errStr, "duplicate") ||
-		strings.Contains(errStr, "unique constraint") ||
-		strings.Contains(errStr, "already exists")
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 // ClearCache clears the address cache
