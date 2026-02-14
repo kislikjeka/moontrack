@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -22,15 +23,22 @@ type WalletServiceInterface interface {
 	Delete(ctx context.Context, id uuid.UUID, userID uuid.UUID) error
 }
 
+// SyncServiceInterface defines the interface for wallet sync operations
+type SyncServiceInterface interface {
+	SyncWallet(ctx context.Context, walletID uuid.UUID) error
+}
+
 // WalletHandler handles wallet-related HTTP requests
 type WalletHandler struct {
 	walletService WalletServiceInterface
+	syncService   SyncServiceInterface
 }
 
 // NewWalletHandler creates a new wallet handler
-func NewWalletHandler(walletService WalletServiceInterface) *WalletHandler {
+func NewWalletHandler(walletService WalletServiceInterface, syncService SyncServiceInterface) *WalletHandler {
 	return &WalletHandler{
 		walletService: walletService,
+		syncService:   syncService,
 	}
 }
 
@@ -54,9 +62,8 @@ type WalletResponse struct {
 	ChainID       int64   `json:"chain_id"`
 	ChainName     string  `json:"chain_name"`
 	Address       string  `json:"address"`
-	SyncStatus    string  `json:"sync_status"`
-	LastSyncBlock *int64  `json:"last_sync_block,omitempty"`
-	LastSyncAt    *string `json:"last_sync_at,omitempty"`
+	SyncStatus string  `json:"sync_status"`
+	LastSyncAt *string `json:"last_sync_at,omitempty"`
 	SyncError     *string `json:"sync_error,omitempty"`
 	CreatedAt     string  `json:"created_at"`
 	UpdatedAt     string  `json:"updated_at"`
@@ -93,28 +100,32 @@ func (h *WalletHandler) CreateWallet(w http.ResponseWriter, r *http.Request) {
 	// Create wallet via service
 	createdWallet, err := h.walletService.Create(r.Context(), wlt)
 	if err != nil {
-		if err == wallet.ErrDuplicateWalletName {
+		if errors.Is(err, wallet.ErrDuplicateWalletName) {
 			respondWithError(w, http.StatusConflict, "wallet name already exists")
 			return
 		}
-		if err == wallet.ErrDuplicateAddress {
+		if errors.Is(err, wallet.ErrDuplicateAddress) {
 			respondWithError(w, http.StatusConflict, "wallet address already exists for this chain")
 			return
 		}
-		if err == wallet.ErrInvalidChainID {
+		if errors.Is(err, wallet.ErrInvalidChainID) {
 			respondWithError(w, http.StatusBadRequest, "invalid chain ID")
 			return
 		}
-		if err == wallet.ErrInvalidAddress {
+		if errors.Is(err, wallet.ErrInvalidAddress) {
 			respondWithError(w, http.StatusBadRequest, "invalid EVM address format")
 			return
 		}
-		if err == wallet.ErrMissingAddress {
+		if errors.Is(err, wallet.ErrMissingAddress) {
 			respondWithError(w, http.StatusBadRequest, "wallet address is required")
 			return
 		}
-		if err == wallet.ErrInvalidChecksum {
+		if errors.Is(err, wallet.ErrInvalidChecksum) {
 			respondWithError(w, http.StatusBadRequest, "invalid EVM address checksum")
+			return
+		}
+		if errors.Is(err, wallet.ErrUserNotFound) {
+			respondWithError(w, http.StatusUnauthorized, "user not found, please re-login")
 			return
 		}
 		respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create wallet: %v", err))
@@ -171,11 +182,11 @@ func (h *WalletHandler) GetWallet(w http.ResponseWriter, r *http.Request) {
 	// Get wallet via service
 	wlt, err := h.walletService.GetByID(r.Context(), walletID, userID)
 	if err != nil {
-		if err == wallet.ErrWalletNotFound {
+		if errors.Is(err, wallet.ErrWalletNotFound) {
 			respondWithError(w, http.StatusNotFound, "wallet not found")
 			return
 		}
-		if err == wallet.ErrUnauthorizedAccess {
+		if errors.Is(err, wallet.ErrUnauthorizedAccess) {
 			respondWithError(w, http.StatusForbidden, "access denied")
 			return
 		}
@@ -220,15 +231,15 @@ func (h *WalletHandler) UpdateWallet(w http.ResponseWriter, r *http.Request) {
 	// Update wallet via service
 	updatedWallet, err := h.walletService.Update(r.Context(), wlt, userID)
 	if err != nil {
-		if err == wallet.ErrWalletNotFound {
+		if errors.Is(err, wallet.ErrWalletNotFound) {
 			respondWithError(w, http.StatusNotFound, "wallet not found")
 			return
 		}
-		if err == wallet.ErrUnauthorizedAccess {
+		if errors.Is(err, wallet.ErrUnauthorizedAccess) {
 			respondWithError(w, http.StatusForbidden, "access denied")
 			return
 		}
-		if err == wallet.ErrDuplicateWalletName {
+		if errors.Is(err, wallet.ErrDuplicateWalletName) {
 			respondWithError(w, http.StatusConflict, "wallet name already exists")
 			return
 		}
@@ -260,11 +271,11 @@ func (h *WalletHandler) DeleteWallet(w http.ResponseWriter, r *http.Request) {
 
 	// Delete wallet via service
 	if err := h.walletService.Delete(r.Context(), walletID, userID); err != nil {
-		if err == wallet.ErrWalletNotFound {
+		if errors.Is(err, wallet.ErrWalletNotFound) {
 			respondWithError(w, http.StatusNotFound, "wallet not found")
 			return
 		}
-		if err == wallet.ErrUnauthorizedAccess {
+		if errors.Is(err, wallet.ErrUnauthorizedAccess) {
 			respondWithError(w, http.StatusForbidden, "access denied")
 			return
 		}
@@ -273,6 +284,52 @@ func (h *WalletHandler) DeleteWallet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// TriggerSync handles POST /wallets/{id}/sync
+func (h *WalletHandler) TriggerSync(w http.ResponseWriter, r *http.Request) {
+	if h.syncService == nil {
+		respondWithError(w, http.StatusServiceUnavailable, "sync service not available")
+		return
+	}
+
+	// Get user ID from context
+	userID, ok := middleware.GetUserIDFromContext(r.Context())
+	if !ok {
+		respondWithError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	// Get wallet ID from URL
+	walletIDStr := chi.URLParam(r, "id")
+	walletID, err := uuid.Parse(walletIDStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "invalid wallet ID")
+		return
+	}
+
+	// Verify wallet belongs to user
+	_, err = h.walletService.GetByID(r.Context(), walletID, userID)
+	if err != nil {
+		if errors.Is(err, wallet.ErrWalletNotFound) {
+			respondWithError(w, http.StatusNotFound, "wallet not found")
+			return
+		}
+		if errors.Is(err, wallet.ErrUnauthorizedAccess) {
+			respondWithError(w, http.StatusForbidden, "access denied")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "failed to verify wallet ownership")
+		return
+	}
+
+	// Trigger sync
+	if err := h.syncService.SyncWallet(r.Context(), walletID); err != nil {
+		respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to trigger sync: %v", err))
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "sync triggered"})
 }
 
 // Helper function to convert domain wallet to response
@@ -284,9 +341,8 @@ func toWalletResponse(wlt *wallet.Wallet) WalletResponse {
 		ChainID:       wlt.ChainID,
 		ChainName:     wallet.GetChainName(wlt.ChainID),
 		Address:       wlt.Address,
-		SyncStatus:    string(wlt.SyncStatus),
-		LastSyncBlock: wlt.LastSyncBlock,
-		SyncError:     wlt.SyncError,
+		SyncStatus: string(wlt.SyncStatus),
+		SyncError:  wlt.SyncError,
 		CreatedAt:     wlt.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		UpdatedAt:     wlt.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}

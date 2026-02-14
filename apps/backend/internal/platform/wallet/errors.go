@@ -20,6 +20,7 @@ var (
 	// Repository errors
 	ErrWalletNotFound     = errors.New("wallet not found")
 	ErrUnauthorizedAccess = errors.New("unauthorized wallet access")
+	ErrUserNotFound       = errors.New("user not found")
 
 	// Sync errors
 	ErrSyncInProgress     = errors.New("wallet sync already in progress")

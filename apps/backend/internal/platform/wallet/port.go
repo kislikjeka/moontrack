@@ -39,16 +39,10 @@ type Repository interface {
 	// ClaimWalletForSync atomically claims a wallet for syncing (returns false if already syncing)
 	ClaimWalletForSync(ctx context.Context, walletID uuid.UUID) (bool, error)
 
-	// UpdateSyncState updates the sync status and related fields for a wallet
-	UpdateSyncState(ctx context.Context, walletID uuid.UUID, status SyncStatus, lastBlock *int64, syncError *string) error
-
 	// SetSyncInProgress marks a wallet as currently syncing
 	SetSyncInProgress(ctx context.Context, walletID uuid.UUID) error
 
-	// SetSyncCompleted marks a wallet sync as completed
-	SetSyncCompleted(ctx context.Context, walletID uuid.UUID, lastBlock int64, syncAt time.Time) error
-
-	// SetSyncCompletedAt marks a wallet sync as completed at a given time (without block number)
+	// SetSyncCompletedAt marks a wallet sync as completed at a given time
 	SetSyncCompletedAt(ctx context.Context, walletID uuid.UUID, syncAt time.Time) error
 
 	// SetSyncError marks a wallet sync as failed with an error message

@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kislikjeka/moontrack/internal/infra/gateway/alchemy"
 	"github.com/kislikjeka/moontrack/internal/infra/gateway/coingecko"
 	"github.com/kislikjeka/moontrack/internal/infra/gateway/zerion"
 	"github.com/kislikjeka/moontrack/internal/infra/postgres"
@@ -145,53 +144,34 @@ func main() {
 
 	// Initialize blockchain sync service
 	var syncSvc *sync.Service
-	{
+	if cfg.ZerionAPIKey != "" {
 		syncConfig := &sync.Config{
-			PollInterval:             cfg.SyncPollInterval,
-			ConcurrentWallets:        3,
-			InitialSyncBlockLookback: 1000000,
-			MaxBlocksPerSync:         10000,
-			InitialSyncLookback:      2160 * time.Hour,
-			Enabled:                  true,
+			PollInterval:        cfg.SyncPollInterval,
+			ConcurrentWallets:   3,
+			InitialSyncLookback: 2160 * time.Hour,
+			Enabled:             true,
 		}
 		syncAssetAdapter := sync.NewSyncAssetAdapter(assetSvc)
 
-		var blockchainClient sync.BlockchainClient
-		var zerionProvider sync.TransactionDataProvider
+		zerionClient := zerion.NewClient(cfg.ZerionAPIKey)
+		zerionProvider := zerion.NewSyncAdapter(zerionClient)
+		log.Info("Zerion sync provider initialized")
 
-		// Zerion provider (preferred)
-		if cfg.ZerionAPIKey != "" {
-			zerionClient := zerion.NewClient(cfg.ZerionAPIKey)
-			zerionProvider = zerion.NewSyncAdapter(zerionClient)
-			log.Info("Zerion sync provider initialized")
-		}
-
-		// Alchemy provider (fallback)
-		if cfg.AlchemyAPIKey != "" {
-			chainsConfig, err := config.LoadChainsConfig(cfg.ChainsConfigPath)
-			if err != nil {
-				log.Warn("Failed to load chains config, Alchemy sync disabled", "error", err)
-			} else {
-				alchemyClient := alchemy.NewClient(cfg.AlchemyAPIKey, chainsConfig)
-				blockchainClient = alchemy.NewSyncClientAdapter(alchemyClient, chainsConfig)
-				log.Info("Alchemy sync provider initialized",
-					"chains_loaded", len(chainsConfig.Chains))
-			}
-		}
-
-		if zerionProvider != nil || blockchainClient != nil {
-			syncSvc = sync.NewService(syncConfig, blockchainClient, walletRepo, ledgerSvc, syncAssetAdapter, log.Logger, zerionProvider)
-			log.Info("Sync service initialized",
-				"poll_interval", cfg.SyncPollInterval,
-				"provider", syncProviderName(zerionProvider))
-		} else {
-			log.Warn("No sync provider configured (ZERION_API_KEY or ALCHEMY_API_KEY), sync disabled")
-		}
+		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log.Logger, zerionProvider)
+		log.Info("Sync service initialized",
+			"poll_interval", cfg.SyncPollInterval,
+			"provider", "zerion")
+	} else {
+		log.Warn("ZERION_API_KEY not set, sync disabled")
 	}
 
 	// Initialize HTTP handlers
 	authHandler := handler.NewAuthHandler(userSvc, jwtSvc)
-	walletHandler := handler.NewWalletHandler(walletSvc)
+	var walletSyncSvc handler.SyncServiceInterface
+	if syncSvc != nil {
+		walletSyncSvc = syncSvc
+	}
+	walletHandler := handler.NewWalletHandler(walletSvc, walletSyncSvc)
 	transactionHandler := handler.NewTransactionHandler(ledgerSvc, transactionSvc, assetSvc)
 	portfolioHandler := handler.NewPortfolioHandler(portfolioSvc)
 	assetHandler := handler.NewAssetHandler(assetSvc)
@@ -282,12 +262,4 @@ func main() {
 	}
 
 	log.Info("Server stopped gracefully")
-}
-
-// syncProviderName returns a human-readable name for the active sync provider
-func syncProviderName(zerionProvider sync.TransactionDataProvider) string {
-	if zerionProvider != nil {
-		return "zerion"
-	}
-	return "alchemy"
 }

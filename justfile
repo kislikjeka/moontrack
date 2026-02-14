@@ -66,6 +66,18 @@ migrate-create name:
     cd apps/backend && migrate create -ext sql -dir migrations -seq {{name}}
     @echo "Migration created: {{name}}"
 
+# Clear all portfolio data (wallets, transactions, entries) but keep user accounts
+db-clear-data:
+    @echo "Clearing all portfolio data (keeping user accounts)..."
+    docker exec moontrack-postgres psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} -c "\
+        DELETE FROM entries; \
+        DELETE FROM account_balances; \
+        DELETE FROM accounts; \
+        DELETE FROM transactions; \
+        DELETE FROM wallets; \
+    "
+    @echo "All portfolio data cleared. User accounts and price history preserved."
+
 # Reset database (drop all and re-migrate)
 db-reset:
     docker exec moontrack-backend sh -c "migrate -database 'postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable' -path migrations down -all || true"

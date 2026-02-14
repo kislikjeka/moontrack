@@ -2,11 +2,14 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 )
 
@@ -18,45 +21,9 @@ const (
 	DirectionOut TransferDirection = "out"
 )
 
-// TransferType indicates the blockchain transfer category
-type TransferType string
-
-const (
-	TransferTypeExternal TransferType = "external" // Native token transfer
-	TransferTypeInternal TransferType = "internal" // Internal contract call
-	TransferTypeERC20    TransferType = "erc20"    // ERC-20 token transfer
-)
-
-// Transfer represents a blockchain transfer from the blockchain client
-type Transfer struct {
-	TxHash          string            // Transaction hash
-	BlockNumber     int64             // Block number
-	Timestamp       time.Time         // Block timestamp
-	From            string            // Sender address (lowercase)
-	To              string            // Receiver address (lowercase)
-	Amount          *big.Int          // Amount in base units
-	AssetSymbol     string            // Asset symbol (ETH, USDC, etc.)
-	ContractAddress string            // Contract address for ERC-20 (empty for native)
-	Decimals        int               // Token decimals
-	ChainID         int64             // Chain ID
-	Direction       TransferDirection // In or Out
-	TransferType    TransferType      // External, Internal, ERC20
-	UniqueID        string            // Unique transfer identifier from Alchemy
-}
-
-// BlockchainClient defines the interface for blockchain data providers
-type BlockchainClient interface {
-	// GetCurrentBlock returns the current block number for a chain
-	GetCurrentBlock(ctx context.Context, chainID int64) (int64, error)
-
-	// GetTransfers retrieves all transfers for an address within a block range
-	GetTransfers(ctx context.Context, chainID int64, address string, fromBlock, toBlock int64) ([]Transfer, error)
-
-	// GetNativeAssetInfo returns native asset symbol and decimals for a chain
-	GetNativeAssetInfo(chainID int64) (symbol string, decimals int, err error)
-
-	// IsSupported checks if a chain is supported
-	IsSupported(chainID int64) bool
+// LedgerService defines the interface for ledger operations needed by sync
+type LedgerService interface {
+	RecordTransaction(ctx context.Context, transactionType ledger.TransactionType, source string, externalID *string, occurredAt time.Time, rawData map[string]interface{}) (*ledger.Transaction, error)
 }
 
 // WalletRepository defines wallet data access for sync operations
@@ -73,14 +40,20 @@ type WalletRepository interface {
 	// SetSyncInProgress marks a wallet as syncing
 	SetSyncInProgress(ctx context.Context, walletID uuid.UUID) error
 
-	// SetSyncCompleted marks a wallet as successfully synced
-	SetSyncCompleted(ctx context.Context, walletID uuid.UUID, lastBlock int64, syncAt time.Time) error
-
-	// SetSyncCompletedAt marks a wallet as synced at a given time (without block number)
+	// SetSyncCompletedAt marks a wallet as synced at a given time
 	SetSyncCompletedAt(ctx context.Context, walletID uuid.UUID, syncAt time.Time) error
 
 	// SetSyncError marks a wallet sync as failed
 	SetSyncError(ctx context.Context, walletID uuid.UUID, errMsg string) error
+}
+
+// isDuplicateError checks if the error is due to a unique constraint violation (PostgreSQL error code 23505)
+func isDuplicateError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 // OperationType represents the high-level category of a decoded transaction

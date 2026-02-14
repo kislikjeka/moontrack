@@ -60,9 +60,8 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       COINGECKO_API_KEY: ${COINGECKO_API_KEY}
-      ALCHEMY_API_KEY: ${ALCHEMY_API_KEY}
+      ZERION_API_KEY: ${ZERION_API_KEY}
       SYNC_POLL_INTERVAL: ${SYNC_POLL_INTERVAL:-5m}
-      CHAINS_CONFIG_PATH: ${CHAINS_CONFIG_PATH:-config/chains.yaml}
       ENV: development
     depends_on:
       postgres:

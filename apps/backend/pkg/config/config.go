@@ -26,12 +26,10 @@ type Config struct {
 	// CoinGecko API configuration
 	CoinGeckoAPIKey string
 
-	// Alchemy API configuration (for blockchain sync)
-	AlchemyAPIKey    string
+	// Sync configuration
 	SyncPollInterval time.Duration
-	ChainsConfigPath string
 
-	// Zerion API configuration (for DeFi data)
+	// Zerion API configuration (for blockchain sync and DeFi data)
 	ZerionAPIKey string
 }
 
@@ -45,9 +43,7 @@ func Load() (*Config, error) {
 		RedisPassword:    getEnv("REDIS_PASSWORD", ""),
 		JWTSecret:        getEnv("JWT_SECRET", ""),
 		CoinGeckoAPIKey:  getEnv("COINGECKO_API_KEY", ""),
-		AlchemyAPIKey:    getEnv("ALCHEMY_API_KEY", ""),
 		SyncPollInterval: getEnvAsDuration("SYNC_POLL_INTERVAL", 5*time.Minute),
-		ChainsConfigPath: getEnv("CHAINS_CONFIG_PATH", "config/chains.yaml"),
 		ZerionAPIKey:     getEnv("ZERION_API_KEY", ""),
 	}
 

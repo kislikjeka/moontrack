@@ -47,11 +47,11 @@ func TestMain(m *testing.M) {
 // =============================================================================
 
 type testEnv struct {
-	syncSvc          *sync.Service
-	ledgerSvc        *ledger.Service
-	ledgerRepo       *postgres.LedgerRepository
-	blockchainClient *mockBlockchainClient
-	ctx              context.Context
+	syncSvc    *sync.Service
+	ledgerSvc  *ledger.Service
+	ledgerRepo *postgres.LedgerRepository
+	zerionMock *mockZerionProvider
+	ctx        context.Context
 }
 
 func setupIntegrationTest(t *testing.T) *testEnv {
@@ -71,27 +71,26 @@ func setupIntegrationTest(t *testing.T) *testEnv {
 	registry.Register(transfer.NewInternalTransferHandler(walletRepo))
 	ledgerSvc := ledger.NewService(ledgerRepo, registry)
 
-	// Create mock blockchain client
-	blockchainClient := newMockBlockchainClient()
+	// Create mock Zerion provider
+	zerionMock := newMockZerionProvider()
 
 	// Create sync config
 	config := &sync.Config{
-		Enabled:                  true,
-		PollInterval:             5 * time.Second,
-		ConcurrentWallets:        3,
-		InitialSyncBlockLookback: 100,
-		MaxBlocksPerSync:         1000,
+		Enabled:             true,
+		PollInterval:        5 * time.Second,
+		ConcurrentWallets:   3,
+		InitialSyncLookback: 2160 * time.Hour,
 	}
 
 	// Create sync service
-	syncSvc := sync.NewService(config, blockchainClient, walletRepo, ledgerSvc, nil, logger, nil)
+	syncSvc := sync.NewService(config, walletRepo, ledgerSvc, nil, logger, zerionMock)
 
 	return &testEnv{
-		syncSvc:          syncSvc,
-		ledgerSvc:        ledgerSvc,
-		ledgerRepo:       ledgerRepo,
-		blockchainClient: blockchainClient,
-		ctx:              ctx,
+		syncSvc:    syncSvc,
+		ledgerSvc:  ledgerSvc,
+		ledgerRepo: ledgerRepo,
+		zerionMock: zerionMock,
+		ctx:        ctx,
 	}
 }
 
@@ -118,42 +117,29 @@ func createTestWallet(t *testing.T, ctx context.Context, pool *pgxpool.Pool, use
 }
 
 // =============================================================================
-// Mock Blockchain Client
+// Mock Zerion Provider
 // =============================================================================
 
-type mockBlockchainClient struct {
-	mu        gosync.Mutex
-	transfers map[string][]sync.Transfer // address -> transfers
-	blocks    map[int64]int64            // chainID -> currentBlock
+type mockZerionProvider struct {
+	mu           gosync.Mutex
+	transactions map[string][]sync.DecodedTransaction // address -> transactions
 }
 
-func newMockBlockchainClient() *mockBlockchainClient {
-	return &mockBlockchainClient{
-		transfers: make(map[string][]sync.Transfer),
-		blocks:    make(map[int64]int64),
+func newMockZerionProvider() *mockZerionProvider {
+	return &mockZerionProvider{
+		transactions: make(map[string][]sync.DecodedTransaction),
 	}
 }
 
-func (m *mockBlockchainClient) GetCurrentBlock(ctx context.Context, chainID int64) (int64, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if block, ok := m.blocks[chainID]; ok {
-		return block, nil
-	}
-	return 12345678, nil // Default block
-}
-
-func (m *mockBlockchainClient) GetTransfers(ctx context.Context, chainID int64, address string, fromBlock, toBlock int64) ([]sync.Transfer, error) {
+func (m *mockZerionProvider) GetTransactions(ctx context.Context, address string, chainID int64, since time.Time) ([]sync.DecodedTransaction, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	key := address
-	if transfers, ok := m.transfers[key]; ok {
-		// Filter by block range
-		var result []sync.Transfer
-		for _, t := range transfers {
-			if t.BlockNumber >= fromBlock && t.BlockNumber <= toBlock && t.ChainID == chainID {
-				result = append(result, t)
+	if txs, ok := m.transactions[address]; ok {
+		var result []sync.DecodedTransaction
+		for _, tx := range txs {
+			if tx.ChainID == chainID && !tx.MinedAt.Before(since) {
+				result = append(result, tx)
 			}
 		}
 		return result, nil
@@ -161,24 +147,10 @@ func (m *mockBlockchainClient) GetTransfers(ctx context.Context, chainID int64, 
 	return nil, nil
 }
 
-func (m *mockBlockchainClient) GetNativeAssetInfo(chainID int64) (string, int, error) {
-	return "ETH", 18, nil
-}
-
-func (m *mockBlockchainClient) IsSupported(chainID int64) bool {
-	return chainID == 1 // Only Ethereum mainnet
-}
-
-func (m *mockBlockchainClient) AddTransfer(address string, transfer sync.Transfer) {
+func (m *mockZerionProvider) AddTransaction(address string, tx sync.DecodedTransaction) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.transfers[address] = append(m.transfers[address], transfer)
-}
-
-func (m *mockBlockchainClient) SetCurrentBlock(chainID, block int64) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.blocks[chainID] = block
+	m.transactions[address] = append(m.transactions[address], tx)
 }
 
 // =============================================================================
@@ -193,24 +165,25 @@ func TestSyncService_SyncWallet_RecordsTransfers(t *testing.T) {
 	walletAddress := "0x1234567890123456789012345678901234567890"
 	walletID := createTestWallet(t, env.ctx, testDB.Pool, userID, walletAddress, 1)
 
-	// Add mock transfers
-	env.blockchainClient.SetCurrentBlock(1, 12345678)
-
-	// Add incoming transfer
-	env.blockchainClient.AddTransfer(walletAddress, sync.Transfer{
-		TxHash:          "0xincoming123",
-		BlockNumber:     12345600,
-		Timestamp:       time.Now().Add(-time.Hour),
-		From:            "0xexternalsender",
-		To:              walletAddress,
-		Amount:          big.NewInt(1000000000000000000), // 1 ETH
-		AssetSymbol:     "ETH",
-		ContractAddress: "",
-		Decimals:        18,
-		ChainID:         1,
-		Direction:       sync.DirectionIn,
-		TransferType:    sync.TransferTypeExternal,
-		UniqueID:        "unique-incoming-1",
+	// Add incoming transfer via Zerion mock
+	env.zerionMock.AddTransaction(walletAddress, sync.DecodedTransaction{
+		ID:            "zerion-tx-1",
+		TxHash:        "0xincoming123",
+		ChainID:       1,
+		OperationType: sync.OpReceive,
+		Transfers: []sync.DecodedTransfer{
+			{
+				AssetSymbol: "ETH",
+				Decimals:    18,
+				Amount:      big.NewInt(1000000000000000000), // 1 ETH
+				Direction:   sync.DirectionIn,
+				Sender:      "0xexternalsender",
+				Recipient:   walletAddress,
+				USDPrice:    big.NewInt(250000000000),
+			},
+		},
+		MinedAt: time.Now().Add(-time.Hour),
+		Status:  "confirmed",
 	})
 
 	// Sync the wallet
@@ -239,24 +212,26 @@ func TestSyncService_SyncWallet_MultipleTransfers(t *testing.T) {
 	walletAddress := "0x1234567890123456789012345678901234567890"
 	walletID := createTestWallet(t, env.ctx, testDB.Pool, userID, walletAddress, 1)
 
-	env.blockchainClient.SetCurrentBlock(1, 12345700)
-
 	// Add multiple incoming transfers
 	for i := 0; i < 5; i++ {
-		env.blockchainClient.AddTransfer(walletAddress, sync.Transfer{
-			TxHash:          "0xincoming" + string(rune('a'+i)),
-			BlockNumber:     12345600 + int64(i*10),
-			Timestamp:       time.Now().Add(-time.Duration(5-i) * time.Hour),
-			From:            "0xexternalsender",
-			To:              walletAddress,
-			Amount:          big.NewInt(100000000000000000), // 0.1 ETH
-			AssetSymbol:     "ETH",
-			ContractAddress: "",
-			Decimals:        18,
-			ChainID:         1,
-			Direction:       sync.DirectionIn,
-			TransferType:    sync.TransferTypeExternal,
-			UniqueID:        "unique-multi-" + string(rune('a'+i)),
+		env.zerionMock.AddTransaction(walletAddress, sync.DecodedTransaction{
+			ID:            "zerion-multi-" + string(rune('a'+i)),
+			TxHash:        "0xincoming" + string(rune('a'+i)),
+			ChainID:       1,
+			OperationType: sync.OpReceive,
+			Transfers: []sync.DecodedTransfer{
+				{
+					AssetSymbol: "ETH",
+					Decimals:    18,
+					Amount:      big.NewInt(100000000000000000), // 0.1 ETH
+					Direction:   sync.DirectionIn,
+					Sender:      "0xexternalsender",
+					Recipient:   walletAddress,
+					USDPrice:    big.NewInt(250000000000),
+				},
+			},
+			MinedAt: time.Now().Add(-time.Duration(5-i) * time.Hour),
+			Status:  "confirmed",
 		})
 	}
 
@@ -289,40 +264,46 @@ func TestSyncService_InternalTransfer_RecordedOnce(t *testing.T) {
 	sourceWalletID := createTestWallet(t, env.ctx, testDB.Pool, userID, sourceAddress, 1)
 	destWalletID := createTestWallet(t, env.ctx, testDB.Pool, userID, destAddress, 1)
 
-	env.blockchainClient.SetCurrentBlock(1, 12345700)
-
 	// Add outgoing transfer from source (will be classified as internal)
-	env.blockchainClient.AddTransfer(sourceAddress, sync.Transfer{
-		TxHash:          "0xinternal123",
-		BlockNumber:     12345650,
-		Timestamp:       time.Now().Add(-time.Hour),
-		From:            sourceAddress,
-		To:              destAddress,
-		Amount:          big.NewInt(500000000000000000), // 0.5 ETH
-		AssetSymbol:     "ETH",
-		ContractAddress: "",
-		Decimals:        18,
-		ChainID:         1,
-		Direction:       sync.DirectionOut,
-		TransferType:    sync.TransferTypeExternal,
-		UniqueID:        "unique-internal-out",
+	env.zerionMock.AddTransaction(sourceAddress, sync.DecodedTransaction{
+		ID:            "zerion-internal-out",
+		TxHash:        "0xinternal123",
+		ChainID:       1,
+		OperationType: sync.OpSend,
+		Transfers: []sync.DecodedTransfer{
+			{
+				AssetSymbol: "ETH",
+				Decimals:    18,
+				Amount:      big.NewInt(500000000000000000), // 0.5 ETH
+				Direction:   sync.DirectionOut,
+				Sender:      sourceAddress,
+				Recipient:   destAddress,
+				USDPrice:    big.NewInt(250000000000),
+			},
+		},
+		MinedAt: time.Now().Add(-time.Hour),
+		Status:  "confirmed",
 	})
 
 	// Add incoming transfer to dest (same transaction, should be skipped)
-	env.blockchainClient.AddTransfer(destAddress, sync.Transfer{
-		TxHash:          "0xinternal123",
-		BlockNumber:     12345650,
-		Timestamp:       time.Now().Add(-time.Hour),
-		From:            sourceAddress,
-		To:              destAddress,
-		Amount:          big.NewInt(500000000000000000), // 0.5 ETH
-		AssetSymbol:     "ETH",
-		ContractAddress: "",
-		Decimals:        18,
-		ChainID:         1,
-		Direction:       sync.DirectionIn,
-		TransferType:    sync.TransferTypeExternal,
-		UniqueID:        "unique-internal-in",
+	env.zerionMock.AddTransaction(destAddress, sync.DecodedTransaction{
+		ID:            "zerion-internal-in",
+		TxHash:        "0xinternal123",
+		ChainID:       1,
+		OperationType: sync.OpReceive,
+		Transfers: []sync.DecodedTransfer{
+			{
+				AssetSymbol: "ETH",
+				Decimals:    18,
+				Amount:      big.NewInt(500000000000000000), // 0.5 ETH
+				Direction:   sync.DirectionIn,
+				Sender:      sourceAddress,
+				Recipient:   destAddress,
+				USDPrice:    big.NewInt(250000000000),
+			},
+		},
+		MinedAt: time.Now().Add(-time.Hour),
+		Status:  "confirmed",
 	})
 
 	// Sync both wallets
@@ -376,24 +357,26 @@ func TestSyncService_ConcurrentWalletSync_NoRace(t *testing.T) {
 		walletIDs = append(walletIDs, walletID)
 
 		// Add transfer for each wallet
-		env.blockchainClient.AddTransfer(address, sync.Transfer{
-			TxHash:          "0xtx" + string(rune('a'+i)),
-			BlockNumber:     12345600 + int64(i*10),
-			Timestamp:       time.Now().Add(-time.Hour),
-			From:            "0xexternalsender",
-			To:              address,
-			Amount:          big.NewInt(100000000000000000), // 0.1 ETH
-			AssetSymbol:     "ETH",
-			ContractAddress: "",
-			Decimals:        18,
-			ChainID:         1,
-			Direction:       sync.DirectionIn,
-			TransferType:    sync.TransferTypeExternal,
-			UniqueID:        "unique-concurrent-" + string(rune('a'+i)),
+		env.zerionMock.AddTransaction(address, sync.DecodedTransaction{
+			ID:            "zerion-concurrent-" + string(rune('a'+i)),
+			TxHash:        "0xtx" + string(rune('a'+i)),
+			ChainID:       1,
+			OperationType: sync.OpReceive,
+			Transfers: []sync.DecodedTransfer{
+				{
+					AssetSymbol: "ETH",
+					Decimals:    18,
+					Amount:      big.NewInt(100000000000000000), // 0.1 ETH
+					Direction:   sync.DirectionIn,
+					Sender:      "0xexternalsender",
+					Recipient:   address,
+					USDPrice:    big.NewInt(250000000000),
+				},
+			},
+			MinedAt: time.Now().Add(-time.Hour),
+			Status:  "confirmed",
 		})
 	}
-
-	env.blockchainClient.SetCurrentBlock(1, 12345700)
 
 	// Sync all wallets concurrently
 	var wg gosync.WaitGroup
@@ -430,23 +413,25 @@ func TestSyncService_Idempotency_DoubleSyncSameWallet(t *testing.T) {
 	walletAddress := "0x1234567890123456789012345678901234567890"
 	walletID := createTestWallet(t, env.ctx, testDB.Pool, userID, walletAddress, 1)
 
-	env.blockchainClient.SetCurrentBlock(1, 12345678)
-
 	// Add a transfer
-	env.blockchainClient.AddTransfer(walletAddress, sync.Transfer{
-		TxHash:          "0xidempotent123",
-		BlockNumber:     12345600,
-		Timestamp:       time.Now().Add(-time.Hour),
-		From:            "0xexternalsender",
-		To:              walletAddress,
-		Amount:          big.NewInt(1000000000000000000), // 1 ETH
-		AssetSymbol:     "ETH",
-		ContractAddress: "",
-		Decimals:        18,
-		ChainID:         1,
-		Direction:       sync.DirectionIn,
-		TransferType:    sync.TransferTypeExternal,
-		UniqueID:        "unique-idempotent",
+	env.zerionMock.AddTransaction(walletAddress, sync.DecodedTransaction{
+		ID:            "zerion-idempotent",
+		TxHash:        "0xidempotent123",
+		ChainID:       1,
+		OperationType: sync.OpReceive,
+		Transfers: []sync.DecodedTransfer{
+			{
+				AssetSymbol: "ETH",
+				Decimals:    18,
+				Amount:      big.NewInt(1000000000000000000), // 1 ETH
+				Direction:   sync.DirectionIn,
+				Sender:      "0xexternalsender",
+				Recipient:   walletAddress,
+				USDPrice:    big.NewInt(250000000000),
+			},
+		},
+		MinedAt: time.Now().Add(-time.Hour),
+		Status:  "confirmed",
 	})
 
 	// First sync
@@ -484,57 +469,67 @@ func TestSyncService_MixedTransfers_InOutExternal(t *testing.T) {
 	walletAddress := "0x1234567890123456789012345678901234567890"
 	walletID := createTestWallet(t, env.ctx, testDB.Pool, userID, walletAddress, 1)
 
-	env.blockchainClient.SetCurrentBlock(1, 12345700)
-
 	// Add incoming transfer: +2 ETH
-	env.blockchainClient.AddTransfer(walletAddress, sync.Transfer{
-		TxHash:          "0xin1",
-		BlockNumber:     12345600,
-		Timestamp:       time.Now().Add(-3 * time.Hour),
-		From:            "0xexternalsender",
-		To:              walletAddress,
-		Amount:          big.NewInt(2000000000000000000), // 2 ETH
-		AssetSymbol:     "ETH",
-		ContractAddress: "",
-		Decimals:        18,
-		ChainID:         1,
-		Direction:       sync.DirectionIn,
-		TransferType:    sync.TransferTypeExternal,
-		UniqueID:        "unique-in-1",
+	env.zerionMock.AddTransaction(walletAddress, sync.DecodedTransaction{
+		ID:            "zerion-in-1",
+		TxHash:        "0xin1",
+		ChainID:       1,
+		OperationType: sync.OpReceive,
+		Transfers: []sync.DecodedTransfer{
+			{
+				AssetSymbol: "ETH",
+				Decimals:    18,
+				Amount:      big.NewInt(2000000000000000000), // 2 ETH
+				Direction:   sync.DirectionIn,
+				Sender:      "0xexternalsender",
+				Recipient:   walletAddress,
+				USDPrice:    big.NewInt(250000000000),
+			},
+		},
+		MinedAt: time.Now().Add(-3 * time.Hour),
+		Status:  "confirmed",
 	})
 
 	// Add outgoing transfer: -0.5 ETH
-	env.blockchainClient.AddTransfer(walletAddress, sync.Transfer{
-		TxHash:          "0xout1",
-		BlockNumber:     12345620,
-		Timestamp:       time.Now().Add(-2 * time.Hour),
-		From:            walletAddress,
-		To:              "0xexternalreceiver",
-		Amount:          big.NewInt(500000000000000000), // 0.5 ETH
-		AssetSymbol:     "ETH",
-		ContractAddress: "",
-		Decimals:        18,
-		ChainID:         1,
-		Direction:       sync.DirectionOut,
-		TransferType:    sync.TransferTypeExternal,
-		UniqueID:        "unique-out-1",
+	env.zerionMock.AddTransaction(walletAddress, sync.DecodedTransaction{
+		ID:            "zerion-out-1",
+		TxHash:        "0xout1",
+		ChainID:       1,
+		OperationType: sync.OpSend,
+		Transfers: []sync.DecodedTransfer{
+			{
+				AssetSymbol: "ETH",
+				Decimals:    18,
+				Amount:      big.NewInt(500000000000000000), // 0.5 ETH
+				Direction:   sync.DirectionOut,
+				Sender:      walletAddress,
+				Recipient:   "0xexternalreceiver",
+				USDPrice:    big.NewInt(250000000000),
+			},
+		},
+		MinedAt: time.Now().Add(-2 * time.Hour),
+		Status:  "confirmed",
 	})
 
 	// Add another incoming: +1 ETH
-	env.blockchainClient.AddTransfer(walletAddress, sync.Transfer{
-		TxHash:          "0xin2",
-		BlockNumber:     12345640,
-		Timestamp:       time.Now().Add(-time.Hour),
-		From:            "0xexternalsender2",
-		To:              walletAddress,
-		Amount:          big.NewInt(1000000000000000000), // 1 ETH
-		AssetSymbol:     "ETH",
-		ContractAddress: "",
-		Decimals:        18,
-		ChainID:         1,
-		Direction:       sync.DirectionIn,
-		TransferType:    sync.TransferTypeExternal,
-		UniqueID:        "unique-in-2",
+	env.zerionMock.AddTransaction(walletAddress, sync.DecodedTransaction{
+		ID:            "zerion-in-2",
+		TxHash:        "0xin2",
+		ChainID:       1,
+		OperationType: sync.OpReceive,
+		Transfers: []sync.DecodedTransfer{
+			{
+				AssetSymbol: "ETH",
+				Decimals:    18,
+				Amount:      big.NewInt(1000000000000000000), // 1 ETH
+				Direction:   sync.DirectionIn,
+				Sender:      "0xexternalsender2",
+				Recipient:   walletAddress,
+				USDPrice:    big.NewInt(250000000000),
+			},
+		},
+		MinedAt: time.Now().Add(-time.Hour),
+		Status:  "confirmed",
 	})
 
 	// Sync
