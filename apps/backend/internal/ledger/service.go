@@ -236,12 +236,34 @@ func (r *accountResolver) resolveAccounts(ctx context.Context, tx *Transaction) 
 			return fmt.Errorf("failed to generate account code: %w", err)
 		}
 
-		account, err := r.repo.GetAccountByCode(ctx, accountCode)
+		accountType, walletID, chainID, err := r.parseAccountCode(accountCode, entry)
 		if err != nil {
-			account, err = r.createAccount(ctx, entry, accountCode)
-			if err != nil {
-				return fmt.Errorf("failed to create account: %w", err)
+			return fmt.Errorf("failed to parse account code: %w", err)
+		}
+
+		candidate := &Account{
+			ID:        uuid.New(),
+			Code:      accountCode,
+			Type:      accountType,
+			AssetID:   entry.AssetID,
+			WalletID:  walletID,
+			ChainID:   chainID,
+			CreatedAt: time.Now(),
+			Metadata:  make(map[string]interface{}),
+		}
+
+		if entry.Metadata != nil {
+			if walletIDStr, ok := entry.Metadata["wallet_id"].(string); ok {
+				candidate.Metadata["wallet_id"] = walletIDStr
 			}
+			if chainIDStr, ok := entry.Metadata["chain_id"].(string); ok {
+				candidate.Metadata["chain_id"] = chainIDStr
+			}
+		}
+
+		account, err := r.repo.GetOrCreateAccount(ctx, candidate)
+		if err != nil {
+			return fmt.Errorf("failed to get or create account: %w", err)
 		}
 
 		entry.AccountID = account.ID
@@ -263,39 +285,6 @@ func (r *accountResolver) generateAccountCode(entry *Entry) (string, error) {
 	return code, nil
 }
 
-func (r *accountResolver) createAccount(ctx context.Context, entry *Entry, code string) (*Account, error) {
-	accountType, walletID, chainID, err := r.parseAccountCode(code, entry)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse account code: %w", err)
-	}
-
-	account := &Account{
-		ID:        uuid.New(),
-		Code:      code,
-		Type:      accountType,
-		AssetID:   entry.AssetID,
-		WalletID:  walletID,
-		ChainID:   chainID,
-		CreatedAt: time.Now(),
-		Metadata:  make(map[string]interface{}),
-	}
-
-	if entry.Metadata != nil {
-		if walletIDStr, ok := entry.Metadata["wallet_id"].(string); ok {
-			account.Metadata["wallet_id"] = walletIDStr
-		}
-		if chainIDStr, ok := entry.Metadata["chain_id"].(string); ok {
-			account.Metadata["chain_id"] = chainIDStr
-		}
-	}
-
-	if err := r.repo.CreateAccount(ctx, account); err != nil {
-		return nil, fmt.Errorf("failed to create account in repository: %w", err)
-	}
-
-	return account, nil
-}
-
 func (r *accountResolver) parseAccountCode(code string, entry *Entry) (AccountType, *uuid.UUID, *string, error) {
 	var accountType AccountType
 
@@ -315,6 +304,8 @@ func (r *accountResolver) parseAccountCode(code string, entry *Entry) (AccountTy
 			accountType = AccountTypeExpense
 		case len(code) > 4 && code[:4] == "gas.":
 			accountType = AccountTypeGasFee
+		case len(code) > 9 && code[:9] == "clearing.":
+			accountType = AccountTypeClearing
 		default:
 			return "", nil, nil, fmt.Errorf("cannot determine account type from code: %s", code)
 		}

@@ -10,12 +10,14 @@ type Config struct {
 	// ConcurrentWallets is the max number of wallets to sync concurrently
 	ConcurrentWallets int
 
-	// InitialSyncBlockLookback is how many blocks to look back for initial sync
-	// Set to 0 to sync from genesis (not recommended for mainnet)
+	// Deprecated: used by Alchemy block-based sync
 	InitialSyncBlockLookback int64
 
-	// MaxBlocksPerSync is the max blocks to sync in one batch
+	// Deprecated: used by Alchemy block-based sync
 	MaxBlocksPerSync int64
+
+	// InitialSyncLookback is how far back to look for the first sync (time-based)
+	InitialSyncLookback time.Duration
 
 	// Enabled determines if background sync is enabled
 	Enabled bool
@@ -28,6 +30,7 @@ func DefaultConfig() *Config {
 		ConcurrentWallets:        3,
 		InitialSyncBlockLookback: 1000000, // ~100 days on Ethereum
 		MaxBlocksPerSync:         10000,
+		InitialSyncLookback:      2160 * time.Hour, // 90 days
 		Enabled:                  true,
 	}
 }
@@ -42,6 +45,9 @@ func (c *Config) Validate() error {
 	}
 	if c.MaxBlocksPerSync <= 0 {
 		c.MaxBlocksPerSync = 10000
+	}
+	if c.InitialSyncLookback <= 0 {
+		c.InitialSyncLookback = 2160 * time.Hour
 	}
 	return nil
 }

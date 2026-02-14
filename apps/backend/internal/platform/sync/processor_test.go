@@ -36,14 +36,6 @@ func (m *MockWalletRepository) GetWalletsForSync(ctx context.Context) ([]*wallet
 	return args.Get(0).([]*wallet.Wallet), args.Error(1)
 }
 
-func (m *MockWalletRepository) GetWalletsByAddress(ctx context.Context, address string) ([]*wallet.Wallet, error) {
-	args := m.Called(ctx, address)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*wallet.Wallet), args.Error(1)
-}
-
 func (m *MockWalletRepository) GetWalletsByAddressAndUserID(ctx context.Context, address string, userID uuid.UUID) ([]*wallet.Wallet, error) {
 	args := m.Called(ctx, address, userID)
 	if args.Get(0) == nil {
@@ -64,6 +56,11 @@ func (m *MockWalletRepository) SetSyncInProgress(ctx context.Context, walletID u
 
 func (m *MockWalletRepository) SetSyncCompleted(ctx context.Context, walletID uuid.UUID, lastBlock int64, syncAt time.Time) error {
 	args := m.Called(ctx, walletID, lastBlock, syncAt)
+	return args.Error(0)
+}
+
+func (m *MockWalletRepository) SetSyncCompletedAt(ctx context.Context, walletID uuid.UUID, syncAt time.Time) error {
+	args := m.Called(ctx, walletID, syncAt)
 	return args.Error(0)
 }
 

@@ -271,50 +271,6 @@ func (r *WalletRepository) GetWalletsForSync(ctx context.Context) ([]*wallet.Wal
 	return wallets, nil
 }
 
-// GetWalletsByAddress retrieves wallets by address across all chains (for internal transfer detection)
-func (r *WalletRepository) GetWalletsByAddress(ctx context.Context, address string) ([]*wallet.Wallet, error) {
-	query := `
-		SELECT id, user_id, name, chain_id, address, sync_status, last_sync_block, last_sync_at, sync_error, sync_started_at, created_at, updated_at
-		FROM wallets
-		WHERE lower(address) = lower($1)
-	`
-
-	rows, err := r.pool.Query(ctx, query, address)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query wallets by address: %w", err)
-	}
-	defer rows.Close()
-
-	var wallets []*wallet.Wallet
-	for rows.Next() {
-		w := &wallet.Wallet{}
-		err := rows.Scan(
-			&w.ID,
-			&w.UserID,
-			&w.Name,
-			&w.ChainID,
-			&w.Address,
-			&w.SyncStatus,
-			&w.LastSyncBlock,
-			&w.LastSyncAt,
-			&w.SyncError,
-			&w.SyncStartedAt,
-			&w.CreatedAt,
-			&w.UpdatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan wallet: %w", err)
-		}
-		wallets = append(wallets, w)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating wallets: %w", err)
-	}
-
-	return wallets, nil
-}
-
 // GetWalletsByAddressAndUserID retrieves wallets with a given address for a specific user
 func (r *WalletRepository) GetWalletsByAddressAndUserID(ctx context.Context, address string, userID uuid.UUID) ([]*wallet.Wallet, error) {
 	query := `
@@ -439,6 +395,26 @@ func (r *WalletRepository) SetSyncCompleted(ctx context.Context, walletID uuid.U
 	`
 
 	result, err := r.pool.Exec(ctx, query, wallet.SyncStatusSynced, lastBlock, syncAt, time.Now(), walletID)
+	if err != nil {
+		return fmt.Errorf("failed to set sync completed: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return wallet.ErrWalletNotFound
+	}
+
+	return nil
+}
+
+// SetSyncCompletedAt marks a wallet sync as completed at a given time (without block number)
+func (r *WalletRepository) SetSyncCompletedAt(ctx context.Context, walletID uuid.UUID, syncAt time.Time) error {
+	query := `
+		UPDATE wallets
+		SET sync_status = $1, last_sync_at = $2, sync_error = NULL, updated_at = $3
+		WHERE id = $4
+	`
+
+	result, err := r.pool.Exec(ctx, query, wallet.SyncStatusSynced, syncAt, time.Now(), walletID)
 	if err != nil {
 		return fmt.Errorf("failed to set sync completed: %w", err)
 	}

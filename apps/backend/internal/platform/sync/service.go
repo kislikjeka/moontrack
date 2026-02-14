@@ -18,6 +18,8 @@ type Service struct {
 	blockchainClient BlockchainClient
 	walletRepo       WalletRepository
 	processor        *Processor
+	zerionProvider   TransactionDataProvider
+	zerionProcessor  *ZerionProcessor
 	logger           *slog.Logger
 	wg               sync.WaitGroup
 	stopCh           chan struct{}
@@ -25,7 +27,9 @@ type Service struct {
 	running          bool
 }
 
-// NewService creates a new sync service
+// NewService creates a new sync service.
+// blockchainClient and zerionProvider are both optional — pass nil to disable that sync path.
+// When zerionProvider is set, it takes priority over blockchainClient for wallet syncing.
 func NewService(
 	config *Config,
 	blockchainClient BlockchainClient,
@@ -33,6 +37,7 @@ func NewService(
 	ledgerSvc LedgerService,
 	assetSvc AssetService,
 	logger *slog.Logger,
+	zerionProvider TransactionDataProvider,
 ) *Service {
 	if config == nil {
 		config = DefaultConfig()
@@ -41,11 +46,18 @@ func NewService(
 
 	processor := NewProcessor(walletRepo, ledgerSvc, assetSvc, logger)
 
+	var zerionProc *ZerionProcessor
+	if zerionProvider != nil {
+		zerionProc = NewZerionProcessor(walletRepo, ledgerSvc, logger)
+	}
+
 	return &Service{
 		config:           config,
 		blockchainClient: blockchainClient,
 		walletRepo:       walletRepo,
 		processor:        processor,
+		zerionProvider:   zerionProvider,
+		zerionProcessor:  zerionProc,
 		logger:           logger.With("service", "sync"),
 		stopCh:           make(chan struct{}),
 	}
@@ -166,9 +178,103 @@ func (s *Service) SyncWallet(ctx context.Context, walletID uuid.UUID) error {
 	return fmt.Errorf("wallet not found or not pending sync")
 }
 
-// syncWallet syncs a single wallet
+// syncWallet syncs a single wallet, dispatching to Zerion or Alchemy path
 func (s *Service) syncWallet(ctx context.Context, w *wallet.Wallet) error {
-	s.logger.Info("starting wallet sync",
+	if s.zerionProvider != nil {
+		return s.syncWalletZerion(ctx, w)
+	}
+	return s.syncWalletAlchemy(ctx, w)
+}
+
+// syncWalletZerion syncs a wallet using the Zerion decoded transaction API (time-based cursor)
+func (s *Service) syncWalletZerion(ctx context.Context, w *wallet.Wallet) error {
+	s.logger.Info("starting wallet sync (zerion)",
+		"wallet_id", w.ID,
+		"address", w.Address,
+		"chain_id", w.ChainID,
+		"last_sync_at", w.LastSyncAt)
+
+	// Atomically claim the wallet for syncing
+	claimed, err := s.walletRepo.ClaimWalletForSync(ctx, w.ID)
+	if err != nil {
+		return fmt.Errorf("failed to claim wallet for sync: %w", err)
+	}
+	if !claimed {
+		s.logger.Debug("wallet already being synced, skipping", "wallet_id", w.ID)
+		return nil
+	}
+
+	// Determine "since" time for fetching transactions
+	var since time.Time
+	if w.LastSyncAt != nil {
+		since = *w.LastSyncAt
+	} else {
+		// Initial sync — look back by configured duration
+		since = time.Now().Add(-s.config.InitialSyncLookback)
+	}
+
+	// Fetch decoded transactions from Zerion
+	transactions, err := s.zerionProvider.GetTransactions(ctx, w.Address, w.ChainID, since)
+	if err != nil {
+		errMsg := fmt.Sprintf("failed to get transactions from zerion: %v", err)
+		_ = s.walletRepo.SetSyncError(ctx, w.ID, errMsg)
+		return fmt.Errorf("failed to get transactions from zerion: %w", err)
+	}
+
+	s.logger.Info("fetched decoded transactions",
+		"wallet_id", w.ID,
+		"count", len(transactions),
+		"since", since.Format(time.RFC3339))
+
+	// Process each transaction, tracking cursor to last successfully committed tx
+	var lastSuccessfulMinedAt *time.Time
+	var processErrors []error
+	processed := 0
+	for _, tx := range transactions {
+		if err := s.zerionProcessor.ProcessTransaction(ctx, w, tx); err != nil {
+			s.logger.Error("failed to process transaction, stopping sync",
+				"wallet_id", w.ID,
+				"tx_hash", tx.TxHash,
+				"zerion_id", tx.ID,
+				"error", err)
+			processErrors = append(processErrors, err)
+			break // stop on first error to preserve cursor safety
+		}
+		minedAt := tx.MinedAt
+		lastSuccessfulMinedAt = &minedAt
+		processed++
+	}
+
+	// Update cursor ONLY to last successfully committed transaction's MinedAt
+	if lastSuccessfulMinedAt != nil {
+		if err := s.walletRepo.SetSyncCompletedAt(ctx, w.ID, *lastSuccessfulMinedAt); err != nil {
+			return fmt.Errorf("failed to mark sync completed: %w", err)
+		}
+	} else if len(processErrors) == 0 {
+		// No transactions and no errors — wallet is up to date
+		if err := s.walletRepo.SetSyncCompletedAt(ctx, w.ID, time.Now()); err != nil {
+			return fmt.Errorf("failed to mark sync completed: %w", err)
+		}
+	} else {
+		// First transaction failed — don't advance cursor
+		errMsg := fmt.Sprintf("sync failed on first transaction: %v", processErrors[0])
+		_ = s.walletRepo.SetSyncError(ctx, w.ID, errMsg)
+	}
+
+	// Clear address cache after each wallet sync
+	s.zerionProcessor.ClearCache()
+
+	s.logger.Info("wallet sync completed (zerion)",
+		"wallet_id", w.ID,
+		"transactions_processed", processed,
+		"errors", len(processErrors))
+
+	return nil
+}
+
+// syncWalletAlchemy syncs a wallet using the Alchemy block-based API (legacy path)
+func (s *Service) syncWalletAlchemy(ctx context.Context, w *wallet.Wallet) error {
+	s.logger.Info("starting wallet sync (alchemy)",
 		"wallet_id", w.ID,
 		"address", w.Address,
 		"chain_id", w.ChainID,

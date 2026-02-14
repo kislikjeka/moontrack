@@ -64,9 +64,6 @@ type WalletRepository interface {
 	// GetWalletsForSync retrieves wallets that need syncing
 	GetWalletsForSync(ctx context.Context) ([]*wallet.Wallet, error)
 
-	// GetWalletsByAddress retrieves all wallets with a given address (for internal transfer detection)
-	GetWalletsByAddress(ctx context.Context, address string) ([]*wallet.Wallet, error)
-
 	// GetWalletsByAddressAndUserID retrieves wallets with a given address for a specific user
 	GetWalletsByAddressAndUserID(ctx context.Context, address string, userID uuid.UUID) ([]*wallet.Wallet, error)
 
@@ -78,6 +75,9 @@ type WalletRepository interface {
 
 	// SetSyncCompleted marks a wallet as successfully synced
 	SetSyncCompleted(ctx context.Context, walletID uuid.UUID, lastBlock int64, syncAt time.Time) error
+
+	// SetSyncCompletedAt marks a wallet as synced at a given time (without block number)
+	SetSyncCompletedAt(ctx context.Context, walletID uuid.UUID, syncAt time.Time) error
 
 	// SetSyncError marks a wallet sync as failed
 	SetSyncError(ctx context.Context, walletID uuid.UUID, errMsg string) error

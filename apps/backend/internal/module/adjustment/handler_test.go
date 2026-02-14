@@ -30,6 +30,14 @@ func (m *MockLedgerRepository) CreateAccount(ctx context.Context, account *ledge
 	return args.Error(0)
 }
 
+func (m *MockLedgerRepository) GetOrCreateAccount(ctx context.Context, account *ledger.Account) (*ledger.Account, error) {
+	args := m.Called(ctx, account)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*ledger.Account), args.Error(1)
+}
+
 func (m *MockLedgerRepository) GetAccount(ctx context.Context, id uuid.UUID) (*ledger.Account, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
