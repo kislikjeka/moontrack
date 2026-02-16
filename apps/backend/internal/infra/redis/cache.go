@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -25,21 +26,24 @@ const (
 type Cache struct {
 	client *redis.Client
 	ttl    time.Duration
+	logger *logger.Logger
 }
 
 // NewCache creates a new price cache
-func NewCache(client *redis.Client) *Cache {
+func NewCache(client *redis.Client, log *logger.Logger) *Cache {
 	return &Cache{
 		client: client,
 		ttl:    DefaultTTL,
+		logger: log.WithField("component", "cache"),
 	}
 }
 
 // NewCacheWithTTL creates a new price cache with custom TTL
-func NewCacheWithTTL(client *redis.Client, ttl time.Duration) *Cache {
+func NewCacheWithTTL(client *redis.Client, ttl time.Duration, log *logger.Logger) *Cache {
 	return &Cache{
 		client: client,
 		ttl:    ttl,
+		logger: log.WithField("component", "cache"),
 	}
 }
 
@@ -57,9 +61,11 @@ func (c *Cache) Get(ctx context.Context, assetID string) (*big.Int, bool, error)
 
 	val, err := c.client.Get(ctx, key).Result()
 	if err == redis.Nil {
+		c.logger.Debug("cache miss", "asset_id", assetID)
 		return nil, false, nil // Not found
 	}
 	if err != nil {
+		c.logger.Error("cache error", "operation", "get", "asset_id", assetID, "error", err)
 		return nil, false, fmt.Errorf("failed to get cached price: %w", err)
 	}
 
@@ -75,6 +81,7 @@ func (c *Cache) Get(ctx context.Context, assetID string) (*big.Int, bool, error)
 		return nil, false, fmt.Errorf("failed to parse cached price: invalid number")
 	}
 
+	c.logger.Debug("cache hit", "asset_id", assetID)
 	return price, true, nil
 }
 
@@ -100,6 +107,7 @@ func (c *Cache) SetWithTTL(ctx context.Context, assetID string, price *big.Int, 
 	}
 
 	if err := c.client.Set(ctx, key, data, ttl).Err(); err != nil {
+		c.logger.Error("cache error", "operation", "set", "asset_id", assetID, "error", err)
 		return fmt.Errorf("failed to set cached price: %w", err)
 	}
 
@@ -135,9 +143,11 @@ func (c *Cache) GetStale(ctx context.Context, assetID string) (*big.Int, bool, e
 
 	val, err := c.client.Get(ctx, key).Result()
 	if err == redis.Nil {
+		c.logger.Debug("stale cache miss", "asset_id", assetID)
 		return nil, false, nil // Not found
 	}
 	if err != nil {
+		c.logger.Error("cache error", "operation", "get_stale", "asset_id", assetID, "error", err)
 		return nil, false, fmt.Errorf("failed to get stale cached price: %w", err)
 	}
 

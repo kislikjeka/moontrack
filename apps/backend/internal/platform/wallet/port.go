@@ -2,6 +2,7 @@ package wallet
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -25,4 +26,25 @@ type Repository interface {
 
 	// ExistsByUserAndName checks if a wallet with the given name exists for the user
 	ExistsByUserAndName(ctx context.Context, userID uuid.UUID, name string) (bool, error)
+
+	// ExistsByUserChainAndAddress checks if a wallet with the given chain/address exists for the user
+	ExistsByUserChainAndAddress(ctx context.Context, userID uuid.UUID, chainID int64, address string) (bool, error)
+
+	// GetWalletsForSync retrieves wallets that need syncing (pending or error status)
+	GetWalletsForSync(ctx context.Context) ([]*Wallet, error)
+
+	// GetWalletsByAddressAndUserID retrieves wallets with a given address for a specific user
+	GetWalletsByAddressAndUserID(ctx context.Context, address string, userID uuid.UUID) ([]*Wallet, error)
+
+	// ClaimWalletForSync atomically claims a wallet for syncing (returns false if already syncing)
+	ClaimWalletForSync(ctx context.Context, walletID uuid.UUID) (bool, error)
+
+	// SetSyncInProgress marks a wallet as currently syncing
+	SetSyncInProgress(ctx context.Context, walletID uuid.UUID) error
+
+	// SetSyncCompletedAt marks a wallet sync as completed at a given time
+	SetSyncCompletedAt(ctx context.Context, walletID uuid.UUID, syncAt time.Time) error
+
+	// SetSyncError marks a wallet sync as failed with an error message
+	SetSyncError(ctx context.Context, walletID uuid.UUID, errMsg string) error
 }

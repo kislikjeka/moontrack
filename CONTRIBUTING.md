@@ -223,7 +223,7 @@ just frontend-test
 just frontend-coverage
 
 # Watch mode
-cd apps/frontend && npm test -- --watch
+cd apps/frontend && bun test -- --watch
 ```
 
 ## Documentation

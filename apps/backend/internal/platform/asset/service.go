@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
 // Service provides unified access to asset registry and pricing
@@ -17,6 +18,7 @@ type Service struct {
 	cache          PriceCache
 	priceProvider  PriceProvider
 	circuitBreaker *CircuitBreaker
+	logger         *logger.Logger
 }
 
 // NewService creates a new asset service
@@ -25,6 +27,7 @@ func NewService(
 	priceRepo PriceRepository,
 	cache PriceCache,
 	priceProvider PriceProvider,
+	log *logger.Logger,
 ) *Service {
 	return &Service{
 		repo:           repo,
@@ -32,6 +35,7 @@ func NewService(
 		cache:          cache,
 		priceProvider:  priceProvider,
 		circuitBreaker: NewCircuitBreaker(3, 5*time.Minute), // 3 failures, 5-minute cooldown
+		logger:         log.WithField("component", "asset"),
 	}
 }
 
@@ -174,6 +178,7 @@ func (s *Service) GetCurrentPrice(ctx context.Context, assetID uuid.UUID) (*Pric
 	if s.cache != nil {
 		price, found, err := s.cache.Get(ctx, asset.CoinGeckoID)
 		if err == nil && found {
+			s.logger.Debug("cache hit", "asset_id", asset.CoinGeckoID)
 			return &PricePoint{
 				Time:     time.Now(),
 				AssetID:  assetID,
@@ -183,6 +188,8 @@ func (s *Service) GetCurrentPrice(ctx context.Context, assetID uuid.UUID) (*Pric
 			}, nil
 		}
 	}
+
+	s.logger.Debug("cache miss", "asset_id", asset.CoinGeckoID)
 
 	// Layer 2: Check price_history (last 5 minutes)
 	if s.priceRepo != nil {
@@ -227,6 +234,7 @@ func (s *Service) GetCurrentPrice(ctx context.Context, assetID uuid.UUID) (*Pric
 	if s.cache != nil {
 		price, found, err := s.cache.GetStale(ctx, asset.CoinGeckoID)
 		if err == nil && found {
+			s.logger.Warn("using stale price", "asset_id", asset.CoinGeckoID)
 			return &PricePoint{
 				Time:     time.Now(),
 				AssetID:  assetID,
@@ -381,32 +389,36 @@ func (s *Service) GetCurrentPriceByCoinGeckoID(ctx context.Context, coinGeckoID 
 	}
 
 	// Layer 3: Fetch from provider API (if circuit breaker allows)
-	if s.priceProvider != nil && s.circuitBreaker.CanAttempt() {
-		prices, err := s.priceProvider.GetCurrentPrices(ctx, []string{coinGeckoID})
-		if err == nil {
-			if price, found := prices[coinGeckoID]; found {
-				// Save to cache
-				if s.cache != nil {
-					_ = s.cache.Set(ctx, coinGeckoID, price, "coingecko")
-					_ = s.cache.SetStale(ctx, coinGeckoID, price, "coingecko")
-				}
-
-				// Save to price_history if we have the asset
-				if asset != nil && s.priceRepo != nil {
-					pricePoint := &PricePoint{
-						Time:     time.Now(),
-						AssetID:  asset.ID,
-						PriceUSD: price,
-						Source:   PriceSourceCoinGecko,
-					}
-					_ = s.priceRepo.RecordPrice(ctx, pricePoint)
-				}
-
-				s.circuitBreaker.RecordSuccess()
-				return price, nil
-			}
+	if s.priceProvider != nil {
+		if !s.circuitBreaker.CanAttempt() {
+			s.logger.Warn("circuit breaker open", "asset_id", coinGeckoID)
 		} else {
-			s.circuitBreaker.RecordFailure()
+			prices, err := s.priceProvider.GetCurrentPrices(ctx, []string{coinGeckoID})
+			if err == nil {
+				if price, found := prices[coinGeckoID]; found {
+					// Save to cache
+					if s.cache != nil {
+						_ = s.cache.Set(ctx, coinGeckoID, price, "coingecko")
+						_ = s.cache.SetStale(ctx, coinGeckoID, price, "coingecko")
+					}
+
+					// Save to price_history if we have the asset
+					if asset != nil && s.priceRepo != nil {
+						pricePoint := &PricePoint{
+							Time:     time.Now(),
+							AssetID:  asset.ID,
+							PriceUSD: price,
+							Source:   PriceSourceCoinGecko,
+						}
+						_ = s.priceRepo.RecordPrice(ctx, pricePoint)
+					}
+
+					s.circuitBreaker.RecordSuccess()
+					return price, nil
+				}
+			} else {
+				s.circuitBreaker.RecordFailure()
+			}
 		}
 	}
 
@@ -414,6 +426,7 @@ func (s *Service) GetCurrentPriceByCoinGeckoID(ctx context.Context, coinGeckoID 
 	if s.cache != nil {
 		price, found, err := s.cache.GetStale(ctx, coinGeckoID)
 		if err == nil && found {
+			s.logger.Warn("using stale price", "asset_id", coinGeckoID)
 			return price, &StalePriceWarning{
 				Message: fmt.Sprintf("Using stale cached price for %s (API unavailable)", coinGeckoID),
 				Price:   price,

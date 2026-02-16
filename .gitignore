@@ -29,6 +29,7 @@ apps/frontend/.env
 # Go
 # Backend specific
 apps/backend/bin/
+apps/backend/api
 apps/backend/*.exe
 apps/backend/*.test
 apps/backend/*.out

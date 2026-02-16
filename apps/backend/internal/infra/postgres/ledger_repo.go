@@ -61,6 +61,43 @@ func (r *LedgerRepository) CreateAccount(ctx context.Context, account *ledger.Ac
 	return nil
 }
 
+// GetOrCreateAccount atomically inserts an account or returns the existing one by code.
+// Uses INSERT...ON CONFLICT (code) DO NOTHING to avoid race conditions.
+func (r *LedgerRepository) GetOrCreateAccount(ctx context.Context, account *ledger.Account) (*ledger.Account, error) {
+	if err := account.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid account: %w", err)
+	}
+
+	metadataJSON, err := json.Marshal(account.Metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	insertQuery := `
+		INSERT INTO accounts (id, code, type, asset_id, wallet_id, chain_id, created_at, metadata)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (code) DO NOTHING
+	`
+
+	q := r.getQueryer(ctx)
+	_, err = q.Exec(ctx, insertQuery,
+		account.ID,
+		account.Code,
+		string(account.Type),
+		account.AssetID,
+		account.WalletID,
+		account.ChainID,
+		account.CreatedAt,
+		metadataJSON,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert account: %w", err)
+	}
+
+	// Always SELECT to get the canonical row (ours or existing)
+	return r.GetAccountByCode(ctx, account.Code)
+}
+
 // GetAccount retrieves an account by ID
 func (r *LedgerRepository) GetAccount(ctx context.Context, id uuid.UUID) (*ledger.Account, error) {
 	query := `

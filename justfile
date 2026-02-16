@@ -23,7 +23,27 @@ dev:
     @just migrate-up || true
     @echo ""
     @echo "Starting frontend..."
-    cd apps/frontend && npm run dev
+    cd apps/frontend && bun run dev
+
+# Start full dev environment with Grafana+Loki log stack
+dev-logs:
+    @echo "Starting development environment with log stack..."
+    @echo "Backend: http://localhost:8080"
+    @echo "Frontend: http://localhost:5173"
+    @echo "Grafana: http://localhost:3001"
+    @echo ""
+    docker-compose --profile logs up -d postgres redis backend loki promtail grafana
+    @echo ""
+    @echo "Waiting for backend to be ready..."
+    @sleep 3
+    @just migrate-up || true
+    @echo ""
+    @echo "Starting frontend..."
+    cd apps/frontend && bun run dev
+
+# Open Grafana Explore in browser
+grafana:
+    open http://localhost:3001/explore
 
 # Stop all containers
 down:
@@ -66,6 +86,18 @@ migrate-create name:
     cd apps/backend && migrate create -ext sql -dir migrations -seq {{name}}
     @echo "Migration created: {{name}}"
 
+# Clear all portfolio data (wallets, transactions, entries) but keep user accounts
+db-clear-data:
+    @echo "Clearing all portfolio data (keeping user accounts)..."
+    docker exec moontrack-postgres psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} -c "\
+        DELETE FROM entries; \
+        DELETE FROM account_balances; \
+        DELETE FROM accounts; \
+        DELETE FROM transactions; \
+        DELETE FROM wallets; \
+    "
+    @echo "All portfolio data cleared. User accounts and price history preserved."
+
 # Reset database (drop all and re-migrate)
 db-reset:
     docker exec moontrack-backend sh -c "migrate -database 'postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable' -path migrations down -all || true"
@@ -93,14 +125,14 @@ backend-test:
 
 # Run frontend tests
 frontend-test:
-    cd apps/frontend && npm test
+    cd apps/frontend && bun test
 
 # Generate coverage reports
 coverage:
     @echo "Generating coverage reports..."
     cd apps/backend && go test ./... -cover -coverprofile=coverage.out
     cd apps/backend && go tool cover -html=coverage.out -o coverage.html
-    cd apps/frontend && npm test -- --coverage || true
+    cd apps/frontend && bun test -- --coverage || true
     @echo "Coverage reports generated"
 
 # =============================================================================
@@ -115,7 +147,7 @@ fmt:
 # Lint all code
 lint:
     cd apps/backend && golangci-lint run || echo "golangci-lint not installed"
-    cd apps/frontend && npm run lint || true
+    cd apps/frontend && bun run lint || true
     @echo "Linting complete"
 
 # Run all checks (format, lint, test)
@@ -142,7 +174,7 @@ setup:
     fi
     @echo ""
     @echo "Installing frontend dependencies..."
-    cd apps/frontend && npm install
+    cd apps/frontend && bun install
     @echo ""
     @echo "Setup complete!"
     @echo ""

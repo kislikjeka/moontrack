@@ -11,6 +11,7 @@ import (
 type Repository interface {
 	// Account operations
 	CreateAccount(ctx context.Context, account *Account) error
+	GetOrCreateAccount(ctx context.Context, account *Account) (*Account, error)
 	GetAccount(ctx context.Context, id uuid.UUID) (*Account, error)
 	GetAccountByCode(ctx context.Context, code string) (*Account, error)
 	FindAccountsByWallet(ctx context.Context, walletID uuid.UUID) ([]*Account, error)

@@ -94,6 +94,10 @@ PORT=8080
 ENV=development
 ```
 
+## Project Setup / Environment
+
+This project uses Go (backend) and TypeScript (frontend). Docker is used for the dev environment with TimescaleDB/Postgres. The backend uses DI wiring. Always use Docker-internal hostnames (e.g., `postgres` not `localhost`) in DATABASE_URL when running inside Docker containers.
+
 ## Key Principles
 
 1. **Financial Precision**: Use `NUMERIC(78,0)` in DB, `math/big.Int` in Go, never float64
@@ -101,3 +105,27 @@ ENV=development
 3. **Handler Registry**: New transaction types as modules without touching ledger core
 4. **Security**: Input validation, SQL injection protection, secrets never in code
 5. **Simplicity**: YAGNI, no premature abstractions
+
+## Git & Commits
+
+When committing changes, always commit ALL modified files unless explicitly told otherwise. Do not selectively commit only plan/doc files — include all code changes.
+
+## Architecture & Design
+
+Before proposing architectural changes, thoroughly read existing ADRs, PRDs, and architecture docs in the repo to ensure proposals don't contradict established patterns (e.g., lot-based accounting, existing DI wiring, entity hierarchy).
+
+## Go Development
+
+After making code changes in Go, always run `go build ./...` before considering the task done. Fix ALL compilation errors before moving on. Do not leave sessions with broken builds.
+
+## Testing
+
+When running tests or dev servers, never use interactive/watch mode. Always use single-run flags (e.g., `bun test --run`, not `bun test` in watch mode). If a command hangs, kill it immediately rather than waiting.
+
+## Code Quality
+
+When fixing lint/type errors, fix the actual underlying code issues. Never simplify or disable lint rules, remove type checks, or suppress errors unless explicitly asked to.
+
+## Skills & Workflows
+
+When a skill template or existing skill exists for a task (e.g., skill-development skill), always use it as the base. Check `.claude/skills/` before creating new skills from scratch.

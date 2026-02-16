@@ -6,15 +6,38 @@ import (
 	"github.com/google/uuid"
 )
 
-// Wallet represents a collection of assets on a specific blockchain network
+// SyncStatus represents the synchronization status of a wallet
+type SyncStatus string
+
+const (
+	SyncStatusPending SyncStatus = "pending" // Not yet synced
+	SyncStatusSyncing SyncStatus = "syncing" // Currently syncing
+	SyncStatusSynced  SyncStatus = "synced"  // Successfully synced
+	SyncStatusError   SyncStatus = "error"   // Sync failed
+)
+
+// IsValid checks if the sync status is valid
+func (s SyncStatus) IsValid() bool {
+	switch s {
+	case SyncStatusPending, SyncStatusSyncing, SyncStatusSynced, SyncStatusError:
+		return true
+	}
+	return false
+}
+
+// Wallet represents an EVM blockchain wallet for tracking crypto assets
 type Wallet struct {
-	ID        uuid.UUID `json:"id" db:"id"`
-	UserID    uuid.UUID `json:"user_id" db:"user_id"`
-	Name      string    `json:"name" db:"name"`
-	ChainID   string    `json:"chain_id" db:"chain_id"`
-	Address   *string   `json:"address,omitempty" db:"address"` // Optional blockchain address
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+	ID            uuid.UUID  `json:"id" db:"id"`
+	UserID        uuid.UUID  `json:"user_id" db:"user_id"`
+	Name          string     `json:"name" db:"name"`
+	ChainID       int64      `json:"chain_id" db:"chain_id"`         // EVM chain ID (1=ETH, 137=Polygon, etc.)
+	Address       string     `json:"address" db:"address"`           // Required EVM address (0x...)
+	SyncStatus SyncStatus `json:"sync_status" db:"sync_status"` // Sync state
+	LastSyncAt *time.Time `json:"last_sync_at" db:"last_sync_at"`
+	SyncError     *string    `json:"sync_error,omitempty" db:"sync_error"`
+	SyncStartedAt *time.Time `json:"sync_started_at,omitempty" db:"sync_started_at"`
+	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 // ValidateCreate validates wallet fields for creation
@@ -31,9 +54,16 @@ func (w *Wallet) ValidateCreate() error {
 		return ErrWalletNameTooLong
 	}
 
-	if !isValidChainID(w.ChainID) {
+	if !IsValidEVMChainID(w.ChainID) {
 		return ErrInvalidChainID
 	}
+
+	// Validate EVM address (required)
+	checksumAddr, err := ValidateEVMAddress(w.Address)
+	if err != nil {
+		return err
+	}
+	w.Address = checksumAddr
 
 	return nil
 }
@@ -52,25 +82,48 @@ func (w *Wallet) ValidateUpdate() error {
 		return ErrWalletNameTooLong
 	}
 
-	if w.ChainID != "" && !isValidChainID(w.ChainID) {
+	if w.ChainID != 0 && !IsValidEVMChainID(w.ChainID) {
 		return ErrInvalidChainID
 	}
 
 	return nil
 }
 
-// Supported blockchain networks
-var supportedChains = map[string]bool{
-	"ethereum":            true,
-	"bitcoin":             true,
-	"solana":              true,
-	"polygon":             true,
-	"binance-smart-chain": true,
-	"arbitrum":            true,
-	"optimism":            true,
-	"avalanche":           true,
+// NeedsSyncing returns true if the wallet should be synced
+func (w *Wallet) NeedsSyncing() bool {
+	return w.SyncStatus == SyncStatusPending || w.SyncStatus == SyncStatusError
 }
 
-func isValidChainID(chainID string) bool {
-	return supportedChains[chainID]
+// Supported EVM chain IDs
+var supportedEVMChains = map[int64]string{
+	1:     "Ethereum Mainnet",
+	137:   "Polygon",
+	42161: "Arbitrum One",
+	10:    "Optimism",
+	8453:  "Base",
+	43114: "Avalanche C-Chain",
+	56:    "BNB Smart Chain",
+}
+
+// IsValidEVMChainID checks if the chain ID is supported
+func IsValidEVMChainID(chainID int64) bool {
+	_, ok := supportedEVMChains[chainID]
+	return ok
+}
+
+// GetChainName returns the human-readable name for a chain ID
+func GetChainName(chainID int64) string {
+	if name, ok := supportedEVMChains[chainID]; ok {
+		return name
+	}
+	return "Unknown Chain"
+}
+
+// GetSupportedChains returns all supported chain IDs
+func GetSupportedChains() []int64 {
+	chains := make([]int64, 0, len(supportedEVMChains))
+	for chainID := range supportedEVMChains {
+		chains = append(chains, chainID)
+	}
+	return chains
 }

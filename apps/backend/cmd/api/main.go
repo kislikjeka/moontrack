@@ -4,7 +4,6 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	stdlog "log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,14 +11,17 @@ import (
 	"time"
 
 	"github.com/kislikjeka/moontrack/internal/infra/gateway/coingecko"
+	"github.com/kislikjeka/moontrack/internal/infra/gateway/zerion"
 	"github.com/kislikjeka/moontrack/internal/infra/postgres"
 	infraRedis "github.com/kislikjeka/moontrack/internal/infra/redis"
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/module/adjustment"
-	"github.com/kislikjeka/moontrack/internal/module/manual"
 	"github.com/kislikjeka/moontrack/internal/module/portfolio"
+	"github.com/kislikjeka/moontrack/internal/module/swap"
 	"github.com/kislikjeka/moontrack/internal/module/transactions"
+	"github.com/kislikjeka/moontrack/internal/module/transfer"
 	"github.com/kislikjeka/moontrack/internal/platform/asset"
+	"github.com/kislikjeka/moontrack/internal/platform/sync"
 	"github.com/kislikjeka/moontrack/internal/platform/user"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi"
@@ -27,6 +29,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
 	"github.com/kislikjeka/moontrack/pkg/config"
 	"github.com/kislikjeka/moontrack/pkg/logger"
+
 	"github.com/redis/go-redis/v9"
 )
 
@@ -80,14 +83,14 @@ func main() {
 	log.Info("Redis connection established")
 
 	// Initialize pricing components
-	coinGeckoClient := coingecko.NewClient(cfg.CoinGeckoAPIKey)
-	priceCache := infraRedis.NewCache(redisClient)
+	coinGeckoClient := coingecko.NewClient(cfg.CoinGeckoAPIKey, log)
+	priceCache := infraRedis.NewCache(redisClient, log)
 
 	// Initialize Asset components (unified asset + price service)
 	assetRepo := postgres.NewAssetRepository(db.Pool)
 	priceHistoryRepo := postgres.NewPriceRepository(db.Pool)
 	priceProvider := coingecko.NewPriceProviderAdapter(coinGeckoClient)
-	assetSvc := asset.NewService(assetRepo, priceHistoryRepo, priceCache, priceProvider)
+	assetSvc := asset.NewService(assetRepo, priceHistoryRepo, priceCache, priceProvider, log)
 	log.Info("Asset service initialized")
 
 	// Initialize repositories
@@ -99,24 +102,35 @@ func main() {
 	handlerRegistry := ledger.NewRegistry()
 
 	// Initialize services
-	userSvc := user.NewService(userRepo)
+	userSvc := user.NewService(userRepo, log)
 	jwtSvc := middleware.NewJWTService(cfg.JWTSecret)
-	ledgerSvc := ledger.NewService(ledgerRepo, handlerRegistry)
-	walletSvc := wallet.NewService(walletRepo)
+	ledgerSvc := ledger.NewService(ledgerRepo, handlerRegistry, log)
+	walletSvc := wallet.NewService(walletRepo, log)
 
 	// Register transaction handlers with the registry
-	assetAdjHandler := adjustment.NewAssetAdjustmentHandler(ledgerSvc)
+
+	// Asset adjustment handler
+	assetAdjHandler := adjustment.NewAssetAdjustmentHandler(ledgerSvc, log)
 	handlerRegistry.Register(assetAdjHandler)
 	log.Info("Registered asset adjustment handler")
 
-	// Register manual transaction handlers (using AssetService)
-	manualIncomeHandler := manual.NewManualIncomeHandler(assetSvc, walletRepo)
-	handlerRegistry.Register(manualIncomeHandler)
-	log.Info("Registered manual income handler")
+	// Transfer handlers (blockchain-native transfers)
+	transferInHandler := transfer.NewTransferInHandler(walletRepo, log)
+	handlerRegistry.Register(transferInHandler)
+	log.Info("Registered transfer in handler")
 
-	manualOutcomeHandler := manual.NewManualOutcomeHandler(assetSvc, walletRepo, ledgerSvc)
-	handlerRegistry.Register(manualOutcomeHandler)
-	log.Info("Registered manual outcome handler")
+	transferOutHandler := transfer.NewTransferOutHandler(walletRepo, log)
+	handlerRegistry.Register(transferOutHandler)
+	log.Info("Registered transfer out handler")
+
+	internalTransferHandler := transfer.NewInternalTransferHandler(walletRepo, log)
+	handlerRegistry.Register(internalTransferHandler)
+	log.Info("Registered internal transfer handler")
+
+	// Swap handler (DEX token swaps)
+	swapHandler := swap.NewSwapHandler(walletRepo, log)
+	handlerRegistry.Register(swapHandler)
+	log.Info("Registered swap handler")
 
 	// Initialize portfolio service (using AssetService for prices)
 	walletAdapter := portfolio.NewWalletRepositoryAdapter(walletRepo)
@@ -127,9 +141,36 @@ func main() {
 	transactionSvc := transactions.NewTransactionService(ledgerSvc, walletRepo)
 	log.Info("Transaction service initialized")
 
+	// Initialize blockchain sync service
+	var syncSvc *sync.Service
+	if cfg.ZerionAPIKey != "" {
+		syncConfig := &sync.Config{
+			PollInterval:        cfg.SyncPollInterval,
+			ConcurrentWallets:   3,
+			InitialSyncLookback: 2160 * time.Hour,
+			Enabled:             true,
+		}
+		syncAssetAdapter := sync.NewSyncAssetAdapter(assetSvc)
+
+		zerionClient := zerion.NewClient(cfg.ZerionAPIKey, log)
+		zerionProvider := zerion.NewSyncAdapter(zerionClient)
+		log.Info("Zerion sync provider initialized")
+
+		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, zerionProvider)
+		log.Info("Sync service initialized",
+			"poll_interval", cfg.SyncPollInterval,
+			"provider", "zerion")
+	} else {
+		log.Warn("ZERION_API_KEY not set, sync disabled")
+	}
+
 	// Initialize HTTP handlers
 	authHandler := handler.NewAuthHandler(userSvc, jwtSvc)
-	walletHandler := handler.NewWalletHandler(walletSvc)
+	var walletSyncSvc handler.SyncServiceInterface
+	if syncSvc != nil {
+		walletSyncSvc = syncSvc
+	}
+	walletHandler := handler.NewWalletHandler(walletSvc, walletSyncSvc)
 	transactionHandler := handler.NewTransactionHandler(ledgerSvc, transactionSvc, assetSvc)
 	portfolioHandler := handler.NewPortfolioHandler(portfolioSvc)
 	assetHandler := handler.NewAssetHandler(assetSvc)
@@ -179,11 +220,17 @@ func main() {
 		&asset.PriceUpdaterConfig{
 			Interval:  5 * time.Minute,
 			BatchSize: 50,
-			Logger:    stdlog.New(os.Stdout, "[PriceUpdater] ", stdlog.LstdFlags),
+			Logger:    log,
 		},
 	)
 	go priceUpdater.Run(ctx)
 	log.Info("Price updater started (5 minute interval)")
+
+	// Start blockchain sync service (if initialized)
+	if syncSvc != nil {
+		go syncSvc.Run(ctx)
+		log.Info("Blockchain sync service started")
+	}
 
 	// Start server in a goroutine
 	go func() {
@@ -197,6 +244,12 @@ func main() {
 	// Wait for termination signal
 	<-ctx.Done()
 	log.Info("Shutdown signal received")
+
+	// Stop sync service gracefully
+	if syncSvc != nil {
+		syncSvc.Stop()
+		log.Info("Blockchain sync service stopped")
+	}
 
 	// Graceful shutdown with timeout
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

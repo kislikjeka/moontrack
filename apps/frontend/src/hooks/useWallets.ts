@@ -5,6 +5,7 @@ import {
   createWallet,
   updateWallet,
   deleteWallet,
+  triggerWalletSync,
 } from '@/services/wallet'
 import type { Wallet, CreateWalletRequest, UpdateWalletRequest } from '@/types/wallet'
 
@@ -56,6 +57,18 @@ export function useDeleteWallet() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['wallets'] })
       queryClient.invalidateQueries({ queryKey: ['portfolio'] })
+    },
+  })
+}
+
+export function useTriggerSync() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (walletId: string) => triggerWalletSync(walletId),
+    onSuccess: (_data, walletId) => {
+      queryClient.invalidateQueries({ queryKey: ['wallets'] })
+      queryClient.invalidateQueries({ queryKey: ['wallets', walletId] })
     },
   })
 }

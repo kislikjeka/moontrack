@@ -5,16 +5,21 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
 // Service provides business logic for wallet operations
 type Service struct {
-	repo Repository
+	repo   Repository
+	logger *logger.Logger
 }
 
 // NewService creates a new wallet service
-func NewService(repo Repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo Repository, log *logger.Logger) *Service {
+	return &Service{
+		repo:   repo,
+		logger: log.WithField("component", "wallet"),
+	}
 }
 
 // Create creates a new wallet for a user
@@ -42,6 +47,8 @@ func (s *Service) Create(ctx context.Context, wallet *Wallet) (*Wallet, error) {
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}
 
+	s.logger.Info("wallet created", "wallet_id", wallet.ID, "user_id", wallet.UserID)
+
 	return wallet, nil
 }
 
@@ -54,6 +61,7 @@ func (s *Service) GetByID(ctx context.Context, id uuid.UUID, userID uuid.UUID) (
 
 	// Verify wallet belongs to requesting user
 	if wallet.UserID != userID {
+		s.logger.Warn("unauthorized wallet access", "wallet_id", id, "user_id", userID)
 		return nil, ErrUnauthorizedAccess
 	}
 
@@ -107,6 +115,8 @@ func (s *Service) Update(ctx context.Context, wallet *Wallet, userID uuid.UUID) 
 		return nil, fmt.Errorf("failed to update wallet: %w", err)
 	}
 
+	s.logger.Info("wallet updated", "wallet_id", wallet.ID, "user_id", userID)
+
 	return wallet, nil
 }
 
@@ -119,6 +129,7 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID, userID uuid.UUID) er
 	}
 
 	if wallet.UserID != userID {
+		s.logger.Warn("unauthorized wallet access", "wallet_id", id, "user_id", userID)
 		return ErrUnauthorizedAccess
 	}
 
@@ -126,6 +137,8 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID, userID uuid.UUID) er
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return fmt.Errorf("failed to delete wallet: %w", err)
 	}
+
+	s.logger.Info("wallet deleted", "wallet_id", id, "user_id", userID)
 
 	return nil
 }

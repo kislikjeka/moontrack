@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 )
 
 // Config holds all configuration for the application
@@ -24,18 +25,26 @@ type Config struct {
 
 	// CoinGecko API configuration
 	CoinGeckoAPIKey string
+
+	// Sync configuration
+	SyncPollInterval time.Duration
+
+	// Zerion API configuration (for blockchain sync and DeFi data)
+	ZerionAPIKey string
 }
 
 // Load loads configuration from environment variables
 func Load() (*Config, error) {
 	cfg := &Config{
-		Port:            getEnv("PORT", "8080"),
-		Env:             getEnv("ENV", "development"),
-		DatabaseURL:     getEnv("DATABASE_URL", ""),
-		RedisURL:        getEnv("REDIS_URL", "localhost:6379"),
-		RedisPassword:   getEnv("REDIS_PASSWORD", ""),
-		JWTSecret:       getEnv("JWT_SECRET", ""),
-		CoinGeckoAPIKey: getEnv("COINGECKO_API_KEY", ""),
+		Port:             getEnv("PORT", "8080"),
+		Env:              getEnv("ENV", "development"),
+		DatabaseURL:      getEnv("DATABASE_URL", ""),
+		RedisURL:         getEnv("REDIS_URL", "localhost:6379"),
+		RedisPassword:    getEnv("REDIS_PASSWORD", ""),
+		JWTSecret:        getEnv("JWT_SECRET", ""),
+		CoinGeckoAPIKey:  getEnv("COINGECKO_API_KEY", ""),
+		SyncPollInterval: getEnvAsDuration("SYNC_POLL_INTERVAL", 5*time.Minute),
+		ZerionAPIKey:     getEnv("ZERION_API_KEY", ""),
 	}
 
 	// Validate required configuration
@@ -101,6 +110,16 @@ func getEnvAsBool(key string, defaultValue bool) bool {
 	if value := os.Getenv(key); value != "" {
 		if boolValue, err := strconv.ParseBool(value); err == nil {
 			return boolValue
+		}
+	}
+	return defaultValue
+}
+
+// getEnvAsDuration gets an environment variable as a duration with a default value
+func getEnvAsDuration(key string, defaultValue time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		if duration, err := time.ParseDuration(value); err == nil {
+			return duration
 		}
 	}
 	return defaultValue

@@ -2,8 +2,9 @@ package asset
 
 import (
 	"context"
-	"log"
 	"time"
+
+	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
 const (
@@ -22,14 +23,14 @@ type PriceUpdater struct {
 	priceProvider PriceProvider
 	interval      time.Duration
 	batchSize     int
-	logger        *log.Logger
+	logger        *logger.Logger
 }
 
 // PriceUpdaterConfig holds configuration for the price updater
 type PriceUpdaterConfig struct {
 	Interval  time.Duration
 	BatchSize int
-	Logger    *log.Logger
+	Logger    *logger.Logger
 }
 
 // NewPriceUpdater creates a new price updater
@@ -42,7 +43,7 @@ func NewPriceUpdater(
 ) *PriceUpdater {
 	interval := DefaultUpdateInterval
 	batchSize := DefaultBatchSize
-	var logger *log.Logger
+	var log *logger.Logger
 
 	if config != nil {
 		if config.Interval > 0 {
@@ -51,11 +52,11 @@ func NewPriceUpdater(
 		if config.BatchSize > 0 {
 			batchSize = config.BatchSize
 		}
-		logger = config.Logger
+		log = config.Logger
 	}
 
-	if logger == nil {
-		logger = log.Default()
+	if log != nil {
+		log = log.WithField("component", "price_updater")
 	}
 
 	return &PriceUpdater{
@@ -65,13 +66,13 @@ func NewPriceUpdater(
 		priceProvider: priceProvider,
 		interval:      interval,
 		batchSize:     batchSize,
-		logger:        logger,
+		logger:        log,
 	}
 }
 
 // Run starts the price updater and runs until the context is cancelled
 func (u *PriceUpdater) Run(ctx context.Context) {
-	u.logger.Printf("PriceUpdater started (interval: %s, batch size: %d)", u.interval, u.batchSize)
+	u.logger.Info("price updater started", "interval", u.interval, "batch_size", u.batchSize)
 
 	// Run immediately on start
 	u.updatePrices(ctx)
@@ -82,7 +83,7 @@ func (u *PriceUpdater) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			u.logger.Println("PriceUpdater stopped")
+			u.logger.Info("price updater stopped")
 			return
 		case <-ticker.C:
 			u.updatePrices(ctx)
@@ -92,21 +93,21 @@ func (u *PriceUpdater) Run(ctx context.Context) {
 
 // updatePrices fetches and records prices for all active assets
 func (u *PriceUpdater) updatePrices(ctx context.Context) {
-	u.logger.Println("Starting price update cycle")
+	u.logger.Info("price update cycle started")
 
 	// Get all active assets
 	assets, err := u.repo.GetActiveAssets(ctx)
 	if err != nil {
-		u.logger.Printf("Failed to get active assets: %v", err)
+		u.logger.Error("failed to get active assets", "error", err)
 		return
 	}
 
 	if len(assets) == 0 {
-		u.logger.Println("No active assets to update")
+		u.logger.Debug("no active assets to update")
 		return
 	}
 
-	u.logger.Printf("Updating prices for %d assets", len(assets))
+	u.logger.Info("updating prices", "asset_count", len(assets))
 
 	// Process assets in batches
 	var successCount, failCount int
@@ -122,7 +123,7 @@ func (u *PriceUpdater) updatePrices(ctx context.Context) {
 		failCount += fail
 	}
 
-	u.logger.Printf("Price update complete: %d success, %d failed", successCount, failCount)
+	u.logger.Info("price update cycle completed", "success_count", successCount, "fail_count", failCount)
 }
 
 // updateBatch fetches and records prices for a batch of assets
@@ -138,7 +139,7 @@ func (u *PriceUpdater) updateBatch(ctx context.Context, assets []Asset) (success
 	// Fetch prices from provider
 	prices, err := u.priceProvider.GetCurrentPrices(ctx, coinGeckoIDs)
 	if err != nil {
-		u.logger.Printf("Failed to fetch prices: %v", err)
+		u.logger.Error("failed to fetch batch prices", "error", err)
 		return 0, len(assets)
 	}
 
@@ -158,7 +159,7 @@ func (u *PriceUpdater) updateBatch(ctx context.Context, assets []Asset) (success
 
 		// Save to price_history
 		if err := u.priceRepo.RecordPrice(ctx, pricePoint); err != nil {
-			u.logger.Printf("Failed to record price for %s: %v", a.Symbol, err)
+			u.logger.Error("failed to record price", "asset", a.Symbol, "error", err)
 			fail++
 			continue
 		}

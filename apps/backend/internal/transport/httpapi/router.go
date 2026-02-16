@@ -70,6 +70,7 @@ func NewRouter(cfg Config) *chi.Mux {
 					r.Get("/wallets/{id}", cfg.WalletHandler.GetWallet)
 					r.Put("/wallets/{id}", cfg.WalletHandler.UpdateWallet)
 					r.Delete("/wallets/{id}", cfg.WalletHandler.DeleteWallet)
+					r.Post("/wallets/{id}/sync", cfg.WalletHandler.TriggerSync)
 				}
 
 				// Transaction routes

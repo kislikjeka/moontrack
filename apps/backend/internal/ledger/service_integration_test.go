@@ -4,6 +4,7 @@ package ledger_test
 
 import (
 	"context"
+	"io"
 	"math/big"
 	"testing"
 	"time"
@@ -12,10 +13,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kislikjeka/moontrack/internal/infra/postgres"
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/kislikjeka/moontrack/testutil/testdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// testLogger returns a silent logger for tests
+func testLogger() *logger.Logger {
+	return logger.New("test", io.Discard)
+}
 
 var testDB *testdb.TestDB
 
@@ -47,7 +54,7 @@ func setupTest(t *testing.T) (*ledger.Service, *postgres.LedgerRepository, conte
 	testHandler := newTestHandler()
 	registry.Register(testHandler)
 
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 	return svc, repo, ctx
 }
 

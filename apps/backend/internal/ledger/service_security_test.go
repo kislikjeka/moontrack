@@ -57,7 +57,7 @@ func TestLedgerService_RecordTransaction_ZeroAmount(t *testing.T) {
 	require.NoError(t, registry.Register(handler))
 
 	repo := newTestRepo()
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -125,7 +125,7 @@ func TestLedgerService_RecordTransaction_NegativeAmount(t *testing.T) {
 	require.NoError(t, registry.Register(handler))
 
 	repo := newTestRepo()
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -194,7 +194,7 @@ func TestLedgerService_RecordTransaction_InvalidUUID(t *testing.T) {
 	require.NoError(t, registry.Register(handler))
 
 	repo := newTestRepo()
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	now := time.Now()
 	handler.SetEntries([]*ledger.Entry{
@@ -259,7 +259,7 @@ func TestLedgerService_RecordTransaction_EmptyAssetID(t *testing.T) {
 	require.NoError(t, registry.Register(handler))
 
 	repo := newTestRepo()
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -327,7 +327,7 @@ func TestLedgerService_RecordTransaction_FutureDate(t *testing.T) {
 	require.NoError(t, registry.Register(handler))
 
 	repo := newTestRepo()
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -396,7 +396,7 @@ func TestLedgerService_RecordTransaction_NilUSDRate(t *testing.T) {
 	require.NoError(t, registry.Register(handler))
 
 	repo := newTestRepo()
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -464,7 +464,7 @@ func TestLedgerService_RecordTransaction_NegativeUSDRate(t *testing.T) {
 	require.NoError(t, registry.Register(handler))
 
 	repo := newTestRepo()
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -533,7 +533,7 @@ func TestLedgerService_RecordTransaction_UnbalancedEntries(t *testing.T) {
 	require.NoError(t, registry.Register(handler))
 
 	repo := newTestRepo()
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -599,7 +599,7 @@ func TestLedgerService_RecordTransaction_InvalidTransactionType(t *testing.T) {
 
 	registry := ledger.NewRegistry()
 	repo := newTestRepo()
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	_, err := svc.RecordTransaction(
 		ctx,
@@ -629,7 +629,7 @@ func TestLedgerService_RecordTransaction_MissingAccountCode(t *testing.T) {
 	require.NoError(t, registry.Register(handler))
 
 	repo := newTestRepo()
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	now := time.Now()
 	handler.SetEntries([]*ledger.Entry{

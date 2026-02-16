@@ -11,24 +11,47 @@ import (
 type TransactionType string
 
 const (
-	TxTypeManualIncome    TransactionType = "manual_income"
-	TxTypeManualOutcome   TransactionType = "manual_outcome"
-	TxTypeAssetAdjustment TransactionType = "asset_adjustment"
+	// Blockchain-native transfer types
+	TxTypeTransferIn       TransactionType = "transfer_in"       // Incoming transfer from external address
+	TxTypeTransferOut      TransactionType = "transfer_out"      // Outgoing transfer to external address
+	TxTypeInternalTransfer TransactionType = "internal_transfer" // Transfer between own wallets
+
+	// Manual transaction types
+	TxTypeManualIncome  TransactionType = "manual_income"  // Manual income entry
+	TxTypeManualOutcome TransactionType = "manual_outcome" // Manual outcome entry
+
+	// Manual adjustment type
+	TxTypeAssetAdjustment TransactionType = "asset_adjustment" // Manual balance corrections
+
+	// DeFi transaction types
+	TxTypeSwap        TransactionType = "swap"         // Token swap (DEX)
+	TxTypeDefiDeposit TransactionType = "defi_deposit"  // Deposit into DeFi protocol
+	TxTypeDefiWithdraw TransactionType = "defi_withdraw" // Withdraw from DeFi protocol
+	TxTypeDefiClaim   TransactionType = "defi_claim"    // Claim DeFi rewards
 )
 
 // AllTransactionTypes returns all valid transaction types
 func AllTransactionTypes() []TransactionType {
 	return []TransactionType{
+		TxTypeTransferIn,
+		TxTypeTransferOut,
+		TxTypeInternalTransfer,
 		TxTypeManualIncome,
 		TxTypeManualOutcome,
 		TxTypeAssetAdjustment,
+		TxTypeSwap,
+		TxTypeDefiDeposit,
+		TxTypeDefiWithdraw,
+		TxTypeDefiClaim,
 	}
 }
 
 // IsValid checks if the transaction type is valid
 func (t TransactionType) IsValid() bool {
 	switch t {
-	case TxTypeManualIncome, TxTypeManualOutcome, TxTypeAssetAdjustment:
+	case TxTypeTransferIn, TxTypeTransferOut, TxTypeInternalTransfer,
+		TxTypeManualIncome, TxTypeManualOutcome, TxTypeAssetAdjustment,
+		TxTypeSwap, TxTypeDefiDeposit, TxTypeDefiWithdraw, TxTypeDefiClaim:
 		return true
 	}
 	return false
@@ -42,12 +65,26 @@ func (t TransactionType) String() string {
 // Label returns human-readable label for UI
 func (t TransactionType) Label() string {
 	switch t {
+	case TxTypeTransferIn:
+		return "Transfer In"
+	case TxTypeTransferOut:
+		return "Transfer Out"
+	case TxTypeInternalTransfer:
+		return "Internal Transfer"
 	case TxTypeManualIncome:
-		return "Income"
+		return "Manual Income"
 	case TxTypeManualOutcome:
-		return "Outcome"
+		return "Manual Outcome"
 	case TxTypeAssetAdjustment:
 		return "Adjustment"
+	case TxTypeSwap:
+		return "Swap"
+	case TxTypeDefiDeposit:
+		return "DeFi Deposit"
+	case TxTypeDefiWithdraw:
+		return "DeFi Withdraw"
+	case TxTypeDefiClaim:
+		return "DeFi Claim"
 	default:
 		return "Unknown"
 	}
@@ -182,6 +219,7 @@ const (
 	EntryTypeIncome        EntryType = "income"
 	EntryTypeExpense       EntryType = "expense"
 	EntryTypeGasFee        EntryType = "gas_fee"
+	EntryTypeClearing      EntryType = "clearing"
 )
 
 // Entry represents a single debit or credit entry in the double-entry ledger
@@ -257,6 +295,7 @@ const (
 	AccountTypeIncome       AccountType = "INCOME"
 	AccountTypeExpense      AccountType = "EXPENSE"
 	AccountTypeGasFee       AccountType = "GAS_FEE"
+	AccountTypeClearing     AccountType = "CLEARING"
 )
 
 // Account represents a ledger account for tracking balances
@@ -307,7 +346,7 @@ func (a *Account) Validate() error {
 		if a.WalletID == nil {
 			return ErrWalletAccountRequiresWalletID
 		}
-	case AccountTypeIncome, AccountTypeExpense, AccountTypeGasFee:
+	case AccountTypeIncome, AccountTypeExpense, AccountTypeGasFee, AccountTypeClearing:
 		// These accounts should not have a wallet ID
 		if a.WalletID != nil {
 			return ErrNonWalletAccountCannotHaveWalletID

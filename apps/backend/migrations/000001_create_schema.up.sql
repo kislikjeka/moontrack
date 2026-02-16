@@ -96,16 +96,3 @@ CREATE TABLE account_balances (
 
 CREATE INDEX idx_account_balances_account ON account_balances(account_id);
 
--- Price snapshots table (historical prices)
-CREATE TABLE price_snapshots (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    asset_id VARCHAR(20) NOT NULL,
-    usd_price NUMERIC(78,0) NOT NULL CHECK (usd_price >= 0),
-    source VARCHAR(50) NOT NULL,
-    snapshot_date DATE NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(asset_id, snapshot_date, source)
-);
-
-CREATE INDEX idx_price_snapshots_lookup ON price_snapshots(asset_id, snapshot_date);
-CREATE INDEX idx_price_snapshots_asset ON price_snapshots(asset_id);

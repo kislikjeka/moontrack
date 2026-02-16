@@ -19,7 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { SUPPORTED_CHAINS } from '@/types/wallet'
+import { SUPPORTED_CHAINS, isValidEVMAddress } from '@/types/wallet'
 import { toast } from 'sonner'
 
 interface CreateWalletDialogProps {
@@ -29,9 +29,32 @@ interface CreateWalletDialogProps {
 
 export function CreateWalletDialog({ open, onOpenChange }: CreateWalletDialogProps) {
   const [name, setName] = useState('')
-  const [chainId, setChainId] = useState('')
+  const [chainId, setChainId] = useState<string>('')
   const [address, setAddress] = useState('')
+  const [addressError, setAddressError] = useState('')
   const createWallet = useCreateWallet()
+
+  const validateAddress = (value: string) => {
+    if (!value.trim()) {
+      setAddressError('Wallet address is required')
+      return false
+    }
+    if (!isValidEVMAddress(value.trim())) {
+      setAddressError('Invalid EVM address (must be 0x + 40 hex characters)')
+      return false
+    }
+    setAddressError('')
+    return true
+  }
+
+  const handleAddressChange = (value: string) => {
+    setAddress(value)
+    if (value.trim()) {
+      validateAddress(value)
+    } else {
+      setAddressError('')
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -46,11 +69,16 @@ export function CreateWalletDialog({ open, onOpenChange }: CreateWalletDialogPro
       return
     }
 
+    if (!validateAddress(address)) {
+      toast.error('Please enter a valid EVM address')
+      return
+    }
+
     try {
       await createWallet.mutateAsync({
         name: name.trim(),
-        chain_id: chainId,
-        address: address.trim() || undefined,
+        chain_id: Number(chainId),
+        address: address.trim(),
       })
       toast.success('Wallet created successfully')
       handleClose()
@@ -63,6 +91,7 @@ export function CreateWalletDialog({ open, onOpenChange }: CreateWalletDialogPro
     setName('')
     setChainId('')
     setAddress('')
+    setAddressError('')
     onOpenChange(false)
   }
 
@@ -72,7 +101,7 @@ export function CreateWalletDialog({ open, onOpenChange }: CreateWalletDialogPro
         <DialogHeader>
           <DialogTitle>Create Wallet</DialogTitle>
           <DialogDescription>
-            Add a new wallet to track your crypto holdings
+            Add an EVM wallet to track. Transactions will be synced automatically.
           </DialogDescription>
         </DialogHeader>
 
@@ -100,7 +129,7 @@ export function CreateWalletDialog({ open, onOpenChange }: CreateWalletDialogPro
               </SelectTrigger>
               <SelectContent>
                 {SUPPORTED_CHAINS.map((chain) => (
-                  <SelectItem key={chain.id} value={chain.id}>
+                  <SelectItem key={chain.id} value={String(chain.id)}>
                     {chain.name} ({chain.symbol})
                   </SelectItem>
                 ))}
@@ -109,18 +138,22 @@ export function CreateWalletDialog({ open, onOpenChange }: CreateWalletDialogPro
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="address">
-              Wallet Address{' '}
-              <span className="text-muted-foreground">(optional)</span>
-            </Label>
+            <Label htmlFor="address">Wallet Address</Label>
             <Input
               id="address"
               placeholder="0x..."
               value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              className="font-mono"
+              onChange={(e) => handleAddressChange(e.target.value)}
+              className={`font-mono ${addressError ? 'border-destructive' : ''}`}
               disabled={createWallet.isPending}
             />
+            {addressError ? (
+              <p className="text-sm text-destructive">{addressError}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Enter an EVM wallet address (0x + 40 hex characters)
+              </p>
+            )}
           </div>
 
           <DialogFooter>

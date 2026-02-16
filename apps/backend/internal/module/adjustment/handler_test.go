@@ -14,6 +14,7 @@ import (
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/module/adjustment"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
 var (
@@ -28,6 +29,14 @@ type MockLedgerRepository struct {
 func (m *MockLedgerRepository) CreateAccount(ctx context.Context, account *ledger.Account) error {
 	args := m.Called(ctx, account)
 	return args.Error(0)
+}
+
+func (m *MockLedgerRepository) GetOrCreateAccount(ctx context.Context, account *ledger.Account) (*ledger.Account, error) {
+	args := m.Called(ctx, account)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*ledger.Account), args.Error(1)
 }
 
 func (m *MockLedgerRepository) GetAccount(ctx context.Context, id uuid.UUID) (*ledger.Account, error) {
@@ -252,8 +261,8 @@ func TestAssetAdjustmentHandler_GenerateEntries_Balance(t *testing.T) {
 			}
 
 			// Create ledger service with mock repository
-			ledgerSvc := ledger.NewService(mockRepo, nil)
-			h := adjustment.NewAssetAdjustmentHandler(ledgerSvc)
+			ledgerSvc := ledger.NewService(mockRepo, nil, logger.NewDefault("test"))
+			h := adjustment.NewAssetAdjustmentHandler(ledgerSvc, logger.NewDefault("test"))
 			entries, err := h.Handle(ctx, tt.txData)
 
 			if tt.wantErr {
@@ -377,8 +386,8 @@ func TestAssetAdjustmentHandler_ValidateData(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockRepo := new(MockLedgerRepository)
-			ledgerSvc := ledger.NewService(mockRepo, nil)
-			h := adjustment.NewAssetAdjustmentHandler(ledgerSvc)
+			ledgerSvc := ledger.NewService(mockRepo, nil, logger.NewDefault("test"))
+			h := adjustment.NewAssetAdjustmentHandler(ledgerSvc, logger.NewDefault("test"))
 
 			err := h.ValidateData(ctx, tt.txData)
 
@@ -440,8 +449,8 @@ func TestAssetAdjustmentHandler_USDValueCalculation(t *testing.T) {
 				Balance:   tt.currentBal,
 			}, nil)
 
-			ledgerSvc := ledger.NewService(mockRepo, nil)
-			h := adjustment.NewAssetAdjustmentHandler(ledgerSvc)
+			ledgerSvc := ledger.NewService(mockRepo, nil, logger.NewDefault("test"))
+			h := adjustment.NewAssetAdjustmentHandler(ledgerSvc, logger.NewDefault("test"))
 
 			txData := map[string]interface{}{
 				"wallet_id":   walletID.String(),

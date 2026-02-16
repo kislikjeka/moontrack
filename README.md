@@ -15,7 +15,7 @@ Remaining setup tasks:
 ### Prerequisites
 
 - **Go**: 1.21+
-- **Node.js**: 18+ LTS
+- **Bun**: 1.0+ (https://bun.sh)
 - **PostgreSQL**: 14+ (via SSH tunnel or Docker)
 - **Redis**: 7+ (via SSH tunnel or Docker)
 - **golang-migrate**: CLI tool for database migrations
@@ -155,10 +155,10 @@ Server will start on `http://localhost:8080`
 cd apps/frontend
 
 # Start development server
-npm run dev
+bun run dev
 
 # Build for production
-npm run build
+bun run build
 ```
 
 Frontend will be available at `http://localhost:5173`
@@ -221,10 +221,10 @@ go test ./internal/core/ledger/... -v
 cd apps/frontend
 
 # Run tests
-npm test
+bun test
 
 # Run with coverage
-npm test -- --coverage
+bun test -- --coverage
 ```
 
 ## Database Migrations

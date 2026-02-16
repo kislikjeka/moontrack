@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, ArrowLeftRight } from 'lucide-react'
+import { RefreshCw, ArrowLeftRight } from 'lucide-react'
 import { useTransactions } from '@/hooks/useTransactions'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -55,13 +55,13 @@ export default function TransactionsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Transactions</h1>
           <p className="text-muted-foreground">
-            View and manage your transaction history
+            View your transaction history. Transfers are synced automatically.
           </p>
         </div>
         <Button asChild>
           <Link to="/transactions/new">
-            <Plus className="mr-2 h-4 w-4" />
-            New Transaction
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Balance Adjustment
           </Link>
         </Button>
       </div>
@@ -171,12 +171,12 @@ export default function TransactionsPage() {
           <p className="text-muted-foreground mt-1 mb-4">
             {filters.wallet_id || filters.type || filters.asset_id
               ? 'Try adjusting your filters'
-              : 'Create your first transaction to start tracking'}
+              : 'Transactions will appear here once your wallets are synced'}
           </p>
           <Button asChild>
             <Link to="/transactions/new">
-              <Plus className="mr-2 h-4 w-4" />
-              New Transaction
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Balance Adjustment
             </Link>
           </Button>
         </div>
@@ -193,7 +193,7 @@ function TransactionsSkeleton() {
           <Skeleton className="h-8 w-32" />
           <Skeleton className="h-4 w-48" />
         </div>
-        <Skeleton className="h-10 w-36" />
+        <Skeleton className="h-10 w-40" />
       </div>
       <div className="flex gap-4">
         <Skeleton className="h-10 w-40" />

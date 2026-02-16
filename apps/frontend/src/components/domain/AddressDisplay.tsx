@@ -2,12 +2,6 @@ import { useState } from 'react'
 import { Copy, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { truncateAddress } from '@/lib/format'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 
 interface AddressDisplayProps {
   address: string
@@ -40,38 +34,25 @@ export function AddressDisplay({
   }
 
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span
-            className={cn(
-              'inline-flex items-center gap-1.5 font-mono',
-              showCopy && 'cursor-pointer hover:text-foreground',
-              className
-            )}
-            onClick={showCopy ? handleCopy : undefined}
-          >
-            <span>{displayAddress}</span>
-            {showCopy && (
-              <span className="text-muted-foreground">
-                {copied ? (
-                  <Check className="h-3 w-3 text-profit" />
-                ) : (
-                  <Copy className="h-3 w-3" />
-                )}
-              </span>
-            )}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p className="font-mono text-xs">{address}</p>
-          {showCopy && (
-            <p className="text-xs text-muted-foreground mt-1">
-              {copied ? 'Copied!' : 'Click to copy'}
-            </p>
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 font-mono',
+        showCopy && 'cursor-pointer hover:text-foreground',
+        className
+      )}
+      onClick={showCopy ? handleCopy : undefined}
+      title={address}
+    >
+      <span>{displayAddress}</span>
+      {showCopy && (
+        <span className="text-muted-foreground">
+          {copied ? (
+            <Check className="h-3 w-3 text-profit" />
+          ) : (
+            <Copy className="h-3 w-3" />
           )}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+        </span>
+      )}
+    </span>
   )
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
 // Service orchestrates the ledger operations
@@ -17,16 +18,19 @@ type Service struct {
 	accountResolver *accountResolver
 	validator       *transactionValidator
 	committer       *transactionCommitter
+	logger          *logger.Logger
 }
 
 // NewService creates a new ledger service
-func NewService(repo Repository, handlerRegistry *Registry) *Service {
+func NewService(repo Repository, handlerRegistry *Registry, log *logger.Logger) *Service {
+	l := log.WithField("component", "ledger")
 	return &Service{
 		repo:            repo,
 		handlerRegistry: handlerRegistry,
-		accountResolver: newAccountResolver(repo),
-		validator:       newTransactionValidator(repo),
-		committer:       newTransactionCommitter(repo),
+		accountResolver: newAccountResolver(repo, l),
+		validator:       newTransactionValidator(repo, l),
+		committer:       newTransactionCommitter(repo, l),
+		logger:          l,
 	}
 }
 
@@ -47,14 +51,22 @@ func (s *Service) RecordTransaction(
 	occurredAt time.Time,
 	rawData map[string]interface{},
 ) (*Transaction, error) {
+	start := time.Now()
+	txLog := s.logger.WithField("tx_type", string(transactionType)).WithField("source", source)
+	if externalID != nil {
+		txLog = txLog.WithField("external_id", *externalID)
+	}
+
 	// Step 1: Get the handler for this transaction type
 	h, err := s.handlerRegistry.Get(transactionType)
 	if err != nil {
+		txLog.Error("handler not found", "error", err)
 		return nil, fmt.Errorf("transaction type not supported: %w", err)
 	}
 
 	// Step 2: Validate the transaction data
 	if err := h.ValidateData(ctx, rawData); err != nil {
+		txLog.Error("transaction data validation failed", "error", err)
 		return s.createFailedTransaction(
 			transactionType,
 			source,
@@ -68,6 +80,7 @@ func (s *Service) RecordTransaction(
 	// Step 3: Generate ledger entries
 	entries, err := h.Handle(ctx, rawData)
 	if err != nil {
+		txLog.Error("entry generation failed", "error", err)
 		return s.createFailedTransaction(
 			transactionType,
 			source,
@@ -98,8 +111,14 @@ func (s *Service) RecordTransaction(
 		entry.TransactionID = tx.ID
 	}
 
+	txLog = txLog.WithField("tx_id", tx.ID.String())
+	txLog.Info("recording transaction",
+		"entry_count", len(entries),
+		"occurred_at", occurredAt)
+
 	// Step 5: Resolve accounts for entries
 	if err := s.accountResolver.resolveAccounts(ctx, tx); err != nil {
+		txLog.Error("account resolution failed", "error", err)
 		errorMsg := fmt.Sprintf("failed to resolve accounts: %v", err)
 		tx.Status = TransactionStatusFailed
 		tx.ErrorMessage = &errorMsg
@@ -108,6 +127,7 @@ func (s *Service) RecordTransaction(
 
 	// Step 6: Validate the transaction
 	if err := s.validator.validate(ctx, tx); err != nil {
+		txLog.Error("transaction validation failed", "error", err)
 		errorMsg := fmt.Sprintf("validation failed: %v", err)
 		tx.Status = TransactionStatusFailed
 		tx.ErrorMessage = &errorMsg
@@ -116,11 +136,15 @@ func (s *Service) RecordTransaction(
 
 	// Step 7: Commit the transaction
 	if err := s.committer.commit(ctx, tx); err != nil {
+		txLog.Error("transaction commit failed", "error", err)
 		errorMsg := fmt.Sprintf("failed to commit: %v", err)
 		tx.Status = TransactionStatusFailed
 		tx.ErrorMessage = &errorMsg
 		return tx, err
 	}
+
+	txLog.WithDuration(time.Since(start)).Info("transaction recorded",
+		"entry_count", len(tx.Entries))
 
 	return tx, nil
 }
@@ -222,27 +246,57 @@ func (s *Service) createFailedTransaction(
 
 // accountResolver resolves account references in ledger entries
 type accountResolver struct {
-	repo Repository
+	repo   Repository
+	logger *logger.Logger
 }
 
-func newAccountResolver(repo Repository) *accountResolver {
-	return &accountResolver{repo: repo}
+func newAccountResolver(repo Repository, log *logger.Logger) *accountResolver {
+	return &accountResolver{repo: repo, logger: log}
 }
 
 func (r *accountResolver) resolveAccounts(ctx context.Context, tx *Transaction) error {
 	for _, entry := range tx.Entries {
 		accountCode, err := r.generateAccountCode(entry)
 		if err != nil {
+			r.logger.Debug("failed to generate account code", "error", err)
 			return fmt.Errorf("failed to generate account code: %w", err)
 		}
 
-		account, err := r.repo.GetAccountByCode(ctx, accountCode)
+		r.logger.Debug("resolving account", "account_code", accountCode, "asset_id", entry.AssetID)
+
+		accountType, walletID, chainID, err := r.parseAccountCode(accountCode, entry)
 		if err != nil {
-			account, err = r.createAccount(ctx, entry, accountCode)
-			if err != nil {
-				return fmt.Errorf("failed to create account: %w", err)
+			r.logger.Debug("failed to parse account code", "account_code", accountCode, "error", err)
+			return fmt.Errorf("failed to parse account code: %w", err)
+		}
+
+		candidate := &Account{
+			ID:        uuid.New(),
+			Code:      accountCode,
+			Type:      accountType,
+			AssetID:   entry.AssetID,
+			WalletID:  walletID,
+			ChainID:   chainID,
+			CreatedAt: time.Now(),
+			Metadata:  make(map[string]interface{}),
+		}
+
+		if entry.Metadata != nil {
+			if walletIDStr, ok := entry.Metadata["wallet_id"].(string); ok {
+				candidate.Metadata["wallet_id"] = walletIDStr
+			}
+			if chainIDStr, ok := entry.Metadata["chain_id"].(string); ok {
+				candidate.Metadata["chain_id"] = chainIDStr
 			}
 		}
+
+		account, err := r.repo.GetOrCreateAccount(ctx, candidate)
+		if err != nil {
+			r.logger.Debug("failed to get or create account", "account_code", accountCode, "error", err)
+			return fmt.Errorf("failed to get or create account: %w", err)
+		}
+
+		r.logger.Debug("account resolved", "account_code", accountCode, "account_id", account.ID.String())
 
 		entry.AccountID = account.ID
 	}
@@ -261,39 +315,6 @@ func (r *accountResolver) generateAccountCode(entry *Entry) (string, error) {
 	}
 
 	return code, nil
-}
-
-func (r *accountResolver) createAccount(ctx context.Context, entry *Entry, code string) (*Account, error) {
-	accountType, walletID, chainID, err := r.parseAccountCode(code, entry)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse account code: %w", err)
-	}
-
-	account := &Account{
-		ID:        uuid.New(),
-		Code:      code,
-		Type:      accountType,
-		AssetID:   entry.AssetID,
-		WalletID:  walletID,
-		ChainID:   chainID,
-		CreatedAt: time.Now(),
-		Metadata:  make(map[string]interface{}),
-	}
-
-	if entry.Metadata != nil {
-		if walletIDStr, ok := entry.Metadata["wallet_id"].(string); ok {
-			account.Metadata["wallet_id"] = walletIDStr
-		}
-		if chainIDStr, ok := entry.Metadata["chain_id"].(string); ok {
-			account.Metadata["chain_id"] = chainIDStr
-		}
-	}
-
-	if err := r.repo.CreateAccount(ctx, account); err != nil {
-		return nil, fmt.Errorf("failed to create account in repository: %w", err)
-	}
-
-	return account, nil
 }
 
 func (r *accountResolver) parseAccountCode(code string, entry *Entry) (AccountType, *uuid.UUID, *string, error) {
@@ -315,6 +336,8 @@ func (r *accountResolver) parseAccountCode(code string, entry *Entry) (AccountTy
 			accountType = AccountTypeExpense
 		case len(code) > 4 && code[:4] == "gas.":
 			accountType = AccountTypeGasFee
+		case len(code) > 9 && code[:9] == "clearing.":
+			accountType = AccountTypeClearing
 		default:
 			return "", nil, nil, fmt.Errorf("cannot determine account type from code: %s", code)
 		}
@@ -342,11 +365,12 @@ func (r *accountResolver) parseAccountCode(code string, entry *Entry) (AccountTy
 
 // transactionValidator validates transactions before committing them
 type transactionValidator struct {
-	repo Repository
+	repo   Repository
+	logger *logger.Logger
 }
 
-func newTransactionValidator(repo Repository) *transactionValidator {
-	return &transactionValidator{repo: repo}
+func newTransactionValidator(repo Repository, log *logger.Logger) *transactionValidator {
+	return &transactionValidator{repo: repo, logger: log}
 }
 
 func (v *transactionValidator) validate(ctx context.Context, tx *Transaction) error {
@@ -388,6 +412,9 @@ func (v *transactionValidator) validateBalance(tx *Transaction) error {
 	}
 
 	if debitSum.Cmp(creditSum) != 0 {
+		v.logger.Error("transaction not balanced",
+			"debit_sum", debitSum.String(),
+			"credit_sum", creditSum.String())
 		return fmt.Errorf(
 			"transaction not balanced: debit=%s, credit=%s",
 			debitSum.String(),
@@ -429,6 +456,12 @@ func (v *transactionValidator) validateAccountBalances(ctx context.Context, tx *
 		newBalance := new(big.Int).Add(currentBalance.Balance, info.change)
 
 		if newBalance.Sign() < 0 {
+			v.logger.Error("negative balance would result",
+				"account_id", accountID.String(),
+				"asset_id", info.assetID,
+				"current", currentBalance.Balance.String(),
+				"change", info.change.String(),
+				"new", newBalance.String())
 			return fmt.Errorf(
 				"account %s would have negative balance for %s: current=%s, change=%s, new=%s",
 				accountID.String(),
@@ -445,14 +478,17 @@ func (v *transactionValidator) validateAccountBalances(ctx context.Context, tx *
 
 // transactionCommitter commits transactions to the ledger
 type transactionCommitter struct {
-	repo Repository
+	repo   Repository
+	logger *logger.Logger
 }
 
-func newTransactionCommitter(repo Repository) *transactionCommitter {
-	return &transactionCommitter{repo: repo}
+func newTransactionCommitter(repo Repository, log *logger.Logger) *transactionCommitter {
+	return &transactionCommitter{repo: repo, logger: log}
 }
 
 func (c *transactionCommitter) commit(ctx context.Context, tx *Transaction) error {
+	c.logger.Debug("beginning db transaction", "tx_id", tx.ID.String())
+
 	// Begin database transaction for atomicity
 	txCtx, err := c.repo.BeginTx(ctx)
 	if err != nil {
@@ -463,6 +499,7 @@ func (c *transactionCommitter) commit(ctx context.Context, tx *Transaction) erro
 	committed := false
 	defer func() {
 		if !committed {
+			c.logger.Warn("rolling back db transaction", "tx_id", tx.ID.String())
 			// Rollback on any error - ignore rollback errors as the commit failed anyway
 			_ = c.repo.RollbackTx(txCtx)
 		}
@@ -473,7 +510,10 @@ func (c *transactionCommitter) commit(ctx context.Context, tx *Transaction) erro
 		return fmt.Errorf("failed to create transaction: %w", err)
 	}
 
+	c.logger.Debug("persisting transaction", "tx_id", tx.ID.String())
+
 	// Update balances within the same DB transaction
+	c.logger.Debug("updating balances", "tx_id", tx.ID.String())
 	if err := c.updateBalances(txCtx, tx); err != nil {
 		return fmt.Errorf("failed to update balances: %w", err)
 	}
@@ -484,6 +524,7 @@ func (c *transactionCommitter) commit(ctx context.Context, tx *Transaction) erro
 	}
 
 	committed = true
+	c.logger.Debug("db transaction committed", "tx_id", tx.ID.String())
 	return nil
 }
 
@@ -536,6 +577,13 @@ func (c *transactionCommitter) applyBalanceChange(ctx context.Context, bc *balan
 	if newBalance.Sign() < 0 {
 		return fmt.Errorf("balance would be negative: current=%s, change=%s", currentBalance.Balance.String(), bc.change.String())
 	}
+
+	c.logger.Debug("applying balance change",
+		"account_id", bc.accountID.String(),
+		"asset_id", bc.assetID,
+		"current", currentBalance.Balance.String(),
+		"change", bc.change.String(),
+		"new", newBalance.String())
 
 	updatedBalance := &AccountBalance{
 		AccountID:   bc.accountID,

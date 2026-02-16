@@ -1,4 +1,4 @@
-import { ArrowDownLeft, ArrowUpRight, RefreshCw } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, ArrowLeftRight, RefreshCw } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import type { TransactionType } from '@/types/transaction'
@@ -18,15 +18,20 @@ const typeConfig: Record<
     variant: 'profit' | 'loss' | 'transfer'
   }
 > = {
-  manual_income: {
-    label: 'Income',
+  transfer_in: {
+    label: 'Transfer In',
     icon: ArrowDownLeft,
     variant: 'profit',
   },
-  manual_outcome: {
-    label: 'Outcome',
+  transfer_out: {
+    label: 'Transfer Out',
     icon: ArrowUpRight,
     variant: 'loss',
+  },
+  internal_transfer: {
+    label: 'Internal',
+    icon: ArrowLeftRight,
+    variant: 'transfer',
   },
   asset_adjustment: {
     label: 'Adjustment',

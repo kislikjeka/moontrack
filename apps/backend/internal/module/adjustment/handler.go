@@ -9,19 +9,22 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
 // AssetAdjustmentHandler handles asset balance adjustments
 type AssetAdjustmentHandler struct {
 	ledger.BaseHandler
 	ledgerService *ledger.Service
+	logger        *logger.Logger
 }
 
 // NewAssetAdjustmentHandler creates a new asset adjustment handler
-func NewAssetAdjustmentHandler(ledgerService *ledger.Service) *AssetAdjustmentHandler {
+func NewAssetAdjustmentHandler(ledgerService *ledger.Service, log *logger.Logger) *AssetAdjustmentHandler {
 	return &AssetAdjustmentHandler{
 		BaseHandler:   ledger.NewBaseHandler(ledger.TxTypeAssetAdjustment),
 		ledgerService: ledgerService,
+		logger:        log.WithField("component", "adjustment"),
 	}
 }
 
@@ -32,6 +35,8 @@ func (h *AssetAdjustmentHandler) Handle(ctx context.Context, data map[string]int
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal data: %w", err)
 	}
+
+	h.logger.Debug("handling adjustment", "wallet_id", txData.WalletID, "asset_id", txData.AssetID)
 
 	// Validate transaction data
 	if err := txData.Validate(); err != nil {
@@ -153,6 +158,12 @@ func (h *AssetAdjustmentHandler) generateEntries(ctx context.Context, tx *AssetA
 			OccurredAt:  tx.OccurredAt,
 		})
 	}
+
+	direction := "increase"
+	if difference.Sign() < 0 {
+		direction = "decrease"
+	}
+	h.logger.Info("adjustment entries generated", "direction", direction, "difference", difference.String(), "entry_count", len(entries))
 
 	return entries, nil
 }

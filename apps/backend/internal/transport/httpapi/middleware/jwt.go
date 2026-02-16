@@ -9,6 +9,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
 // ContextKey is the type for context keys
@@ -134,6 +135,7 @@ func JWTMiddleware(jwtService *JWTService) func(http.Handler) http.Handler {
 			// Add user info to context
 			ctx := context.WithValue(r.Context(), UserIDKey, claims.UserID)
 			ctx = context.WithValue(ctx, UserEmailKey, claims.Email)
+			ctx = context.WithValue(ctx, logger.UserIDKey, claims.UserID.String())
 
 			// Call the next handler with the updated context
 			next.ServeHTTP(w, r.WithContext(ctx))

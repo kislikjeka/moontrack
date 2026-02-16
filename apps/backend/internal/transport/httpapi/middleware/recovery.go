@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"runtime/debug"
 
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
@@ -18,6 +19,7 @@ func Recovery(log *logger.Logger) func(next http.Handler) http.Handler {
 						"error", fmt.Sprintf("%v", rec),
 						"path", r.URL.Path,
 						"method", r.Method,
+						"request_id", chimiddleware.GetReqID(r.Context()),
 						"stack", string(debug.Stack()),
 					)
 

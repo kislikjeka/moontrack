@@ -6,17 +6,20 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
 // Service handles user business logic
 type Service struct {
-	repo Repository
+	repo   Repository
+	logger *logger.Logger
 }
 
 // NewService creates a new user service
-func NewService(repo Repository) *Service {
+func NewService(repo Repository, log *logger.Logger) *Service {
 	return &Service{
-		repo: repo,
+		repo:   repo,
+		logger: log.WithField("component", "user"),
 	}
 }
 
@@ -35,6 +38,7 @@ func (s *Service) Register(ctx context.Context, email, password string) (*User, 
 	}
 
 	if exists {
+		s.logger.Warn("registration attempt for existing email", "email", email)
 		return nil, ErrUserAlreadyExists
 	}
 
@@ -56,6 +60,8 @@ func (s *Service) Register(ctx context.Context, email, password string) (*User, 
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
+	s.logger.Info("user registered", "user_id", user.ID)
+
 	return user, nil
 }
 
@@ -67,6 +73,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (*User, err
 	if err != nil {
 		if err == ErrUserNotFound {
 			// Don't reveal that the user doesn't exist
+			s.logger.Warn("login failed", "email", email)
 			return nil, ErrInvalidPassword
 		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
@@ -74,6 +81,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (*User, err
 
 	// Check password
 	if err := user.CheckPassword(password); err != nil {
+		s.logger.Warn("login failed", "email", email)
 		return nil, err
 	}
 
@@ -82,8 +90,10 @@ func (s *Service) Login(ctx context.Context, email, password string) (*User, err
 	if err := s.repo.Update(ctx, user); err != nil {
 		// Log error but don't fail login
 		// This is a non-critical operation
-		fmt.Printf("warning: failed to update last login: %v\n", err)
+		s.logger.Error("failed to update last login", "user_id", user.ID, "error", err)
 	}
+
+	s.logger.Info("user logged in", "user_id", user.ID)
 
 	return user, nil
 }

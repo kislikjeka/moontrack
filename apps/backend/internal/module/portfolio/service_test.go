@@ -30,9 +30,9 @@ func TestPortfolioService_CalculatesTotalBalanceCorrectly(t *testing.T) {
 
 	// Mock wallets
 	walletRepo.SetMockWallets(userID, []*Wallet{
-		{ID: wallet1, UserID: userID, Name: "Wallet 1", ChainID: "bitcoin"},
-		{ID: wallet2, UserID: userID, Name: "Wallet 2", ChainID: "ethereum"},
-		{ID: wallet3, UserID: userID, Name: "Wallet 3", ChainID: "ethereum"},
+		{ID: wallet1, UserID: userID, Name: "Wallet 1", ChainID: 1},
+		{ID: wallet2, UserID: userID, Name: "Wallet 2", ChainID: 1},
+		{ID: wallet3, UserID: userID, Name: "Wallet 3", ChainID: 1},
 	})
 
 	// Mock accounts for wallets
@@ -117,7 +117,7 @@ func TestPortfolioService_HandlesPriceAPIFailure(t *testing.T) {
 	accountID := uuid.New()
 
 	walletRepo.SetMockWallets(userID, []*Wallet{
-		{ID: walletID, UserID: userID, Name: "Test Wallet", ChainID: "bitcoin"},
+		{ID: walletID, UserID: userID, Name: "Test Wallet", ChainID: 1},
 	})
 
 	ledgerRepo.SetMockAccounts(walletID, []*ledger.Account{
