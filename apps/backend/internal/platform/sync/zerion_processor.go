@@ -3,13 +3,13 @@ package sync
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
@@ -19,12 +19,12 @@ type ZerionProcessor struct {
 	walletRepo   WalletRepository
 	ledgerSvc    LedgerService
 	classifier   *Classifier
-	logger       *slog.Logger
+	logger       *logger.Logger
 	addressCache map[string][]uuid.UUID
 }
 
 // NewZerionProcessor creates a new ZerionProcessor.
-func NewZerionProcessor(walletRepo WalletRepository, ledgerSvc LedgerService, logger *slog.Logger) *ZerionProcessor {
+func NewZerionProcessor(walletRepo WalletRepository, ledgerSvc LedgerService, logger *logger.Logger) *ZerionProcessor {
 	return &ZerionProcessor{
 		walletRepo:   walletRepo,
 		ledgerSvc:    ledgerSvc,
@@ -42,6 +42,8 @@ func (p *ZerionProcessor) ProcessTransaction(ctx context.Context, w *wallet.Wall
 	}
 
 	txType := p.classifier.Classify(tx)
+	p.logger.Debug("transaction classified", "tx_hash", tx.TxHash, "op_type", tx.OperationType, "tx_type", string(txType))
+
 	if txType == "" {
 		p.logger.Debug("skipping unclassifiable transaction", "tx_hash", tx.TxHash, "op_type", tx.OperationType)
 		return nil
@@ -88,6 +90,8 @@ func (p *ZerionProcessor) ProcessTransaction(ctx context.Context, w *wallet.Wall
 		return fmt.Errorf("failed to record transaction: %w", err)
 	}
 
+	p.logger.Debug("transaction recorded to ledger", "tx_hash", tx.TxHash, "tx_type", string(txType), "external_id", externalID)
+
 	return nil
 }
 
@@ -108,6 +112,9 @@ func (p *ZerionProcessor) detectInternalTransfer(ctx context.Context, w *wallet.
 
 		if p.isUserWallet(ctx, counterpartyAddr, w.UserID) {
 			destID := p.getWalletByAddress(ctx, counterpartyAddr, w.UserID)
+			if destID != nil {
+				p.logger.Debug("internal transfer detected", "tx_hash", tx.TxHash, "source_wallet", w.ID, "dest_wallet", *destID)
+			}
 			return ledger.TxTypeInternalTransfer, destID
 		}
 	}

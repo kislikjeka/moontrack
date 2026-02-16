@@ -15,6 +15,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/module/transfer"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
@@ -77,7 +78,7 @@ func TestTransferInHandler_GenerateEntries_Balance(t *testing.T) {
 				Address: "0x1234567890123456789012345678901234567890",
 			}, nil)
 
-			handler := transfer.NewTransferInHandler(walletRepo)
+			handler := transfer.NewTransferInHandler(walletRepo, logger.NewDefault("test"))
 
 			data := map[string]interface{}{
 				"wallet_id":        walletID.String(),
@@ -209,7 +210,7 @@ func TestTransferInHandler_ValidateData(t *testing.T) {
 				Address: "0x1234567890123456789012345678901234567890",
 			}, nil)
 
-			handler := transfer.NewTransferInHandler(walletRepo)
+			handler := transfer.NewTransferInHandler(walletRepo, logger.NewDefault("test"))
 
 			data := map[string]interface{}{
 				"wallet_id":        walletID.String(),
@@ -255,7 +256,7 @@ func TestTransferInHandler_CrossUserWallet_ReturnsUnauthorized(t *testing.T) {
 		Address: "0x1234567890123456789012345678901234567890",
 	}, nil)
 
-	handler := transfer.NewTransferInHandler(walletRepo)
+	handler := transfer.NewTransferInHandler(walletRepo, logger.NewDefault("test"))
 
 	data := map[string]interface{}{
 		"wallet_id":        walletID.String(),
@@ -283,7 +284,7 @@ func TestTransferInHandler_WalletNotFound(t *testing.T) {
 	walletRepo := new(MockWalletRepository)
 	walletRepo.On("GetByID", ctx, walletID).Return(nil, nil)
 
-	handler := transfer.NewTransferInHandler(walletRepo)
+	handler := transfer.NewTransferInHandler(walletRepo, logger.NewDefault("test"))
 
 	data := map[string]interface{}{
 		"wallet_id":        walletID.String(),
@@ -343,7 +344,7 @@ func TestTransferOutHandler_GenerateEntries_Balance(t *testing.T) {
 				Address: "0x1234567890123456789012345678901234567890",
 			}, nil)
 
-			handler := transfer.NewTransferOutHandler(walletRepo)
+			handler := transfer.NewTransferOutHandler(walletRepo, logger.NewDefault("test"))
 
 			data := map[string]interface{}{
 				"wallet_id":        walletID.String(),
@@ -403,7 +404,7 @@ func TestTransferOutHandler_WithGas_GenerateEntries_Balance(t *testing.T) {
 		Address: "0x1234567890123456789012345678901234567890",
 	}, nil)
 
-	handler := transfer.NewTransferOutHandler(walletRepo)
+	handler := transfer.NewTransferOutHandler(walletRepo, logger.NewDefault("test"))
 
 	data := map[string]interface{}{
 		"wallet_id":        walletID.String(),
@@ -495,7 +496,7 @@ func TestTransferOutHandler_ValidateData(t *testing.T) {
 				Address: "0x1234567890123456789012345678901234567890",
 			}, nil)
 
-			handler := transfer.NewTransferOutHandler(walletRepo)
+			handler := transfer.NewTransferOutHandler(walletRepo, logger.NewDefault("test"))
 
 			data := map[string]interface{}{
 				"wallet_id":        walletID.String(),
@@ -547,7 +548,7 @@ func TestInternalTransferHandler_GenerateEntries_Balance(t *testing.T) {
 		Address: "0x2222222222222222222222222222222222222222",
 	}, nil)
 
-	handler := transfer.NewInternalTransferHandler(walletRepo)
+	handler := transfer.NewInternalTransferHandler(walletRepo, logger.NewDefault("test"))
 
 	data := map[string]interface{}{
 		"source_wallet_id": sourceWalletID.String(),
@@ -651,7 +652,7 @@ func TestInternalTransferHandler_ValidateData(t *testing.T) {
 				Address: "0x1111111111111111111111111111111111111111",
 			}, nil)
 
-			handler := transfer.NewInternalTransferHandler(walletRepo)
+			handler := transfer.NewInternalTransferHandler(walletRepo, logger.NewDefault("test"))
 
 			data := map[string]interface{}{
 				"source_wallet_id": sourceWalletID.String(),
@@ -703,7 +704,7 @@ func TestInternalTransferHandler_CrossUserWallet_ReturnsUnauthorized(t *testing.
 		Address: "0x2222222222222222222222222222222222222222",
 	}, nil)
 
-	handler := transfer.NewInternalTransferHandler(walletRepo)
+	handler := transfer.NewInternalTransferHandler(walletRepo, logger.NewDefault("test"))
 
 	data := map[string]interface{}{
 		"source_wallet_id": sourceWalletID.String(),
@@ -728,16 +729,16 @@ func TestInternalTransferHandler_CrossUserWallet_ReturnsUnauthorized(t *testing.
 // =============================================================================
 
 func TestTransferInHandler_Type(t *testing.T) {
-	handler := transfer.NewTransferInHandler(nil)
+	handler := transfer.NewTransferInHandler(nil, logger.NewDefault("test"))
 	assert.Equal(t, ledger.TxTypeTransferIn, handler.Type())
 }
 
 func TestTransferOutHandler_Type(t *testing.T) {
-	handler := transfer.NewTransferOutHandler(nil)
+	handler := transfer.NewTransferOutHandler(nil, logger.NewDefault("test"))
 	assert.Equal(t, ledger.TxTypeTransferOut, handler.Type())
 }
 
 func TestInternalTransferHandler_Type(t *testing.T) {
-	handler := transfer.NewInternalTransferHandler(nil)
+	handler := transfer.NewInternalTransferHandler(nil, logger.NewDefault("test"))
 	assert.Equal(t, ledger.TxTypeInternalTransfer, handler.Type())
 }

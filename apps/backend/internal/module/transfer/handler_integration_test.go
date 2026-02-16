@@ -4,6 +4,7 @@ package transfer_test
 
 import (
 	"context"
+	"io"
 	"math/big"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/infra/postgres"
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/module/transfer"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/kislikjeka/moontrack/pkg/money"
 	"github.com/kislikjeka/moontrack/testutil/testdb"
 )
@@ -49,11 +51,12 @@ func setupTransferTest(t *testing.T) (*ledger.Service, *postgres.LedgerRepositor
 	registry := ledger.NewRegistry()
 
 	// Register transfer handlers
-	registry.Register(transfer.NewTransferInHandler(walletRepo))
-	registry.Register(transfer.NewTransferOutHandler(walletRepo))
-	registry.Register(transfer.NewInternalTransferHandler(walletRepo))
+	log := logger.New("test", io.Discard)
+	registry.Register(transfer.NewTransferInHandler(walletRepo, log))
+	registry.Register(transfer.NewTransferOutHandler(walletRepo, log))
+	registry.Register(transfer.NewInternalTransferHandler(walletRepo, log))
 
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, logger.New("test", io.Discard))
 	return svc, repo, ctx
 }
 

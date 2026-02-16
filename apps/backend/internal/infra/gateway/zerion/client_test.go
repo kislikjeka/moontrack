@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +16,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kislikjeka/moontrack/internal/infra/gateway/zerion"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 )
+
+func testLogger() *logger.Logger {
+	return logger.New("development", io.Discard)
+}
 
 // =============================================================================
 // Auth Header Tests
@@ -33,7 +39,7 @@ func TestClient_AuthHeader(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := zerion.NewClient(apiKey)
+	client := zerion.NewClient(apiKey, testLogger())
 	client.SetBaseURL(server.URL)
 
 	_, err := client.GetTransactions(context.Background(), "0xtest", "ethereum", time.Now())
@@ -50,7 +56,7 @@ func TestClient_AcceptHeader(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := zerion.NewClient("key")
+	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(server.URL)
 
 	_, err := client.GetTransactions(context.Background(), "0xtest", "ethereum", time.Now())
@@ -73,7 +79,7 @@ func TestClient_QueryParams(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := zerion.NewClient("key")
+	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(server.URL)
 
 	_, err := client.GetTransactions(context.Background(), "0xwallet", "ethereum", since)
@@ -152,7 +158,7 @@ func TestClient_Pagination(t *testing.T) {
 	}))
 	defer paginationServer.Close()
 
-	client := zerion.NewClient("key")
+	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(paginationServer.URL)
 
 	txs, err := client.GetTransactions(context.Background(), "0xtest", "ethereum", time.Now())
@@ -183,7 +189,7 @@ func TestClient_RateLimitRetry(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := zerion.NewClient("key")
+	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(server.URL)
 
 	txs, err := client.GetTransactions(context.Background(), "0xtest", "ethereum", time.Now())
@@ -202,7 +208,7 @@ func TestClient_RateLimitExhaustion(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := zerion.NewClient("key")
+	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(server.URL)
 
 	_, err := client.GetTransactions(context.Background(), "0xtest", "ethereum", time.Now())
@@ -219,7 +225,7 @@ func TestClient_RateLimitContextCancel(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := zerion.NewClient("key")
+	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(server.URL)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -242,7 +248,7 @@ func TestClient_NonOKResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := zerion.NewClient("key")
+	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(server.URL)
 
 	_, err := client.GetTransactions(context.Background(), "0xtest", "ethereum", time.Now())

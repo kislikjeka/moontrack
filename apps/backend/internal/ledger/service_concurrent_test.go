@@ -33,7 +33,7 @@ func TestLedgerService_ConcurrentWithdrawals_NoDoubleSpend(t *testing.T) {
 	incomeHandler := newTestHandler()
 	require.NoError(t, registry.Register(incomeHandler))
 
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -61,7 +61,7 @@ func TestLedgerService_ConcurrentWithdrawals_NoDoubleSpend(t *testing.T) {
 	}
 	require.NoError(t, outcomeRegistry.Register(outcomeHandler))
 
-	outcomeSvc := ledger.NewService(repo, outcomeRegistry)
+	outcomeSvc := ledger.NewService(repo, outcomeRegistry, testLogger())
 
 	// Run 10 concurrent withdrawals of 50 BTC each
 	// Only 2 should succeed (100/50 = 2), 8 should fail with insufficient balance
@@ -136,7 +136,7 @@ func TestLedgerService_ConcurrentDeposits_CorrectTotal(t *testing.T) {
 	handler := newTestHandler()
 	require.NoError(t, registry.Register(handler))
 
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -227,7 +227,7 @@ func TestLedgerService_ConcurrentAccountCreation_NoDuplicates(t *testing.T) {
 	handler := newTestHandler()
 	require.NoError(t, registry.Register(handler))
 
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -293,7 +293,7 @@ func TestLedgerService_ConcurrentMixedOperations(t *testing.T) {
 	incomeRegistry := ledger.NewRegistry()
 	incomeHandler := newTestHandler()
 	require.NoError(t, incomeRegistry.Register(incomeHandler))
-	incomeSvc := ledger.NewService(repo, incomeRegistry)
+	incomeSvc := ledger.NewService(repo, incomeRegistry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -319,7 +319,7 @@ func TestLedgerService_ConcurrentMixedOperations(t *testing.T) {
 		walletID:    walletID,
 	}
 	require.NoError(t, outcomeRegistry.Register(outcomeHandler))
-	outcomeSvc := ledger.NewService(repo, outcomeRegistry)
+	outcomeSvc := ledger.NewService(repo, outcomeRegistry, testLogger())
 
 	// Run concurrent deposits (+10) and withdrawals (-5)
 	numDeposits := 10

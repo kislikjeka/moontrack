@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -15,16 +16,36 @@ func Logger(log *logger.Logger) func(next http.Handler) http.Handler {
 			ww := chimiddleware.NewWrapResponseWriter(w, r.ProtoMajor)
 			start := time.Now()
 
+			// Propagate chi's request ID into our typed context key
+			reqID := chimiddleware.GetReqID(r.Context())
+			if reqID != "" {
+				ctx := context.WithValue(r.Context(), logger.RequestIDKey, reqID)
+				r = r.WithContext(ctx)
+			}
+
 			defer func() {
-				log.Info("HTTP request",
+				status := ww.Status()
+				attrs := []any{
 					"method", r.Method,
 					"path", r.URL.Path,
 					"remote_addr", r.RemoteAddr,
 					"user_agent", r.UserAgent(),
-					"status", ww.Status(),
+					"status", status,
 					"bytes", ww.BytesWritten(),
 					"duration_ms", time.Since(start).Milliseconds(),
-				)
+				}
+				if reqID != "" {
+					attrs = append(attrs, "request_id", reqID)
+				}
+
+				switch {
+				case status >= 500:
+					log.Error("HTTP request", attrs...)
+				case status >= 400:
+					log.Warn("HTTP request", attrs...)
+				default:
+					log.Info("HTTP request", attrs...)
+				}
 			}()
 
 			next.ServeHTTP(ww, r)

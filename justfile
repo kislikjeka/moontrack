@@ -25,6 +25,26 @@ dev:
     @echo "Starting frontend..."
     cd apps/frontend && bun run dev
 
+# Start full dev environment with Grafana+Loki log stack
+dev-logs:
+    @echo "Starting development environment with log stack..."
+    @echo "Backend: http://localhost:8080"
+    @echo "Frontend: http://localhost:5173"
+    @echo "Grafana: http://localhost:3001"
+    @echo ""
+    docker-compose --profile logs up -d postgres redis backend loki promtail grafana
+    @echo ""
+    @echo "Waiting for backend to be ready..."
+    @sleep 3
+    @just migrate-up || true
+    @echo ""
+    @echo "Starting frontend..."
+    cd apps/frontend && bun run dev
+
+# Open Grafana Explore in browser
+grafana:
+    open http://localhost:3001/explore
+
 # Stop all containers
 down:
     docker-compose down

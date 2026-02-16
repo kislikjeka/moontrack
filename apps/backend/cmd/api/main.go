@@ -4,7 +4,6 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	stdlog "log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -84,14 +83,14 @@ func main() {
 	log.Info("Redis connection established")
 
 	// Initialize pricing components
-	coinGeckoClient := coingecko.NewClient(cfg.CoinGeckoAPIKey)
-	priceCache := infraRedis.NewCache(redisClient)
+	coinGeckoClient := coingecko.NewClient(cfg.CoinGeckoAPIKey, log)
+	priceCache := infraRedis.NewCache(redisClient, log)
 
 	// Initialize Asset components (unified asset + price service)
 	assetRepo := postgres.NewAssetRepository(db.Pool)
 	priceHistoryRepo := postgres.NewPriceRepository(db.Pool)
 	priceProvider := coingecko.NewPriceProviderAdapter(coinGeckoClient)
-	assetSvc := asset.NewService(assetRepo, priceHistoryRepo, priceCache, priceProvider)
+	assetSvc := asset.NewService(assetRepo, priceHistoryRepo, priceCache, priceProvider, log)
 	log.Info("Asset service initialized")
 
 	// Initialize repositories
@@ -103,33 +102,33 @@ func main() {
 	handlerRegistry := ledger.NewRegistry()
 
 	// Initialize services
-	userSvc := user.NewService(userRepo)
+	userSvc := user.NewService(userRepo, log)
 	jwtSvc := middleware.NewJWTService(cfg.JWTSecret)
-	ledgerSvc := ledger.NewService(ledgerRepo, handlerRegistry)
-	walletSvc := wallet.NewService(walletRepo)
+	ledgerSvc := ledger.NewService(ledgerRepo, handlerRegistry, log)
+	walletSvc := wallet.NewService(walletRepo, log)
 
 	// Register transaction handlers with the registry
 
 	// Asset adjustment handler
-	assetAdjHandler := adjustment.NewAssetAdjustmentHandler(ledgerSvc)
+	assetAdjHandler := adjustment.NewAssetAdjustmentHandler(ledgerSvc, log)
 	handlerRegistry.Register(assetAdjHandler)
 	log.Info("Registered asset adjustment handler")
 
 	// Transfer handlers (blockchain-native transfers)
-	transferInHandler := transfer.NewTransferInHandler(walletRepo)
+	transferInHandler := transfer.NewTransferInHandler(walletRepo, log)
 	handlerRegistry.Register(transferInHandler)
 	log.Info("Registered transfer in handler")
 
-	transferOutHandler := transfer.NewTransferOutHandler(walletRepo)
+	transferOutHandler := transfer.NewTransferOutHandler(walletRepo, log)
 	handlerRegistry.Register(transferOutHandler)
 	log.Info("Registered transfer out handler")
 
-	internalTransferHandler := transfer.NewInternalTransferHandler(walletRepo)
+	internalTransferHandler := transfer.NewInternalTransferHandler(walletRepo, log)
 	handlerRegistry.Register(internalTransferHandler)
 	log.Info("Registered internal transfer handler")
 
 	// Swap handler (DEX token swaps)
-	swapHandler := swap.NewSwapHandler(walletRepo)
+	swapHandler := swap.NewSwapHandler(walletRepo, log)
 	handlerRegistry.Register(swapHandler)
 	log.Info("Registered swap handler")
 
@@ -153,11 +152,11 @@ func main() {
 		}
 		syncAssetAdapter := sync.NewSyncAssetAdapter(assetSvc)
 
-		zerionClient := zerion.NewClient(cfg.ZerionAPIKey)
+		zerionClient := zerion.NewClient(cfg.ZerionAPIKey, log)
 		zerionProvider := zerion.NewSyncAdapter(zerionClient)
 		log.Info("Zerion sync provider initialized")
 
-		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log.Logger, zerionProvider)
+		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, zerionProvider)
 		log.Info("Sync service initialized",
 			"poll_interval", cfg.SyncPollInterval,
 			"provider", "zerion")
@@ -221,7 +220,7 @@ func main() {
 		&asset.PriceUpdaterConfig{
 			Interval:  5 * time.Minute,
 			BatchSize: 50,
-			Logger:    stdlog.New(os.Stdout, "[PriceUpdater] ", stdlog.LstdFlags),
+			Logger:    log,
 		},
 	)
 	go priceUpdater.Run(ctx)

@@ -29,7 +29,7 @@ func TestSyncAdapter_ImplementsTransactionDataProvider(t *testing.T) {
 // =============================================================================
 
 func TestSyncAdapter_UnsupportedChain(t *testing.T) {
-	client := zerion.NewClient("key")
+	client := zerion.NewClient("key", testLogger())
 	adapter := zerion.NewSyncAdapter(client)
 
 	_, err := adapter.GetTransactions(context.Background(), "0xtest", 999999, time.Now())
@@ -106,7 +106,7 @@ func TestSyncAdapter_FullConversion(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := zerion.NewClient("key")
+	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
@@ -188,7 +188,7 @@ func TestSyncAdapter_NilFungibleInfo(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := zerion.NewClient("key")
+	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
@@ -224,7 +224,7 @@ func TestSyncAdapter_NilFee(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := zerion.NewClient("key")
+	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
@@ -255,7 +255,7 @@ func TestSyncAdapter_NilApplicationMetadata(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := zerion.NewClient("key")
+	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
@@ -298,7 +298,7 @@ func TestSyncAdapter_EmptyQuantityInt(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := zerion.NewClient("key")
+	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
@@ -322,7 +322,7 @@ func TestSyncAdapter_AllSupportedChains(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := zerion.NewClient("key")
+			client := zerion.NewClient("key", testLogger())
 			client.SetBaseURL(server.URL)
 			adapter := zerion.NewSyncAdapter(client)
 
@@ -376,7 +376,7 @@ func TestSyncAdapter_DirectionMapping(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := zerion.NewClient("key")
+			client := zerion.NewClient("key", testLogger())
 			client.SetBaseURL(server.URL)
 			adapter := zerion.NewSyncAdapter(client)
 
@@ -421,7 +421,7 @@ func TestSyncAdapter_SkipsInvalidMinedAt(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := zerion.NewClient("key")
+	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 

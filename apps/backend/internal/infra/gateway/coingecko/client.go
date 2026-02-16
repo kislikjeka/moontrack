@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
 const (
@@ -24,16 +26,18 @@ type Client struct {
 	apiKey     string
 	httpClient *http.Client
 	baseURL    string
+	logger     *logger.Logger
 }
 
 // NewClient creates a new CoinGecko API client
-func NewClient(apiKey string) *Client {
+func NewClient(apiKey string, log *logger.Logger) *Client {
 	return &Client{
 		apiKey: apiKey,
 		httpClient: &http.Client{
 			Timeout: requestTimeout,
 		},
 		baseURL: baseURL,
+		logger:  log.WithField("component", "coingecko"),
 	}
 }
 
@@ -61,6 +65,9 @@ func (c *Client) GetCurrentPrices(ctx context.Context, assetIDs []string) (map[s
 		return make(map[string]*big.Int), nil
 	}
 
+	start := time.Now()
+	c.logger.Debug("fetching prices", "asset_count", len(assetIDs))
+
 	// Build request URL
 	params := url.Values{}
 	params.Set("ids", strings.Join(assetIDs, ","))
@@ -86,6 +93,7 @@ func (c *Client) GetCurrentPrices(ctx context.Context, assetIDs []string) (map[s
 
 	// Handle rate limiting
 	if resp.StatusCode == http.StatusTooManyRequests {
+		c.logger.Warn("rate limited", "retry_after", rateLimitRetryAfter)
 		return nil, &RateLimitError{
 			RetryAfter: rateLimitRetryAfter,
 			Message:    "CoinGecko API rate limit exceeded",
@@ -94,6 +102,7 @@ func (c *Client) GetCurrentPrices(ctx context.Context, assetIDs []string) (map[s
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		c.logger.Error("API error", "status_code", resp.StatusCode)
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -117,6 +126,7 @@ func (c *Client) GetCurrentPrices(ctx context.Context, assetIDs []string) (map[s
 		result[assetID] = scaledPrice
 	}
 
+	c.logger.Debug("prices fetched", "asset_count", len(result), "duration_ms", time.Since(start).Milliseconds())
 	return result, nil
 }
 
@@ -147,6 +157,7 @@ func (c *Client) GetHistoricalPrice(ctx context.Context, assetID string, date ti
 
 	// Handle rate limiting
 	if resp.StatusCode == http.StatusTooManyRequests {
+		c.logger.Warn("rate limited", "retry_after", rateLimitRetryAfter)
 		return nil, &RateLimitError{
 			RetryAfter: rateLimitRetryAfter,
 			Message:    "CoinGecko API rate limit exceeded",
@@ -155,6 +166,7 @@ func (c *Client) GetHistoricalPrice(ctx context.Context, assetID string, date ti
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		c.logger.Error("API error", "status_code", resp.StatusCode)
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -245,6 +257,7 @@ func (c *Client) GetCoinDetails(ctx context.Context, coinID string) (*CoinDetail
 
 	// Handle rate limiting
 	if resp.StatusCode == http.StatusTooManyRequests {
+		c.logger.Warn("rate limited", "retry_after", rateLimitRetryAfter)
 		return nil, &RateLimitError{
 			RetryAfter: rateLimitRetryAfter,
 			Message:    "CoinGecko API rate limit exceeded",
@@ -253,6 +266,7 @@ func (c *Client) GetCoinDetails(ctx context.Context, coinID string) (*CoinDetail
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		c.logger.Error("API error", "status_code", resp.StatusCode)
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -306,6 +320,7 @@ func (c *Client) SearchCoins(ctx context.Context, query string) ([]SearchCoin, e
 
 	// Handle rate limiting
 	if resp.StatusCode == http.StatusTooManyRequests {
+		c.logger.Warn("rate limited", "retry_after", rateLimitRetryAfter)
 		return nil, &RateLimitError{
 			RetryAfter: rateLimitRetryAfter,
 			Message:    "CoinGecko API rate limit exceeded",
@@ -314,6 +329,7 @@ func (c *Client) SearchCoins(ctx context.Context, query string) ([]SearchCoin, e
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		c.logger.Error("API error", "status_code", resp.StatusCode)
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 	}
 

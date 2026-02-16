@@ -4,7 +4,6 @@ package sync_test
 
 import (
 	"context"
-	"log/slog"
 	"math/big"
 	"os"
 	gosync "sync"
@@ -20,6 +19,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/module/transfer"
 	"github.com/kislikjeka/moontrack/internal/platform/sync"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/kislikjeka/moontrack/testutil/testdb"
 )
 
@@ -58,7 +58,7 @@ func setupIntegrationTest(t *testing.T) *testEnv {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	log := logger.New("test", os.Stdout)
 
 	// Create repositories
 	ledgerRepo := postgres.NewLedgerRepository(testDB.Pool)
@@ -66,10 +66,10 @@ func setupIntegrationTest(t *testing.T) *testEnv {
 
 	// Create ledger service with transfer handlers
 	registry := ledger.NewRegistry()
-	registry.Register(transfer.NewTransferInHandler(walletRepo))
-	registry.Register(transfer.NewTransferOutHandler(walletRepo))
-	registry.Register(transfer.NewInternalTransferHandler(walletRepo))
-	ledgerSvc := ledger.NewService(ledgerRepo, registry)
+	registry.Register(transfer.NewTransferInHandler(walletRepo, log))
+	registry.Register(transfer.NewTransferOutHandler(walletRepo, log))
+	registry.Register(transfer.NewInternalTransferHandler(walletRepo, log))
+	ledgerSvc := ledger.NewService(ledgerRepo, registry, log)
 
 	// Create mock Zerion provider
 	zerionMock := newMockZerionProvider()
@@ -83,7 +83,7 @@ func setupIntegrationTest(t *testing.T) *testEnv {
 	}
 
 	// Create sync service
-	syncSvc := sync.NewService(config, walletRepo, ledgerSvc, nil, logger, zerionMock)
+	syncSvc := sync.NewService(config, walletRepo, ledgerSvc, nil, log, zerionMock)
 
 	return &testEnv{
 		syncSvc:    syncSvc,

@@ -31,7 +31,7 @@ func TestLedgerService_Commit_TransactionCreation(t *testing.T) {
 	handler := newTestHandler()
 	require.NoError(t, registry.Register(handler))
 
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -82,7 +82,7 @@ func TestLedgerService_Commit_MultipleBalanceUpdates(t *testing.T) {
 	handler := newTestHandler()
 	require.NoError(t, registry.Register(handler))
 
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -139,7 +139,7 @@ func TestLedgerService_ReconcileAfterMultipleTransactions(t *testing.T) {
 	handler := newTestHandler()
 	require.NoError(t, registry.Register(handler))
 
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -188,7 +188,7 @@ func TestLedgerService_ReconcileBalance_DetectsInconsistency(t *testing.T) {
 	handler := newTestHandler()
 	require.NoError(t, registry.Register(handler))
 
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -239,7 +239,7 @@ func TestLedgerService_Commit_EntriesCreatedBeforeBalanceUpdate(t *testing.T) {
 	handler := newTestHandler()
 	require.NoError(t, registry.Register(handler))
 
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -295,7 +295,7 @@ func TestLedgerService_CalculateBalanceFromEntries_Accuracy(t *testing.T) {
 	handler := newTestHandler()
 	require.NoError(t, registry.Register(handler))
 
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -361,7 +361,7 @@ func TestLedgerService_NegativeBalancePrevention(t *testing.T) {
 	registry = ledger.NewRegistry()
 	require.NoError(t, registry.Register(incomeHandler))
 
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -386,7 +386,7 @@ func TestLedgerService_NegativeBalancePrevention(t *testing.T) {
 	outcomeHandler.walletID = walletID
 	require.NoError(t, registry2.Register(outcomeHandler))
 
-	svc2 := ledger.NewService(repo, registry2)
+	svc2 := ledger.NewService(repo, registry2, testLogger())
 
 	// Try to withdraw more than available
 	tx, err := svc2.RecordTransaction(
@@ -488,7 +488,7 @@ func TestLedgerService_ValidationError_NoEntriesInDB(t *testing.T) {
 	}
 	require.NoError(t, registry.Register(handler))
 
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)
@@ -547,7 +547,7 @@ func TestLedgerService_EntryImmutability(t *testing.T) {
 	handler := newTestHandler()
 	require.NoError(t, registry.Register(handler))
 
-	svc := ledger.NewService(repo, registry)
+	svc := ledger.NewService(repo, registry, testLogger())
 
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createTestWallet(t, ctx, testDB.Pool, userID)

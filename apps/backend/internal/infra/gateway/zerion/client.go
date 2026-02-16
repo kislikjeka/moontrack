@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
 const (
@@ -23,16 +25,18 @@ type Client struct {
 	apiKey     string
 	httpClient *http.Client
 	baseURL    string
+	logger     *logger.Logger
 }
 
 // NewClient creates a new Zerion API client
-func NewClient(apiKey string) *Client {
+func NewClient(apiKey string, log *logger.Logger) *Client {
 	return &Client{
 		apiKey: apiKey,
 		httpClient: &http.Client{
 			Timeout: requestTimeout,
 		},
 		baseURL: defaultBaseURL,
+		logger:  log.WithField("component", "zerion"),
 	}
 }
 
@@ -62,6 +66,9 @@ func (c *Client) doRequest(ctx context.Context, method, reqURL string, params ur
 
 	backoff := time.Second
 	for attempt := 0; attempt <= maxRetries; attempt++ {
+		c.logger.Debug("API request", "method", method, "url", reqURL, "attempt", attempt)
+		attemptStart := time.Now()
+
 		req, err := http.NewRequestWithContext(ctx, method, reqURL, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
@@ -84,16 +91,19 @@ func (c *Client) doRequest(ctx context.Context, method, reqURL string, params ur
 		}
 
 		if resp.StatusCode == http.StatusOK {
+			c.logger.Debug("API response", "status_code", resp.StatusCode, "duration_ms", time.Since(attemptStart).Milliseconds())
 			return body, nil
 		}
 
 		if resp.StatusCode == http.StatusTooManyRequests {
 			if attempt == maxRetries {
+				c.logger.Error("rate limit exhausted", "attempts", maxRetries+1)
 				return nil, &RateLimitError{
 					RetryAfter: backoff,
 					Message:    "Zerion API rate limit exceeded after retries",
 				}
 			}
+			c.logger.Warn("rate limited, retrying", "attempt", attempt, "backoff_ms", backoff.Milliseconds())
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -103,6 +113,7 @@ func (c *Client) doRequest(ctx context.Context, method, reqURL string, params ur
 			}
 		}
 
+		c.logger.Error("API error", "status_code", resp.StatusCode)
 		return nil, fmt.Errorf("Zerion API error: status %d, body: %s", resp.StatusCode, string(body))
 	}
 
@@ -113,6 +124,7 @@ func (c *Client) doRequest(ctx context.Context, method, reqURL string, params ur
 // GetTransactions fetches decoded transactions for an address on a specific chain since a given time.
 // It handles pagination by following the absolute Links.Next URL.
 func (c *Client) GetTransactions(ctx context.Context, address, chainID string, since time.Time) ([]TransactionData, error) {
+	fetchStart := time.Now()
 	reqURL := fmt.Sprintf("%s/wallets/%s/transactions/", c.baseURL, address)
 
 	params := url.Values{}
@@ -145,6 +157,7 @@ func (c *Client) GetTransactions(ctx context.Context, address, chainID string, s
 		params = nil // params are already embedded in the absolute URL
 	}
 
+	c.logger.Info("transactions fetched", "address", address, "count", len(allTxs), "duration_ms", time.Since(fetchStart).Milliseconds())
 	return allTxs, nil
 }
 

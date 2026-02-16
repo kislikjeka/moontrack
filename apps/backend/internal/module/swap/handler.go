@@ -12,6 +12,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
 // WalletRepository defines the interface for wallet operations
@@ -25,13 +26,15 @@ type WalletRepository interface {
 type SwapHandler struct {
 	ledger.BaseHandler
 	walletRepo WalletRepository
+	logger     *logger.Logger
 }
 
 // NewSwapHandler creates a new swap handler
-func NewSwapHandler(walletRepo WalletRepository) *SwapHandler {
+func NewSwapHandler(walletRepo WalletRepository, log *logger.Logger) *SwapHandler {
 	return &SwapHandler{
 		BaseHandler: ledger.NewBaseHandler(ledger.TxTypeSwap),
 		walletRepo:  walletRepo,
+		logger:      log.WithField("component", "swap"),
 	}
 }
 
@@ -46,6 +49,8 @@ func (h *SwapHandler) Handle(ctx context.Context, data map[string]interface{}) (
 	if err := json.Unmarshal(jsonData, &txn); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal transaction data: %w", err)
 	}
+
+	h.logger.Debug("handling swap", "wallet_id", txn.WalletID, "transfers_in", len(txn.TransfersIn), "transfers_out", len(txn.TransfersOut), "has_fee", txn.FeeAmount != nil)
 
 	if err := h.ValidateData(ctx, data); err != nil {
 		return nil, err
@@ -266,6 +271,8 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			},
 		})
 	}
+
+	h.logger.Debug("swap entries generated", "entry_count", len(entries))
 
 	return entries, nil
 }

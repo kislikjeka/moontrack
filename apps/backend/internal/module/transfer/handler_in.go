@@ -12,6 +12,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
 // TransferInHandler handles incoming blockchain transfers
@@ -19,6 +20,7 @@ import (
 type TransferInHandler struct {
 	ledger.BaseHandler
 	walletRepo WalletRepository
+	logger     *logger.Logger
 }
 
 // WalletRepository defines the interface for wallet operations
@@ -27,10 +29,11 @@ type WalletRepository interface {
 }
 
 // NewTransferInHandler creates a new transfer in handler
-func NewTransferInHandler(walletRepo WalletRepository) *TransferInHandler {
+func NewTransferInHandler(walletRepo WalletRepository, log *logger.Logger) *TransferInHandler {
 	return &TransferInHandler{
 		BaseHandler: ledger.NewBaseHandler(ledger.TxTypeTransferIn),
 		walletRepo:  walletRepo,
+		logger:      log.WithField("component", "transfer"),
 	}
 }
 
@@ -46,6 +49,8 @@ func (h *TransferInHandler) Handle(ctx context.Context, data map[string]interfac
 	if err := json.Unmarshal(jsonData, &txn); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal transaction data: %w", err)
 	}
+
+	h.logger.Debug("handling transfer", "tx_type", "transfer_in", "wallet_id", txn.WalletID)
 
 	// Validate data
 	if err := h.ValidateData(ctx, data); err != nil {
@@ -160,6 +165,8 @@ func (h *TransferInHandler) GenerateEntries(ctx context.Context, txn *TransferIn
 			"unique_id":        txn.UniqueID,
 		},
 	}
+
+	h.logger.Debug("transfer entries generated", "entry_count", len(entries), "asset_id", txn.AssetID)
 
 	return entries, nil
 }

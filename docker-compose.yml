@@ -62,6 +62,7 @@ services:
       COINGECKO_API_KEY: ${COINGECKO_API_KEY}
       ZERION_API_KEY: ${ZERION_API_KEY}
       SYNC_POLL_INTERVAL: ${SYNC_POLL_INTERVAL:-5m}
+      LOG_FORMAT: json
       ENV: development
     depends_on:
       postgres:
@@ -71,7 +72,57 @@ services:
     env_file:
       - .env
 
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: moontrack-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./infra/loki/loki-config.yml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --output-document=- http://localhost:3100/ready | grep -q ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - logs
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: moontrack-promtail
+    volumes:
+      - ./infra/promtail/promtail-config.yml:/etc/promtail/config.yml
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      loki:
+        condition: service_healthy
+    profiles:
+      - logs
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: moontrack-grafana
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    depends_on:
+      loki:
+        condition: service_healthy
+    profiles:
+      - logs
+
 volumes:
   postgres_data:
   redis_data:
   backend_go_mod:
+  loki_data:
+  grafana_data:

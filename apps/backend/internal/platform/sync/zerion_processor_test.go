@@ -2,7 +2,6 @@ package sync_test
 
 import (
 	"context"
-	"log/slog"
 	"math/big"
 	"os"
 	"testing"
@@ -17,6 +16,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/platform/sync"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
 // =============================================================================
@@ -24,8 +24,8 @@ import (
 // =============================================================================
 
 func newZerionProcessor(walletRepo sync.WalletRepository, ledgerSvc sync.LedgerService) *sync.ZerionProcessor {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	return sync.NewZerionProcessor(walletRepo, ledgerSvc, logger)
+	log := logger.New("test", os.Stdout)
+	return sync.NewZerionProcessor(walletRepo, ledgerSvc, log)
 }
 
 func newDecodedTransaction(opType sync.OperationType, transfers []sync.DecodedTransfer) sync.DecodedTransaction {

@@ -14,6 +14,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/module/swap"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
@@ -35,7 +36,7 @@ func (m *MockWalletRepository) GetByID(ctx context.Context, walletID uuid.UUID) 
 // =============================================================================
 
 func TestSwapHandler_Type(t *testing.T) {
-	handler := swap.NewSwapHandler(nil)
+	handler := swap.NewSwapHandler(nil, logger.NewDefault("test"))
 	assert.Equal(t, ledger.TxTypeSwap, handler.Type())
 }
 
@@ -56,7 +57,7 @@ func TestSwapHandler_SimpleSwap_Balance(t *testing.T) {
 		Address: "0x1234567890123456789012345678901234567890",
 	}, nil)
 
-	handler := swap.NewSwapHandler(walletRepo)
+	handler := swap.NewSwapHandler(walletRepo, logger.NewDefault("test"))
 
 	data := map[string]interface{}{
 		"wallet_id": walletID.String(),
@@ -135,7 +136,7 @@ func TestSwapHandler_WithGasFee_Balance(t *testing.T) {
 		Address: "0x1234567890123456789012345678901234567890",
 	}, nil)
 
-	handler := swap.NewSwapHandler(walletRepo)
+	handler := swap.NewSwapHandler(walletRepo, logger.NewDefault("test"))
 
 	data := map[string]interface{}{
 		"wallet_id": walletID.String(),
@@ -209,7 +210,7 @@ func TestSwapHandler_MultiAsset(t *testing.T) {
 		Address: "0x1234567890123456789012345678901234567890",
 	}, nil)
 
-	handler := swap.NewSwapHandler(walletRepo)
+	handler := swap.NewSwapHandler(walletRepo, logger.NewDefault("test"))
 
 	// Multi-hop swap: ETH + WBTC out -> USDC + DAI in
 	data := map[string]interface{}{
@@ -295,7 +296,7 @@ func TestSwapHandler_Validate_MissingFields(t *testing.T) {
 		Address: "0x1234567890123456789012345678901234567890",
 	}, nil)
 
-	handler := swap.NewSwapHandler(walletRepo)
+	handler := swap.NewSwapHandler(walletRepo, logger.NewDefault("test"))
 
 	testCases := []struct {
 		name        string
@@ -377,7 +378,7 @@ func TestSwapHandler_Validate_NoTransfers(t *testing.T) {
 		Address: "0x1234567890123456789012345678901234567890",
 	}, nil)
 
-	handler := swap.NewSwapHandler(walletRepo)
+	handler := swap.NewSwapHandler(walletRepo, logger.NewDefault("test"))
 
 	testCases := []struct {
 		name       string
@@ -432,7 +433,7 @@ func TestSwapHandler_EntryMetadata(t *testing.T) {
 		Address: "0x1234567890123456789012345678901234567890",
 	}, nil)
 
-	handler := swap.NewSwapHandler(walletRepo)
+	handler := swap.NewSwapHandler(walletRepo, logger.NewDefault("test"))
 	data := validSwapData(walletID)
 
 	entries, err := handler.Handle(ctx, data)

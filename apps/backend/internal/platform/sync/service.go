@@ -3,13 +3,13 @@ package sync
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
 // Service handles blockchain wallet synchronization
@@ -18,7 +18,7 @@ type Service struct {
 	walletRepo      WalletRepository
 	zerionProvider  TransactionDataProvider
 	zerionProcessor *ZerionProcessor
-	logger          *slog.Logger
+	logger          *logger.Logger
 	wg              sync.WaitGroup
 	stopCh          chan struct{}
 	mu              sync.RWMutex
@@ -31,7 +31,7 @@ func NewService(
 	walletRepo WalletRepository,
 	ledgerSvc LedgerService,
 	assetSvc AssetService,
-	logger *slog.Logger,
+	logger *logger.Logger,
 	zerionProvider TransactionDataProvider,
 ) *Service {
 	if config == nil {
@@ -49,7 +49,7 @@ func NewService(
 		walletRepo:      walletRepo,
 		zerionProvider:  zerionProvider,
 		zerionProcessor: zerionProc,
-		logger:          logger.With("service", "sync"),
+		logger:          logger.WithField("component", "sync"),
 		stopCh:          make(chan struct{}),
 	}
 }
@@ -154,6 +154,8 @@ func (s *Service) syncAllWallets(ctx context.Context) {
 
 // SyncWallet manually triggers sync for a specific wallet
 func (s *Service) SyncWallet(ctx context.Context, walletID uuid.UUID) error {
+	s.logger.Info("manual sync triggered", "wallet_id", walletID)
+
 	// This method can be called via API for manual sync trigger
 	wallets, err := s.walletRepo.GetWalletsForSync(ctx)
 	if err != nil {
@@ -196,6 +198,8 @@ func (s *Service) syncWallet(ctx context.Context, w *wallet.Wallet) error {
 		since = time.Now().Add(-s.config.InitialSyncLookback)
 	}
 
+	s.logger.Debug("sync window", "wallet_id", w.ID, "since", since, "is_initial", w.LastSyncAt == nil)
+
 	// Fetch decoded transactions from Zerion
 	transactions, err := s.zerionProvider.GetTransactions(ctx, w.Address, w.ChainID, since)
 	if err != nil {
@@ -233,6 +237,7 @@ func (s *Service) syncWallet(ctx context.Context, w *wallet.Wallet) error {
 		if err := s.walletRepo.SetSyncCompletedAt(ctx, w.ID, *lastSuccessfulMinedAt); err != nil {
 			return fmt.Errorf("failed to mark sync completed: %w", err)
 		}
+		s.logger.Debug("sync cursor advanced", "wallet_id", w.ID, "new_cursor", *lastSuccessfulMinedAt)
 	} else if len(processErrors) == 0 {
 		// No transactions and no errors — wallet is up to date
 		if err := s.walletRepo.SetSyncCompletedAt(ctx, w.ID, time.Now()); err != nil {
@@ -242,6 +247,7 @@ func (s *Service) syncWallet(ctx context.Context, w *wallet.Wallet) error {
 		// First transaction failed — don't advance cursor
 		errMsg := fmt.Sprintf("sync failed on first transaction: %v", processErrors[0])
 		_ = s.walletRepo.SetSyncError(ctx, w.ID, errMsg)
+		s.logger.Warn("sync error persisted", "wallet_id", w.ID, "error", processErrors[0])
 	}
 
 	// Clear address cache after each wallet sync
