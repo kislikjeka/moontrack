@@ -59,8 +59,8 @@ func TestSyncAdapter_FullConversion(t *testing.T) {
 					Fee: &zerion.Fee{
 						FungibleInfo: &zerion.FungibleInfo{
 							Symbol: "ETH",
-							Implementations: map[string]zerion.Implementation{
-								"ethereum": {Address: "0x0000000000000000000000000000000000000000", Decimals: 18},
+							Implementations: []zerion.Implementation{
+								{ChainID: "ethereum", Address: "0x0000000000000000000000000000000000000000", Decimals: 18},
 							},
 						},
 						Quantity: zerion.Quantity{Int: "2100000000000000", Decimals: 18},
@@ -70,8 +70,8 @@ func TestSyncAdapter_FullConversion(t *testing.T) {
 						{
 							FungibleInfo: &zerion.FungibleInfo{
 								Symbol: "ETH",
-								Implementations: map[string]zerion.Implementation{
-									"ethereum": {Address: "0x0000000000000000000000000000000000000000", Decimals: 18},
+								Implementations: []zerion.Implementation{
+									{ChainID: "ethereum", Address: "0x0000000000000000000000000000000000000000", Decimals: 18},
 								},
 							},
 							Direction: "out",
@@ -83,8 +83,8 @@ func TestSyncAdapter_FullConversion(t *testing.T) {
 						{
 							FungibleInfo: &zerion.FungibleInfo{
 								Symbol: "USDC",
-								Implementations: map[string]zerion.Implementation{
-									"ethereum": {Address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", Decimals: 6},
+								Implementations: []zerion.Implementation{
+									{ChainID: "ethereum", Address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", Decimals: 6},
 								},
 							},
 							Direction: "in",

@@ -80,10 +80,20 @@ type ZTransfer struct {
 
 // FungibleInfo describes the token involved in a transfer or fee
 type FungibleInfo struct {
-	Name            string                        `json:"name"`
-	Symbol          string                        `json:"symbol"`
-	Icon            *IconInfo                     `json:"icon"`
-	Implementations map[string]Implementation     `json:"implementations"` // keyed by chain name
+	Name            string           `json:"name"`
+	Symbol          string           `json:"symbol"`
+	Icon            *IconInfo        `json:"icon"`
+	Implementations []Implementation `json:"implementations"`
+}
+
+// ImplementationByChain returns the Implementation for the given chain name, or nil if not found.
+func (f *FungibleInfo) ImplementationByChain(chain string) *Implementation {
+	for i := range f.Implementations {
+		if f.Implementations[i].ChainID == chain {
+			return &f.Implementations[i]
+		}
+	}
+	return nil
 }
 
 // IconInfo holds token icon URL
@@ -93,6 +103,7 @@ type IconInfo struct {
 
 // Implementation holds chain-specific contract info
 type Implementation struct {
+	ChainID  string `json:"chain_id"`
 	Address  string `json:"address"`
 	Decimals int    `json:"decimals"`
 }

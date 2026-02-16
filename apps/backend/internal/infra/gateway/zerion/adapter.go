@@ -101,7 +101,7 @@ func convertTransfer(zt ZTransfer, zerionChain string) sync.DecodedTransfer {
 
 	if zt.FungibleInfo != nil {
 		symbol = zt.FungibleInfo.Symbol
-		if impl, ok := zt.FungibleInfo.Implementations[zerionChain]; ok {
+		if impl := zt.FungibleInfo.ImplementationByChain(zerionChain); impl != nil {
 			contractAddr = strings.ToLower(impl.Address)
 			decimals = impl.Decimals
 		}
@@ -140,7 +140,7 @@ func convertFee(fee *Fee, zerionChain string) *sync.DecodedFee {
 	var decimals int
 	if fee.FungibleInfo != nil {
 		symbol = fee.FungibleInfo.Symbol
-		if impl, ok := fee.FungibleInfo.Implementations[zerionChain]; ok {
+		if impl := fee.FungibleInfo.ImplementationByChain(zerionChain); impl != nil {
 			decimals = impl.Decimals
 		}
 		if decimals == 0 {

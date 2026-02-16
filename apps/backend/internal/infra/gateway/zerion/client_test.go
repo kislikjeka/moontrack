@@ -87,7 +87,7 @@ func TestClient_QueryParams(t *testing.T) {
 
 	assert.Contains(t, receivedURL, "/wallets/0xwallet/transactions/")
 	assert.Contains(t, receivedURL, "filter%5Bchain_ids%5D=ethereum")
-	assert.Contains(t, receivedURL, "filter%5Bmin_mined_at%5D=2024-06-15T12%3A00%3A00Z")
+	assert.Contains(t, receivedURL, "filter%5Bmin_mined_at%5D=1718452800000")
 	assert.Contains(t, receivedURL, "filter%5Basset_types%5D=fungible")
 	assert.Contains(t, receivedURL, "filter%5Btrash%5D=only_non_trash")
 }

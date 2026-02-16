@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/kislikjeka/moontrack/pkg/logger"
@@ -129,7 +130,7 @@ func (c *Client) GetTransactions(ctx context.Context, address, chainID string, s
 
 	params := url.Values{}
 	params.Set("filter[chain_ids]", chainID)
-	params.Set("filter[min_mined_at]", since.UTC().Format(time.RFC3339))
+	params.Set("filter[min_mined_at]", strconv.FormatInt(since.UnixMilli(), 10))
 	params.Set("filter[asset_types]", "fungible")
 	params.Set("filter[trash]", "only_non_trash")
 
