@@ -146,6 +146,7 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 	// Fetch current prices for all assets and calculate USD values
 	assetHoldings := make([]AssetHolding, 0, len(assetTotals))
 	totalUSD := big.NewInt(0)
+	prices := make(map[string]*big.Int) // cache prices for wallet balance calculation
 
 	for assetID, amount := range assetTotals {
 		// Skip if balance is zero
@@ -159,6 +160,7 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 			// If price fetch fails, use zero (or could use cached price)
 			price = big.NewInt(0)
 		}
+		prices[assetID] = price
 
 		// Calculate USD value: (amount * price) / 10^8
 		// Price is already scaled by 10^8, amount is in base units
@@ -178,10 +180,43 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 		totalUSD.Add(totalUSD, usdValue)
 	}
 
-	// Build wallet balances (simplified - would need wallet details from WalletRepository)
+	// Build wallet balances from walletAssets map
 	walletBalances := make([]WalletBalance, 0)
-	// TODO: Fetch wallet details and build WalletBalance structs
-	// For now, returning just asset holdings
+	for _, w := range wallets {
+		assets, exists := walletAssets[w.ID]
+		if !exists {
+			continue
+		}
+		walletTotalUSD := big.NewInt(0)
+		assetBalances := make([]AssetBalance, 0)
+		for assetID, amount := range assets {
+			if amount.Sign() == 0 {
+				continue
+			}
+			price := prices[assetID]
+			if price == nil {
+				price = big.NewInt(0)
+			}
+			usdValue := new(big.Int).Mul(amount, price)
+			walletTotalUSD.Add(walletTotalUSD, usdValue)
+			assetBalances = append(assetBalances, AssetBalance{
+				AssetID:  assetID,
+				Amount:   new(big.Int).Set(amount),
+				USDValue: usdValue,
+				Price:    new(big.Int).Set(price),
+			})
+		}
+		if len(assetBalances) == 0 {
+			continue
+		}
+		walletBalances = append(walletBalances, WalletBalance{
+			WalletID:   w.ID,
+			WalletName: w.Name,
+			ChainID:    fmt.Sprintf("%d", w.ChainID),
+			Assets:     assetBalances,
+			TotalUSD:   walletTotalUSD,
+		})
+	}
 
 	summary := &PortfolioSummary{
 		TotalUSDValue:  totalUSD,

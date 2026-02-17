@@ -291,8 +291,8 @@ func (r *LedgerRepository) CreateTransaction(ctx context.Context, tx *ledger.Tra
 
 	// Insert transaction
 	txQuery := `
-		INSERT INTO transactions (id, type, source, external_id, status, version, occurred_at, recorded_at, raw_data, metadata, error_message)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO transactions (id, type, source, external_id, wallet_id, status, version, occurred_at, recorded_at, raw_data, metadata, error_message)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
 
 	q := r.getQueryer(ctx)
@@ -301,6 +301,7 @@ func (r *LedgerRepository) CreateTransaction(ctx context.Context, tx *ledger.Tra
 		tx.Type,
 		tx.Source,
 		tx.ExternalID,
+		tx.WalletID,
 		string(tx.Status),
 		tx.Version,
 		tx.OccurredAt,
@@ -364,7 +365,7 @@ func (r *LedgerRepository) createEntry(ctx context.Context, entry *ledger.Entry)
 // GetTransaction retrieves a transaction by ID with its entries
 func (r *LedgerRepository) GetTransaction(ctx context.Context, id uuid.UUID) (*ledger.Transaction, error) {
 	query := `
-		SELECT id, type, source, external_id, status, version, occurred_at, recorded_at, raw_data, metadata, error_message
+		SELECT id, type, source, external_id, wallet_id, status, version, occurred_at, recorded_at, raw_data, metadata, error_message
 		FROM transactions
 		WHERE id = $1
 	`
@@ -372,12 +373,14 @@ func (r *LedgerRepository) GetTransaction(ctx context.Context, id uuid.UUID) (*l
 	var tx ledger.Transaction
 	var rawDataJSON, metadataJSON []byte
 	var externalID, errorMessage sql.NullString
+	var walletID sql.NullString
 
 	err := r.pool.QueryRow(ctx, query, id).Scan(
 		&tx.ID,
 		&tx.Type,
 		&tx.Source,
 		&externalID,
+		&walletID,
 		&tx.Status,
 		&tx.Version,
 		&tx.OccurredAt,
@@ -396,6 +399,13 @@ func (r *LedgerRepository) GetTransaction(ctx context.Context, id uuid.UUID) (*l
 	// Parse optional fields
 	if externalID.Valid {
 		tx.ExternalID = &externalID.String
+	}
+
+	if walletID.Valid {
+		wID, err := uuid.Parse(walletID.String)
+		if err == nil {
+			tx.WalletID = &wID
+		}
 	}
 
 	if errorMessage.Valid {
@@ -428,7 +438,7 @@ func (r *LedgerRepository) GetTransaction(ctx context.Context, id uuid.UUID) (*l
 // FindTransactionsBySource finds a transaction by source and external ID
 func (r *LedgerRepository) FindTransactionsBySource(ctx context.Context, source string, externalID string) (*ledger.Transaction, error) {
 	query := `
-		SELECT id, type, source, external_id, status, version, occurred_at, recorded_at, raw_data, metadata, error_message
+		SELECT id, type, source, external_id, wallet_id, status, version, occurred_at, recorded_at, raw_data, metadata, error_message
 		FROM transactions
 		WHERE source = $1 AND external_id = $2
 	`
@@ -436,12 +446,14 @@ func (r *LedgerRepository) FindTransactionsBySource(ctx context.Context, source 
 	var tx ledger.Transaction
 	var rawDataJSON, metadataJSON []byte
 	var extID, errorMessage sql.NullString
+	var walletID sql.NullString
 
 	err := r.pool.QueryRow(ctx, query, source, externalID).Scan(
 		&tx.ID,
 		&tx.Type,
 		&tx.Source,
 		&extID,
+		&walletID,
 		&tx.Status,
 		&tx.Version,
 		&tx.OccurredAt,
@@ -460,6 +472,13 @@ func (r *LedgerRepository) FindTransactionsBySource(ctx context.Context, source 
 	// Parse optional fields
 	if extID.Valid {
 		tx.ExternalID = &extID.String
+	}
+
+	if walletID.Valid {
+		wID, err := uuid.Parse(walletID.String)
+		if err == nil {
+			tx.WalletID = &wID
+		}
 	}
 
 	if errorMessage.Valid {
@@ -492,13 +511,25 @@ func (r *LedgerRepository) FindTransactionsBySource(ctx context.Context, source 
 // ListTransactions lists transactions with filters and pagination
 func (r *LedgerRepository) ListTransactions(ctx context.Context, filters ledger.TransactionFilters) ([]*ledger.Transaction, error) {
 	query := `
-		SELECT id, type, source, external_id, status, version, occurred_at, recorded_at, raw_data, metadata, error_message
+		SELECT id, type, source, external_id, wallet_id, status, version, occurred_at, recorded_at, raw_data, metadata, error_message
 		FROM transactions
 		WHERE 1=1
 	`
 
 	args := make([]interface{}, 0)
 	argPos := 1
+
+	if filters.WalletID != nil {
+		query += fmt.Sprintf(" AND wallet_id = $%d", argPos)
+		args = append(args, *filters.WalletID)
+		argPos++
+	}
+
+	if filters.UserID != nil {
+		query += fmt.Sprintf(" AND wallet_id IN (SELECT id FROM wallets WHERE user_id = $%d)", argPos)
+		args = append(args, *filters.UserID)
+		argPos++
+	}
 
 	if filters.Type != nil {
 		query += fmt.Sprintf(" AND type = $%d", argPos)
@@ -549,12 +580,14 @@ func (r *LedgerRepository) ListTransactions(ctx context.Context, filters ledger.
 		var tx ledger.Transaction
 		var rawDataJSON, metadataJSON []byte
 		var externalID, errorMessage sql.NullString
+		var walletID sql.NullString
 
 		err := rows.Scan(
 			&tx.ID,
 			&tx.Type,
 			&tx.Source,
 			&externalID,
+			&walletID,
 			&tx.Status,
 			&tx.Version,
 			&tx.OccurredAt,
@@ -570,6 +603,13 @@ func (r *LedgerRepository) ListTransactions(ctx context.Context, filters ledger.
 		// Parse optional fields
 		if externalID.Valid {
 			tx.ExternalID = &externalID.String
+		}
+
+		if walletID.Valid {
+			wID, err := uuid.Parse(walletID.String)
+			if err == nil {
+				tx.WalletID = &wID
+			}
 		}
 
 		if errorMessage.Valid {

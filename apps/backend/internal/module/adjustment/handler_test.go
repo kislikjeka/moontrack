@@ -422,21 +422,24 @@ func TestAssetAdjustmentHandler_USDValueCalculation(t *testing.T) {
 		newBalance  *big.Int
 		currentBal  *big.Int
 		usdRate     *big.Int
+		decimals    int
 		expectedUSD *big.Int
 	}{
 		{
 			name:        "calculate USD value for 1 ETH at $2000",
 			newBalance:  mustParseBigInt("1000000000000000000"), // 1 ETH in wei
 			currentBal:  big.NewInt(0),
-			usdRate:     mustParseBigInt("200000000000"),           // $2000 * 10^8
-			expectedUSD: mustParseBigInt("2000000000000000000000"), // (10^18 wei * 2000 * 10^8) / 10^8 = 2000 * 10^18
+			usdRate:     mustParseBigInt("200000000000"), // $2000 * 10^8
+			decimals:    18,
+			expectedUSD: mustParseBigInt("200000000000"), // (10^18 * 200000000000) / 10^18 = 200000000000 ($2000 * 10^8)
 		},
 		{
 			name:        "calculate USD value for 0.5 BTC at $40000",
 			newBalance:  mustParseBigInt("50000000"), // 0.5 BTC in satoshis (50,000,000 satoshis)
 			currentBal:  big.NewInt(0),
 			usdRate:     mustParseBigInt("4000000000000"), // $40000 * 10^8
-			expectedUSD: mustParseBigInt("2000000000000"), // (50000000 * 4000000000000) / 10^8 = 2000000000000
+			decimals:    8,
+			expectedUSD: mustParseBigInt("2000000000000"), // (50000000 * 4000000000000) / 10^8 = 2000000000000 ($20000 * 10^8)
 		},
 	}
 
@@ -455,6 +458,7 @@ func TestAssetAdjustmentHandler_USDValueCalculation(t *testing.T) {
 			txData := map[string]interface{}{
 				"wallet_id":   walletID.String(),
 				"asset_id":    "ETH",
+				"decimals":    tt.decimals,
 				"new_balance": tt.newBalance,
 				"usd_rate":    tt.usdRate,
 				"occurred_at": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),

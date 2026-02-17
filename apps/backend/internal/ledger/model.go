@@ -105,6 +105,7 @@ type Transaction struct {
 	Type         TransactionType // TxTypeManualIncome, TxTypeManualOutcome, TxTypeAssetAdjustment
 	Source       string          // manual, debank, etherscan, etc.
 	ExternalID   *string         // Blockchain tx hash or external system ID
+	WalletID     *uuid.UUID      // Primary wallet involved in this transaction
 	Status       TransactionStatus
 	Version      int                    // Optimistic locking
 	OccurredAt   time.Time              // When transaction actually happened
@@ -233,7 +234,7 @@ type Entry struct {
 	Amount        *big.Int // Amount in base units (wei, satoshi, lamports)
 	AssetID       string
 	USDRate       *big.Int  // USD rate scaled by 10^8
-	USDValue      *big.Int  // amount * usd_rate / 10^8
+	USDValue      *big.Int  // (amount * usd_rate) / 10^decimals — USD value scaled by 10^8
 	OccurredAt    time.Time // Matches transaction occurred_at
 	CreatedAt     time.Time
 	Metadata      map[string]interface{} // Extensible metadata (stored as JSONB)

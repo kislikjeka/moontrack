@@ -120,10 +120,10 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 		usdRate = big.NewInt(0)
 	}
 
-	// Calculate USD value for transfer
+	// Calculate USD value for transfer: (amount * usd_rate) / 10^decimals
 	usdValue := new(big.Int).Mul(txn.GetAmount(), usdRate)
 	if usdRate.Sign() > 0 {
-		divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(txn.Decimals+8)), nil)
+		divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(txn.Decimals)), nil)
 		usdValue.Div(usdValue, divisor)
 	}
 
@@ -196,7 +196,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 		// Calculate gas USD value
 		gasUSDValue := new(big.Int).Mul(gasAmount, gasUSDRate)
 		if gasUSDRate.Sign() > 0 {
-			divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(gasDecimals+8)), nil)
+			divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(gasDecimals)), nil)
 			gasUSDValue.Div(gasUSDValue, divisor)
 		}
 

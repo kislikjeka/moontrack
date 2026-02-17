@@ -254,13 +254,12 @@ func (h *TransactionHandler) GetTransactions(w http.ResponseWriter, r *http.Requ
 	}
 
 	if walletID != "" {
-		_, err := uuid.Parse(walletID)
+		walletUUID, err := uuid.Parse(walletID)
 		if err != nil {
 			respondWithError(w, http.StatusBadRequest, "invalid wallet_id")
 			return
 		}
-		// Note: WalletID filtering would require adding to TransactionFilters struct
-		// For now, we'll skip this filter or implement it in the repository layer
+		filters.WalletID = &walletUUID
 	}
 
 	if txType != "" {

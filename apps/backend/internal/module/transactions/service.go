@@ -113,6 +113,11 @@ func (s *TransactionService) GetTransaction(ctx context.Context, id uuid.UUID, u
 	walletName := w.Name
 	displayAmount := FormatDisplayAmount(fields.Amount, fields.AssetID)
 
+	usdValue := ""
+	if fields.USDValue != nil && fields.USDValue.Sign() > 0 {
+		usdValue = fields.USDValue.String()
+	}
+
 	detail := &TransactionDetail{
 		TransactionListItem: TransactionListItem{
 			ID:            tx.ID.String(),
@@ -127,6 +132,7 @@ func (s *TransactionService) GetTransaction(ctx context.Context, id uuid.UUID, u
 			WalletName:    walletName,
 			Status:        string(tx.Status),
 			OccurredAt:    tx.OccurredAt.Format(time.RFC3339),
+			USDValue:      usdValue,
 		},
 		Source:     tx.Source,
 		ExternalID: tx.ExternalID,
@@ -158,6 +164,11 @@ func (s *TransactionService) toListItem(tx *ledger.Transaction, wallets map[uuid
 
 	displayAmount := FormatDisplayAmount(fields.Amount, fields.AssetID)
 
+	usdValue := ""
+	if fields.USDValue != nil && fields.USDValue.Sign() > 0 {
+		usdValue = fields.USDValue.String()
+	}
+
 	return &TransactionListItem{
 		ID:            tx.ID.String(),
 		Type:          tx.Type.String(),
@@ -171,6 +182,7 @@ func (s *TransactionService) toListItem(tx *ledger.Transaction, wallets map[uuid
 		WalletName:    walletName,
 		Status:        string(tx.Status),
 		OccurredAt:    tx.OccurredAt.Format(time.RFC3339),
+		USDValue:      usdValue,
 	}, nil
 }
 

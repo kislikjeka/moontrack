@@ -106,6 +106,18 @@ func (s *Service) RecordTransaction(
 		Entries:    entries,
 	}
 
+	// Extract wallet_id from rawData for the denormalized column
+	if walletIDStr, ok := rawData["wallet_id"].(string); ok {
+		if wid, err := uuid.Parse(walletIDStr); err == nil {
+			tx.WalletID = &wid
+		}
+	} else if walletIDStr, ok := rawData["source_wallet_id"].(string); ok {
+		// internal_transfer uses source_wallet_id
+		if wid, err := uuid.Parse(walletIDStr); err == nil {
+			tx.WalletID = &wid
+		}
+	}
+
 	// Set transaction ID on all entries
 	for _, entry := range tx.Entries {
 		entry.TransactionID = tx.ID

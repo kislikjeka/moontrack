@@ -42,6 +42,7 @@ type Repository interface {
 // TransactionFilters defines filters for listing transactions
 type TransactionFilters struct {
 	UserID   *uuid.UUID
+	WalletID *uuid.UUID
 	Type     *string
 	Status   *TransactionStatus
 	FromDate *string

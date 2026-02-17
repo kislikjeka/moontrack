@@ -109,10 +109,10 @@ func (h *TransferInHandler) GenerateEntries(ctx context.Context, txn *TransferIn
 		usdRate = big.NewInt(0) // Price will be determined later if not provided
 	}
 
-	// Calculate USD value: (amount * usd_rate) / 10^(decimals + 8)
+	// Calculate USD value: (amount * usd_rate) / 10^decimals
 	usdValue := new(big.Int).Mul(txn.GetAmount(), usdRate)
 	if usdRate.Sign() > 0 {
-		divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(txn.Decimals+8)), nil)
+		divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(txn.Decimals)), nil)
 		usdValue.Div(usdValue, divisor)
 	}
 

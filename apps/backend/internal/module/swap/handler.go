@@ -13,6 +13,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
 	"github.com/kislikjeka/moontrack/pkg/logger"
+	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
 // WalletRepository defines the interface for wallet operations
@@ -118,7 +119,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 		if tr.USDPrice != nil && !tr.USDPrice.IsNil() {
 			usdRate = tr.USDPrice.ToBigInt()
 		}
-		usdValue := calcUSDValue(amount, usdRate, tr.Decimals)
+		usdValue := money.CalcUSDValue(amount, usdRate, tr.Decimals)
 
 		// CREDIT wallet (asset decrease)
 		entries = append(entries, &ledger.Entry{
@@ -171,7 +172,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 		if tr.USDPrice != nil && !tr.USDPrice.IsNil() {
 			usdRate = tr.USDPrice.ToBigInt()
 		}
-		usdValue := calcUSDValue(amount, usdRate, tr.Decimals)
+		usdValue := money.CalcUSDValue(amount, usdRate, tr.Decimals)
 
 		// DEBIT wallet (asset increase)
 		entries = append(entries, &ledger.Entry{
@@ -228,7 +229,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 		if feeDecimals == 0 {
 			feeDecimals = 18 // Default to 18 for native tokens
 		}
-		feeUSDValue := calcUSDValue(feeAmount, feeUSDRate, feeDecimals)
+		feeUSDValue := money.CalcUSDValue(feeAmount, feeUSDRate, feeDecimals)
 		feeAsset := txn.FeeAsset
 
 		// DEBIT gas account (gas fee)
@@ -285,13 +286,3 @@ func (txn *SwapTransaction) getFeeAmount() *big.Int {
 	return txn.FeeAmount.ToBigInt()
 }
 
-// calcUSDValue computes (amount * usdRate) / 10^(decimals+8)
-func calcUSDValue(amount, usdRate *big.Int, decimals int) *big.Int {
-	if usdRate.Sign() == 0 {
-		return big.NewInt(0)
-	}
-	value := new(big.Int).Mul(amount, usdRate)
-	divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals+8)), nil)
-	value.Div(value, divisor)
-	return value
-}

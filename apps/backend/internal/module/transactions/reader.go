@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/platform/rawdata"
+	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
 // ListFields contains the fields needed for transaction list view
@@ -13,6 +14,7 @@ type ListFields struct {
 	WalletID  uuid.UUID
 	AssetID   string
 	Amount    *big.Int
+	USDValue  *big.Int
 	Direction string // "in", "out", "adjustment", "internal"
 }
 
@@ -85,6 +87,7 @@ func (r *TransferInReader) ReadForList(raw map[string]interface{}) (*ListFields,
 		WalletID:  transfer.WalletID,
 		AssetID:   transfer.AssetID,
 		Amount:    transfer.GetAmount(),
+		USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
 		Direction: "in",
 	}, nil
 }
@@ -101,6 +104,7 @@ func (r *TransferInReader) ReadForDetail(raw map[string]interface{}) (*DetailFie
 			WalletID:  transfer.WalletID,
 			AssetID:   transfer.AssetID,
 			Amount:    transfer.GetAmount(),
+			USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
 			Direction: "in",
 		},
 		ExtraFields: map[string]interface{}{
@@ -133,6 +137,7 @@ func (r *TransferOutReader) ReadForList(raw map[string]interface{}) (*ListFields
 		WalletID:  transfer.WalletID,
 		AssetID:   transfer.AssetID,
 		Amount:    transfer.GetAmount(),
+		USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
 		Direction: "out",
 	}, nil
 }
@@ -149,6 +154,7 @@ func (r *TransferOutReader) ReadForDetail(raw map[string]interface{}) (*DetailFi
 			WalletID:  transfer.WalletID,
 			AssetID:   transfer.AssetID,
 			Amount:    transfer.GetAmount(),
+			USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
 			Direction: "out",
 		},
 		ExtraFields: map[string]interface{}{
@@ -181,6 +187,7 @@ func (r *InternalTransferReader) ReadForList(raw map[string]interface{}) (*ListF
 		WalletID:  transfer.SourceWalletID,
 		AssetID:   transfer.AssetID,
 		Amount:    transfer.GetAmount(),
+		USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
 		Direction: "internal",
 	}, nil
 }
@@ -197,6 +204,7 @@ func (r *InternalTransferReader) ReadForDetail(raw map[string]interface{}) (*Det
 			WalletID:  transfer.SourceWalletID,
 			AssetID:   transfer.AssetID,
 			Amount:    transfer.GetAmount(),
+			USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
 			Direction: "internal",
 		},
 		ExtraFields: map[string]interface{}{
@@ -230,6 +238,7 @@ func (r *AdjustmentReader) ReadForList(raw map[string]interface{}) (*ListFields,
 		WalletID:  adj.WalletID,
 		AssetID:   adj.AssetID,
 		Amount:    adj.GetNewBalance(),
+		USDValue:  money.CalcUSDValue(adj.GetNewBalance(), adj.GetUSDRate(), adj.Decimals),
 		Direction: "adjustment",
 	}, nil
 }
@@ -246,6 +255,7 @@ func (r *AdjustmentReader) ReadForDetail(raw map[string]interface{}) (*DetailFie
 			WalletID:  adj.WalletID,
 			AssetID:   adj.AssetID,
 			Amount:    adj.GetNewBalance(),
+			USDValue:  money.CalcUSDValue(adj.GetNewBalance(), adj.GetUSDRate(), adj.Decimals),
 			Direction: "adjustment",
 		},
 		Notes: adj.Notes,

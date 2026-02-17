@@ -108,7 +108,7 @@ func (h *AssetAdjustmentHandler) generateEntries(ctx context.Context, tx *AssetA
 			Amount:      new(big.Int).Set(difference),
 			AssetID:     tx.AssetID,
 			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    calculateUSDValue(difference, usdRate),
+			USDValue:    calculateUSDValue(difference, usdRate, tx.Decimals),
 			OccurredAt:  tx.OccurredAt,
 		})
 
@@ -123,7 +123,7 @@ func (h *AssetAdjustmentHandler) generateEntries(ctx context.Context, tx *AssetA
 			Amount:      new(big.Int).Set(difference),
 			AssetID:     tx.AssetID,
 			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    calculateUSDValue(difference, usdRate),
+			USDValue:    calculateUSDValue(difference, usdRate, tx.Decimals),
 			OccurredAt:  tx.OccurredAt,
 		})
 	} else {
@@ -139,7 +139,7 @@ func (h *AssetAdjustmentHandler) generateEntries(ctx context.Context, tx *AssetA
 			Amount:      new(big.Int).Set(absDifference),
 			AssetID:     tx.AssetID,
 			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    calculateUSDValue(absDifference, usdRate),
+			USDValue:    calculateUSDValue(absDifference, usdRate, tx.Decimals),
 			OccurredAt:  tx.OccurredAt,
 		})
 
@@ -154,7 +154,7 @@ func (h *AssetAdjustmentHandler) generateEntries(ctx context.Context, tx *AssetA
 			Amount:      new(big.Int).Set(absDifference),
 			AssetID:     tx.AssetID,
 			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    calculateUSDValue(absDifference, usdRate),
+			USDValue:    calculateUSDValue(absDifference, usdRate, tx.Decimals),
 			OccurredAt:  tx.OccurredAt,
 		})
 	}
@@ -184,14 +184,13 @@ func (h *AssetAdjustmentHandler) unmarshalData(data map[string]interface{}) (*As
 	return &tx, nil
 }
 
-// calculateUSDValue calculates USD value: (amount * usd_rate) / 10^8
-func calculateUSDValue(amount, usdRate *big.Int) *big.Int {
+// calculateUSDValue calculates USD value: (amount * usd_rate) / 10^decimals — result is USD value scaled by 10^8
+func calculateUSDValue(amount, usdRate *big.Int, decimals int) *big.Int {
 	if usdRate == nil || usdRate.Sign() == 0 {
 		return big.NewInt(0)
 	}
 
-	// usd_value = (amount * usd_rate) / 10^8
 	value := new(big.Int).Mul(amount, usdRate)
-	divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(8), nil)
+	divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
 	return value.Div(value, divisor)
 }
