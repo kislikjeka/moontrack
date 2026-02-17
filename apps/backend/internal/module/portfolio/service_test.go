@@ -216,14 +216,14 @@ func (m *MockPriceService) SetPriceError(assetID string, err error) {
 	m.errors[assetID] = err
 }
 
-func (m *MockPriceService) GetCurrentPriceByCoinGeckoID(ctx context.Context, coinGeckoID string) (*big.Int, error) {
-	if err, ok := m.errors[coinGeckoID]; ok {
+func (m *MockPriceService) GetPriceBySymbol(ctx context.Context, symbol string) (*big.Int, error) {
+	if err, ok := m.errors[symbol]; ok {
 		return nil, err
 	}
-	if price, ok := m.prices[coinGeckoID]; ok {
+	if price, ok := m.prices[symbol]; ok {
 		return price, nil
 	}
-	return nil, ErrPriceNotFound
+	return big.NewInt(0), nil
 }
 
 var (

@@ -132,9 +132,10 @@ func main() {
 	handlerRegistry.Register(swapHandler)
 	log.Info("Registered swap handler")
 
-	// Initialize portfolio service (using AssetService for prices)
+	// Initialize portfolio service (using price adapter for symbol→CoinGecko resolution)
 	walletAdapter := portfolio.NewWalletRepositoryAdapter(walletRepo)
-	portfolioSvc := portfolio.NewPortfolioService(ledgerRepo, walletAdapter, assetSvc)
+	portfolioPriceAdapter := portfolio.NewPortfolioPriceAdapter(assetSvc)
+	portfolioSvc := portfolio.NewPortfolioService(ledgerRepo, walletAdapter, portfolioPriceAdapter)
 	log.Info("Portfolio service initialized")
 
 	// Initialize transaction service (read-only, for enriched views)

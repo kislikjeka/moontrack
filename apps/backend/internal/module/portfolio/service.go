@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
 // Wallet represents a wallet entity for portfolio calculations
@@ -29,10 +30,10 @@ type LedgerRepository interface {
 	FindAccountsByWallet(ctx context.Context, walletID uuid.UUID) ([]*ledger.Account, error)
 }
 
-// PriceService defines the interface for price fetching
-// RegistryService implements this via GetCurrentPriceByCoinGeckoID
+// PriceService defines the interface for price fetching.
+// PortfolioPriceAdapter implements this by resolving symbols to CoinGecko IDs.
 type PriceService interface {
-	GetCurrentPriceByCoinGeckoID(ctx context.Context, coinGeckoID string) (*big.Int, error)
+	GetPriceBySymbol(ctx context.Context, symbol string) (*big.Int, error)
 }
 
 // PortfolioService aggregates portfolio data from the ledger
@@ -78,6 +79,7 @@ type AssetBalance struct {
 	Amount   *big.Int `json:"amount"`    // Amount in base units
 	USDValue *big.Int `json:"usd_value"` // USD value (scaled by 10^8)
 	Price    *big.Int `json:"price"`     // Price per unit (scaled by 10^8)
+	Decimals int      `json:"decimals"`  // Asset decimal places for display conversion
 }
 
 // PortfolioSummary represents the complete portfolio overview
@@ -154,21 +156,16 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 			continue
 		}
 
-		// Get current price
-		price, err := s.priceService.GetCurrentPriceByCoinGeckoID(ctx, assetID)
+		// Get current price (adapter resolves symbol → CoinGecko ID)
+		price, err := s.priceService.GetPriceBySymbol(ctx, assetID)
 		if err != nil {
-			// If price fetch fails, use zero (or could use cached price)
 			price = big.NewInt(0)
 		}
 		prices[assetID] = price
 
-		// Calculate USD value: (amount * price) / 10^8
-		// Price is already scaled by 10^8, amount is in base units
-		// For ETH: amount in wei, price in USD*10^8 per ETH
-		// Result: (wei * (USD*10^8/ETH)) / 10^18 = USD*10^8
-		usdValue := new(big.Int).Mul(amount, price)
-		// Note: This calculation depends on asset's decimal places
-		// For now, we'll store raw calculation - proper implementation needs asset metadata
+		// Calculate USD value: (amount * price) / 10^decimals
+		decimals := money.GetDecimals(assetID)
+		usdValue := money.CalcUSDValue(amount, price, decimals)
 
 		assetHoldings = append(assetHoldings, AssetHolding{
 			AssetID:      assetID,
@@ -197,13 +194,15 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 			if price == nil {
 				price = big.NewInt(0)
 			}
-			usdValue := new(big.Int).Mul(amount, price)
+			decimals := money.GetDecimals(assetID)
+			usdValue := money.CalcUSDValue(amount, price, decimals)
 			walletTotalUSD.Add(walletTotalUSD, usdValue)
 			assetBalances = append(assetBalances, AssetBalance{
 				AssetID:  assetID,
 				Amount:   new(big.Int).Set(amount),
 				USDValue: usdValue,
 				Price:    new(big.Int).Set(price),
+				Decimals: decimals,
 			})
 		}
 		if len(assetBalances) == 0 {
@@ -265,20 +264,22 @@ func (s *PortfolioService) GetAssetBreakdown(ctx context.Context, userID uuid.UU
 				continue
 			}
 
-			// Get current price
-			price, err := s.priceService.GetCurrentPriceByCoinGeckoID(ctx, assetID)
+			// Get current price (adapter resolves symbol → CoinGecko ID)
+			price, err := s.priceService.GetPriceBySymbol(ctx, assetID)
 			if err != nil {
 				price = big.NewInt(0)
 			}
 
-			// Calculate USD value
-			usdValue := new(big.Int).Mul(balance.Balance, price)
+			// Calculate USD value with proper decimals
+			decimals := money.GetDecimals(assetID)
+			usdValue := money.CalcUSDValue(balance.Balance, price, decimals)
 
 			assetBalance := AssetBalance{
 				AssetID:  assetID,
 				Amount:   new(big.Int).Set(balance.Balance),
 				USDValue: usdValue,
 				Price:    price,
+				Decimals: decimals,
 			}
 
 			// TODO: Fetch wallet details

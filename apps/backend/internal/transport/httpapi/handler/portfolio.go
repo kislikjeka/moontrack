@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kislikjeka/moontrack/internal/module/portfolio"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
+	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
 // PortfolioServiceInterface defines the interface for portfolio operations
@@ -78,12 +79,13 @@ func (h *PortfolioHandler) GetPortfolioSummary(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Convert to response format (convert big.Int to strings)
+	// Convert to response format (convert big.Int to strings, amounts to human-readable)
 	assetHoldings := make([]AssetHoldingResponse, len(summary.AssetHoldings))
 	for i, holding := range summary.AssetHoldings {
+		decimals := money.GetDecimals(holding.AssetID)
 		assetHoldings[i] = AssetHoldingResponse{
 			AssetID:      holding.AssetID,
-			TotalAmount:  holding.TotalAmount.String(),
+			TotalAmount:  money.FromBaseUnits(holding.TotalAmount, decimals),
 			USDValue:     holding.USDValue.String(),
 			CurrentPrice: holding.CurrentPrice.String(),
 		}
@@ -95,7 +97,7 @@ func (h *PortfolioHandler) GetPortfolioSummary(w http.ResponseWriter, r *http.Re
 		for j, asset := range w.Assets {
 			assets[j] = AssetBalanceResponse{
 				AssetID:  asset.AssetID,
-				Amount:   asset.Amount.String(),
+				Amount:   money.FromBaseUnits(asset.Amount, asset.Decimals),
 				USDValue: asset.USDValue.String(),
 				Price:    asset.Price.String(),
 			}
@@ -151,7 +153,7 @@ func (h *PortfolioHandler) GetAssetBreakdown(w http.ResponseWriter, r *http.Requ
 		for j, asset := range w.Assets {
 			assets[j] = AssetBalanceResponse{
 				AssetID:  asset.AssetID,
-				Amount:   asset.Amount.String(),
+				Amount:   money.FromBaseUnits(asset.Amount, asset.Decimals),
 				USDValue: asset.USDValue.String(),
 				Price:    asset.Price.String(),
 			}
