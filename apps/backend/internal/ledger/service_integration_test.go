@@ -273,7 +273,7 @@ func TestLedgerService_GetBalance_NonExistentAccount(t *testing.T) {
 	svc, _, ctx := setupTest(t)
 
 	// Get balance for non-existent wallet
-	balance, err := svc.GetBalance(ctx, uuid.New(), "BTC")
+	balance, err := svc.GetBalance(ctx, uuid.New(), "ethereum", "BTC")
 	require.NoError(t, err)
 	assert.Equal(t, 0, balance.Cmp(big.NewInt(0)))
 }

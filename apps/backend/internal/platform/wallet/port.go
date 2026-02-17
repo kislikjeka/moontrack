@@ -27,8 +27,8 @@ type Repository interface {
 	// ExistsByUserAndName checks if a wallet with the given name exists for the user
 	ExistsByUserAndName(ctx context.Context, userID uuid.UUID, name string) (bool, error)
 
-	// ExistsByUserChainAndAddress checks if a wallet with the given chain/address exists for the user
-	ExistsByUserChainAndAddress(ctx context.Context, userID uuid.UUID, chainID int64, address string) (bool, error)
+	// ExistsByUserAndAddress checks if a wallet with the given address exists for the user
+	ExistsByUserAndAddress(ctx context.Context, userID uuid.UUID, address string) (bool, error)
 
 	// GetWalletsForSync retrieves wallets that need syncing (pending or error status)
 	GetWalletsForSync(ctx context.Context) ([]*Wallet, error)

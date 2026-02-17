@@ -27,8 +27,8 @@ type MockTransactionDataProvider struct {
 	mock.Mock
 }
 
-func (m *MockTransactionDataProvider) GetTransactions(ctx context.Context, address string, chainID int64, since time.Time) ([]pkgsync.DecodedTransaction, error) {
-	args := m.Called(ctx, address, chainID, since)
+func (m *MockTransactionDataProvider) GetTransactions(ctx context.Context, address string, since time.Time) ([]pkgsync.DecodedTransaction, error) {
+	args := m.Called(ctx, address, since)
 	return args.Get(0).([]pkgsync.DecodedTransaction), args.Error(1)
 }
 
@@ -62,7 +62,6 @@ func TestSyncWallet_InitialSync_SkipsNegativeBalanceErrors(t *testing.T) {
 		ID:         walletID,
 		UserID:     userID,
 		Name:       "Test Wallet",
-		ChainID:    1,
 		Address:    walletAddr,
 		SyncStatus: wallet.SyncStatusPending,
 		LastSyncAt: nil, // Initial sync
@@ -85,7 +84,7 @@ func TestSyncWallet_InitialSync_SkipsNegativeBalanceErrors(t *testing.T) {
 	txReceive1 := pkgsync.DecodedTransaction{
 		ID:            "tx-receive-1",
 		TxHash:        "0xaaa",
-		ChainID:       1,
+		ChainID:       "ethereum",
 		OperationType: pkgsync.OpReceive,
 		Transfers: []pkgsync.DecodedTransfer{{
 			AssetSymbol: "ETH",
@@ -102,7 +101,7 @@ func TestSyncWallet_InitialSync_SkipsNegativeBalanceErrors(t *testing.T) {
 	txSend := pkgsync.DecodedTransaction{
 		ID:            "tx-send",
 		TxHash:        "0xbbb",
-		ChainID:       1,
+		ChainID:       "ethereum",
 		OperationType: pkgsync.OpSend,
 		Transfers: []pkgsync.DecodedTransfer{{
 			AssetSymbol: "USDC",
@@ -119,7 +118,7 @@ func TestSyncWallet_InitialSync_SkipsNegativeBalanceErrors(t *testing.T) {
 	txReceive2 := pkgsync.DecodedTransaction{
 		ID:            "tx-receive-2",
 		TxHash:        "0xccc",
-		ChainID:       1,
+		ChainID:       "ethereum",
 		OperationType: pkgsync.OpReceive,
 		Transfers: []pkgsync.DecodedTransfer{{
 			AssetSymbol: "ETH",
@@ -134,7 +133,7 @@ func TestSyncWallet_InitialSync_SkipsNegativeBalanceErrors(t *testing.T) {
 	}
 
 	// Provider returns transactions (already oldest-first for simplicity)
-	provider.On("GetTransactions", ctx, walletAddr, int64(1), mock.Anything).
+	provider.On("GetTransactions", ctx, walletAddr, mock.Anything).
 		Return([]pkgsync.DecodedTransaction{txReceive1, txSend, txReceive2}, nil)
 
 	// Counterparty address lookups (for internal transfer detection)
@@ -187,7 +186,6 @@ func TestSyncWallet_IncrementalSync_StopsOnNegativeBalanceError(t *testing.T) {
 		ID:         walletID,
 		UserID:     userID,
 		Name:       "Test Wallet",
-		ChainID:    1,
 		Address:    walletAddr,
 		SyncStatus: wallet.SyncStatusPending,
 		LastSyncAt: &lastSync, // Incremental sync
@@ -208,7 +206,7 @@ func TestSyncWallet_IncrementalSync_StopsOnNegativeBalanceError(t *testing.T) {
 	txReceive := pkgsync.DecodedTransaction{
 		ID:            "tx-receive-1",
 		TxHash:        "0xaaa",
-		ChainID:       1,
+		ChainID:       "ethereum",
 		OperationType: pkgsync.OpReceive,
 		Transfers: []pkgsync.DecodedTransfer{{
 			AssetSymbol: "ETH",
@@ -225,7 +223,7 @@ func TestSyncWallet_IncrementalSync_StopsOnNegativeBalanceError(t *testing.T) {
 	txSend := pkgsync.DecodedTransaction{
 		ID:            "tx-send",
 		TxHash:        "0xbbb",
-		ChainID:       1,
+		ChainID:       "ethereum",
 		OperationType: pkgsync.OpSend,
 		Transfers: []pkgsync.DecodedTransfer{{
 			AssetSymbol: "USDC",
@@ -242,7 +240,7 @@ func TestSyncWallet_IncrementalSync_StopsOnNegativeBalanceError(t *testing.T) {
 	txReceive2 := pkgsync.DecodedTransaction{
 		ID:            "tx-receive-2",
 		TxHash:        "0xccc",
-		ChainID:       1,
+		ChainID:       "ethereum",
 		OperationType: pkgsync.OpReceive,
 		Transfers: []pkgsync.DecodedTransfer{{
 			AssetSymbol: "ETH",
@@ -256,7 +254,7 @@ func TestSyncWallet_IncrementalSync_StopsOnNegativeBalanceError(t *testing.T) {
 		Status:  "confirmed",
 	}
 
-	provider.On("GetTransactions", ctx, walletAddr, int64(1), lastSync).
+	provider.On("GetTransactions", ctx, walletAddr, lastSync).
 		Return([]pkgsync.DecodedTransaction{txReceive, txSend, txReceive2}, nil)
 
 	externalAddr := "0x9999999999999999999999999999999999999999"
@@ -304,7 +302,6 @@ func TestSyncWallet_TransactionsProcessedOldestFirst(t *testing.T) {
 		ID:         walletID,
 		UserID:     userID,
 		Name:       "Test Wallet",
-		ChainID:    1,
 		Address:    walletAddr,
 		SyncStatus: wallet.SyncStatusPending,
 		LastSyncAt: nil, // Initial sync
@@ -324,7 +321,7 @@ func TestSyncWallet_TransactionsProcessedOldestFirst(t *testing.T) {
 	t3Time := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC) // newest
 
 	tx3 := pkgsync.DecodedTransaction{
-		ID: "tx-3", TxHash: "0xccc", ChainID: 1,
+		ID: "tx-3", TxHash: "0xccc", ChainID: "ethereum",
 		OperationType: pkgsync.OpReceive,
 		Transfers: []pkgsync.DecodedTransfer{{
 			AssetSymbol: "ETH", Decimals: 18, Amount: big.NewInt(3e18),
@@ -334,7 +331,7 @@ func TestSyncWallet_TransactionsProcessedOldestFirst(t *testing.T) {
 		MinedAt: t3Time, Status: "confirmed",
 	}
 	tx2 := pkgsync.DecodedTransaction{
-		ID: "tx-2", TxHash: "0xbbb", ChainID: 1,
+		ID: "tx-2", TxHash: "0xbbb", ChainID: "ethereum",
 		OperationType: pkgsync.OpReceive,
 		Transfers: []pkgsync.DecodedTransfer{{
 			AssetSymbol: "ETH", Decimals: 18, Amount: big.NewInt(2e18),
@@ -344,7 +341,7 @@ func TestSyncWallet_TransactionsProcessedOldestFirst(t *testing.T) {
 		MinedAt: t2Time, Status: "confirmed",
 	}
 	tx1 := pkgsync.DecodedTransaction{
-		ID: "tx-1", TxHash: "0xaaa", ChainID: 1,
+		ID: "tx-1", TxHash: "0xaaa", ChainID: "ethereum",
 		OperationType: pkgsync.OpReceive,
 		Transfers: []pkgsync.DecodedTransfer{{
 			AssetSymbol: "ETH", Decimals: 18, Amount: big.NewInt(1e18),
@@ -355,7 +352,7 @@ func TestSyncWallet_TransactionsProcessedOldestFirst(t *testing.T) {
 	}
 
 	// Provider returns newest-first (like Zerion)
-	provider.On("GetTransactions", ctx, walletAddr, int64(1), mock.Anything).
+	provider.On("GetTransactions", ctx, walletAddr, mock.Anything).
 		Return([]pkgsync.DecodedTransaction{tx3, tx2, tx1}, nil)
 
 	externalAddr := "0x9999999999999999999999999999999999999999"

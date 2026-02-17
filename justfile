@@ -159,6 +159,26 @@ check:
     @echo "All checks passed"
 
 # =============================================================================
+# Observability
+# =============================================================================
+
+# Build the Loki MCP server Docker image
+loki-mcp-build:
+    docker build -t moontrack-loki-mcp:latest ./infra/loki-mcp
+    @echo "Loki MCP image built: moontrack-loki-mcp:latest"
+
+# Check that Loki MCP image exists and Loki is reachable
+loki-mcp-check:
+    @echo "Checking Loki MCP setup..."
+    @docker image inspect moontrack-loki-mcp:latest > /dev/null 2>&1 \
+        && echo "✓ Docker image moontrack-loki-mcp:latest exists" \
+        || (echo "✗ Docker image not found. Run: just loki-mcp-build" && exit 1)
+    @curl -sf http://localhost:3100/ready > /dev/null 2>&1 \
+        && echo "✓ Loki is reachable at localhost:3100" \
+        || (echo "✗ Loki is not reachable. Run: just dev-logs" && exit 1)
+    @echo "All checks passed!"
+
+# =============================================================================
 # Setup & Utilities
 # =============================================================================
 

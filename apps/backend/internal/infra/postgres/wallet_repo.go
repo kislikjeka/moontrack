@@ -27,8 +27,8 @@ func NewWalletRepository(pool *pgxpool.Pool) *WalletRepository {
 // Create creates a new wallet
 func (r *WalletRepository) Create(ctx context.Context, w *wallet.Wallet) error {
 	query := `
-		INSERT INTO wallets (id, user_id, name, chain_id, address, sync_status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO wallets (id, user_id, name, address, sync_status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
 
 	now := time.Now()
@@ -48,7 +48,6 @@ func (r *WalletRepository) Create(ctx context.Context, w *wallet.Wallet) error {
 		w.ID,
 		w.UserID,
 		w.Name,
-		w.ChainID,
 		w.Address,
 		w.SyncStatus,
 		w.CreatedAt,
@@ -60,7 +59,7 @@ func (r *WalletRepository) Create(ctx context.Context, w *wallet.Wallet) error {
 		if strings.Contains(errStr, "wallets_user_id_fkey") {
 			return wallet.ErrUserNotFound
 		}
-		if strings.Contains(errStr, "idx_wallets_user_chain_address") {
+		if strings.Contains(errStr, "idx_wallets_user_address") {
 			return wallet.ErrDuplicateAddress
 		}
 		if strings.Contains(errStr, "wallets_user_id_name_key") {
@@ -75,7 +74,7 @@ func (r *WalletRepository) Create(ctx context.Context, w *wallet.Wallet) error {
 // GetByID retrieves a wallet by ID
 func (r *WalletRepository) GetByID(ctx context.Context, id uuid.UUID) (*wallet.Wallet, error) {
 	query := `
-		SELECT id, user_id, name, chain_id, address, sync_status, last_sync_at, sync_error, sync_started_at, created_at, updated_at
+		SELECT id, user_id, name, address, sync_status, last_sync_at, sync_error, sync_started_at, created_at, updated_at
 		FROM wallets
 		WHERE id = $1
 	`
@@ -85,7 +84,6 @@ func (r *WalletRepository) GetByID(ctx context.Context, id uuid.UUID) (*wallet.W
 		&w.ID,
 		&w.UserID,
 		&w.Name,
-		&w.ChainID,
 		&w.Address,
 		&w.SyncStatus,
 		&w.LastSyncAt,
@@ -108,7 +106,7 @@ func (r *WalletRepository) GetByID(ctx context.Context, id uuid.UUID) (*wallet.W
 // GetByUserID retrieves all wallets for a user
 func (r *WalletRepository) GetByUserID(ctx context.Context, userID uuid.UUID) ([]*wallet.Wallet, error) {
 	query := `
-		SELECT id, user_id, name, chain_id, address, sync_status, last_sync_at, sync_error, sync_started_at, created_at, updated_at
+		SELECT id, user_id, name, address, sync_status, last_sync_at, sync_error, sync_started_at, created_at, updated_at
 		FROM wallets
 		WHERE user_id = $1
 		ORDER BY created_at DESC
@@ -127,7 +125,6 @@ func (r *WalletRepository) GetByUserID(ctx context.Context, userID uuid.UUID) ([
 			&w.ID,
 			&w.UserID,
 			&w.Name,
-			&w.ChainID,
 			&w.Address,
 			&w.SyncStatus,
 			&w.LastSyncAt,
@@ -153,15 +150,14 @@ func (r *WalletRepository) GetByUserID(ctx context.Context, userID uuid.UUID) ([
 func (r *WalletRepository) Update(ctx context.Context, w *wallet.Wallet) error {
 	query := `
 		UPDATE wallets
-		SET name = $1, chain_id = $2, address = $3, updated_at = $4
-		WHERE id = $5
+		SET name = $1, address = $2, updated_at = $3
+		WHERE id = $4
 	`
 
 	w.UpdatedAt = time.Now()
 
 	result, err := r.pool.Exec(ctx, query,
 		w.Name,
-		w.ChainID,
 		w.Address,
 		w.UpdatedAt,
 		w.ID,
@@ -207,12 +203,12 @@ func (r *WalletRepository) ExistsByUserAndName(ctx context.Context, userID uuid.
 	return exists, nil
 }
 
-// ExistsByUserChainAndAddress checks if a wallet with the given chain/address exists for the user
-func (r *WalletRepository) ExistsByUserChainAndAddress(ctx context.Context, userID uuid.UUID, chainID int64, address string) (bool, error) {
-	query := `SELECT EXISTS(SELECT 1 FROM wallets WHERE user_id = $1 AND chain_id = $2 AND lower(address) = lower($3))`
+// ExistsByUserAndAddress checks if a wallet with the given address exists for the user
+func (r *WalletRepository) ExistsByUserAndAddress(ctx context.Context, userID uuid.UUID, address string) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM wallets WHERE user_id = $1 AND lower(address) = lower($2))`
 
 	var exists bool
-	err := r.pool.QueryRow(ctx, query, userID, chainID, address).Scan(&exists)
+	err := r.pool.QueryRow(ctx, query, userID, address).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("failed to check wallet existence: %w", err)
 	}
@@ -223,7 +219,7 @@ func (r *WalletRepository) ExistsByUserChainAndAddress(ctx context.Context, user
 // GetWalletsForSync retrieves wallets that need syncing (pending, error, synced, or stale syncing)
 func (r *WalletRepository) GetWalletsForSync(ctx context.Context) ([]*wallet.Wallet, error) {
 	query := `
-		SELECT id, user_id, name, chain_id, address, sync_status, last_sync_at, sync_error, sync_started_at, created_at, updated_at
+		SELECT id, user_id, name, address, sync_status, last_sync_at, sync_error, sync_started_at, created_at, updated_at
 		FROM wallets
 		WHERE sync_status IN ('pending', 'error', 'synced')
 		   OR (sync_status = 'syncing' AND sync_started_at < NOW() - INTERVAL '15 minutes')
@@ -249,7 +245,6 @@ func (r *WalletRepository) GetWalletsForSync(ctx context.Context) ([]*wallet.Wal
 			&w.ID,
 			&w.UserID,
 			&w.Name,
-			&w.ChainID,
 			&w.Address,
 			&w.SyncStatus,
 			&w.LastSyncAt,
@@ -274,7 +269,7 @@ func (r *WalletRepository) GetWalletsForSync(ctx context.Context) ([]*wallet.Wal
 // GetWalletsByAddressAndUserID retrieves wallets with a given address for a specific user
 func (r *WalletRepository) GetWalletsByAddressAndUserID(ctx context.Context, address string, userID uuid.UUID) ([]*wallet.Wallet, error) {
 	query := `
-		SELECT id, user_id, name, chain_id, address, sync_status, last_sync_at, sync_error, sync_started_at, created_at, updated_at
+		SELECT id, user_id, name, address, sync_status, last_sync_at, sync_error, sync_started_at, created_at, updated_at
 		FROM wallets
 		WHERE lower(address) = lower($1) AND user_id = $2
 	`
@@ -292,7 +287,6 @@ func (r *WalletRepository) GetWalletsByAddressAndUserID(ctx context.Context, add
 			&w.ID,
 			&w.UserID,
 			&w.Name,
-			&w.ChainID,
 			&w.Address,
 			&w.SyncStatus,
 			&w.LastSyncAt,

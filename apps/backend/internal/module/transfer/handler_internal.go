@@ -143,7 +143,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
 			"wallet_id":        txn.DestWalletID.String(),
-			"account_code":     fmt.Sprintf("wallet.%s.%s", txn.DestWalletID.String(), txn.AssetID),
+			"account_code":     fmt.Sprintf("wallet.%s.%s.%s", txn.DestWalletID.String(), txn.ChainID, txn.AssetID),
 			"tx_hash":          txn.TxHash,
 			"block_number":     txn.BlockNumber,
 			"chain_id":         txn.ChainID,
@@ -168,7 +168,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
 			"wallet_id":      txn.SourceWalletID.String(),
-			"account_code":   fmt.Sprintf("wallet.%s.%s", txn.SourceWalletID.String(), txn.AssetID),
+			"account_code":   fmt.Sprintf("wallet.%s.%s.%s", txn.SourceWalletID.String(), txn.ChainID, txn.AssetID),
 			"tx_hash":        txn.TxHash,
 			"block_number":   txn.BlockNumber,
 			"chain_id":       txn.ChainID,
@@ -219,7 +219,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code": fmt.Sprintf("gas.%d.%s", txn.ChainID, nativeAssetID),
+				"account_code": fmt.Sprintf("gas.%s.%s", txn.ChainID, nativeAssetID),
 				"tx_hash":      txn.TxHash,
 				"block_number": txn.BlockNumber,
 				"chain_id":     txn.ChainID,
@@ -240,7 +240,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":    txn.SourceWalletID.String(),
-				"account_code": fmt.Sprintf("wallet.%s.%s", txn.SourceWalletID.String(), nativeAssetID),
+				"account_code": fmt.Sprintf("wallet.%s.%s.%s", txn.SourceWalletID.String(), txn.ChainID, nativeAssetID),
 				"tx_hash":      txn.TxHash,
 				"block_number": txn.BlockNumber,
 				"chain_id":     txn.ChainID,

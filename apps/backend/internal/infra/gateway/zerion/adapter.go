@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kislikjeka/moontrack/internal/platform/sync"
+	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 )
 
 // SyncAdapter adapts the Zerion client to the sync.TransactionDataProvider interface
@@ -25,20 +26,23 @@ func NewSyncAdapter(client *Client) *SyncAdapter {
 }
 
 // GetTransactions fetches decoded transactions and converts them to domain types
-func (a *SyncAdapter) GetTransactions(ctx context.Context, address string, chainID int64, since time.Time) ([]sync.DecodedTransaction, error) {
-	zerionChain, ok := IDToZerionChain[chainID]
-	if !ok {
-		return nil, ErrUnsupportedChain
-	}
+func (a *SyncAdapter) GetTransactions(ctx context.Context, address string, since time.Time) ([]sync.DecodedTransaction, error) {
+	chainIDs := wallet.GetSupportedChains()
 
-	txs, err := a.client.GetTransactions(ctx, address, zerionChain, since)
+	txs, err := a.client.GetTransactions(ctx, address, chainIDs, since)
 	if err != nil {
 		return nil, err
 	}
 
 	result := make([]sync.DecodedTransaction, 0, len(txs))
 	for _, td := range txs {
-		dt, err := convertTransaction(td, chainID, zerionChain)
+		// Get chain from relationships
+		chain := td.Relationships.Chain.Data.ID
+		if chain == "" || !wallet.IsValidChain(chain) {
+			continue // skip unsupported chains
+		}
+
+		dt, err := convertTransaction(td, chain)
 		if err != nil {
 			continue // skip individual conversion failures
 		}
@@ -49,7 +53,7 @@ func (a *SyncAdapter) GetTransactions(ctx context.Context, address string, chain
 }
 
 // convertTransaction maps a Zerion TransactionData to a domain DecodedTransaction
-func convertTransaction(td TransactionData, chainID int64, zerionChain string) (sync.DecodedTransaction, error) {
+func convertTransaction(td TransactionData, chain string) (sync.DecodedTransaction, error) {
 	minedAt, err := time.Parse(time.RFC3339, td.Attributes.MinedAt)
 	if err != nil {
 		return sync.DecodedTransaction{}, fmt.Errorf("invalid mined_at: %w", err)
@@ -57,13 +61,13 @@ func convertTransaction(td TransactionData, chainID int64, zerionChain string) (
 
 	transfers := make([]sync.DecodedTransfer, 0, len(td.Attributes.Transfers))
 	for _, zt := range td.Attributes.Transfers {
-		dt := convertTransfer(zt, zerionChain)
+		dt := convertTransfer(zt, chain)
 		transfers = append(transfers, dt)
 	}
 
 	var fee *sync.DecodedFee
 	if td.Attributes.Fee != nil {
-		fee = convertFee(td.Attributes.Fee, zerionChain)
+		fee = convertFee(td.Attributes.Fee, chain)
 	}
 
 	var protocol string
@@ -74,7 +78,7 @@ func convertTransaction(td TransactionData, chainID int64, zerionChain string) (
 	return sync.DecodedTransaction{
 		ID:            td.ID,
 		TxHash:        td.Attributes.Hash,
-		ChainID:       chainID,
+		ChainID:       chain,
 		OperationType: sync.OperationType(td.Attributes.OperationType),
 		Protocol:      protocol,
 		Transfers:     transfers,

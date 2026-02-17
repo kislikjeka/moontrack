@@ -5,28 +5,6 @@ import "errors"
 // ErrUnsupportedChain is returned when a chain ID has no Zerion mapping
 var ErrUnsupportedChain = errors.New("unsupported chain for Zerion API")
 
-// ZerionChainToID maps Zerion chain name strings to numeric chain IDs
-var ZerionChainToID = map[string]int64{
-	"ethereum":  1,
-	"polygon":   137,
-	"arbitrum":  42161,
-	"optimism":  10,
-	"base":      8453,
-	"avalanche": 43114,
-	"bsc":       56,
-}
-
-// IDToZerionChain maps numeric chain IDs to Zerion chain name strings
-var IDToZerionChain = map[int64]string{
-	1:     "ethereum",
-	137:   "polygon",
-	42161: "arbitrum",
-	10:    "optimism",
-	8453:  "base",
-	43114: "avalanche",
-	56:    "bsc",
-}
-
 // TransactionResponse is the top-level Zerion API response for wallet transactions
 type TransactionResponse struct {
 	Links Links             `json:"links"`
@@ -41,9 +19,26 @@ type Links struct {
 
 // TransactionData wraps a single transaction with its type and ID
 type TransactionData struct {
-	Type       string                `json:"type"`
-	ID         string                `json:"id"`
-	Attributes TransactionAttributes `json:"attributes"`
+	Type          string                `json:"type"`
+	ID            string                `json:"id"`
+	Attributes    TransactionAttributes `json:"attributes"`
+	Relationships Relationships         `json:"relationships"`
+}
+
+// Relationships contains relationship data for a transaction
+type Relationships struct {
+	Chain ChainRelation `json:"chain"`
+}
+
+// ChainRelation wraps chain relationship data
+type ChainRelation struct {
+	Data ChainData `json:"data"`
+}
+
+// ChainData identifies the chain for a transaction
+type ChainData struct {
+	Type string `json:"type"` // e.g. "chains"
+	ID   string `json:"id"`   // e.g. "base", "ethereum"
 }
 
 // TransactionAttributes contains the decoded transaction fields

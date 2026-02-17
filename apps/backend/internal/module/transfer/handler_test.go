@@ -74,7 +74,6 @@ func TestTransferInHandler_GenerateEntries_Balance(t *testing.T) {
 			walletRepo.On("GetByID", ctx, walletID).Return(&wallet.Wallet{
 				ID:      walletID,
 				UserID:  userID,
-				ChainID: 1,
 				Address: "0x1234567890123456789012345678901234567890",
 			}, nil)
 
@@ -86,7 +85,7 @@ func TestTransferInHandler_GenerateEntries_Balance(t *testing.T) {
 				"decimals":         tc.decimals,
 				"amount":           money.NewBigIntFromInt64(tc.amount).String(),
 				"usd_rate":         money.NewBigIntFromInt64(tc.usdRate).String(),
-				"chain_id":         int64(1),
+				"chain_id":         "ethereum",
 				"tx_hash":          "0xabc123",
 				"block_number":     int64(12345678),
 				"from_address":     "0xsender",
@@ -183,7 +182,7 @@ func TestTransferInHandler_ValidateData(t *testing.T) {
 		{
 			name: "invalid chain ID",
 			modifyData: func(data map[string]interface{}) {
-				data["chain_id"] = int64(0)
+				data["chain_id"] = ""
 			},
 			expectedErr: transfer.ErrInvalidChainID,
 		},
@@ -206,7 +205,6 @@ func TestTransferInHandler_ValidateData(t *testing.T) {
 			walletRepo.On("GetByID", ctx, walletID).Return(&wallet.Wallet{
 				ID:      walletID,
 				UserID:  userID,
-				ChainID: 1,
 				Address: "0x1234567890123456789012345678901234567890",
 			}, nil)
 
@@ -218,7 +216,7 @@ func TestTransferInHandler_ValidateData(t *testing.T) {
 				"decimals":         18,
 				"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
 				"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
-				"chain_id":         int64(1),
+				"chain_id":         "ethereum",
 				"tx_hash":          "0xabc123",
 				"block_number":     int64(12345678),
 				"from_address":     "0xsender",
@@ -252,7 +250,6 @@ func TestTransferInHandler_CrossUserWallet_ReturnsUnauthorized(t *testing.T) {
 	walletRepo.On("GetByID", ctx, walletID).Return(&wallet.Wallet{
 		ID:      walletID,
 		UserID:  walletOwner,
-		ChainID: 1,
 		Address: "0x1234567890123456789012345678901234567890",
 	}, nil)
 
@@ -263,7 +260,7 @@ func TestTransferInHandler_CrossUserWallet_ReturnsUnauthorized(t *testing.T) {
 		"asset_id":         "ETH",
 		"decimals":         18,
 		"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
-		"chain_id":         int64(1),
+		"chain_id":         "ethereum",
 		"tx_hash":          "0xabc123",
 		"block_number":     int64(12345678),
 		"from_address":     "0xsender",
@@ -291,7 +288,7 @@ func TestTransferInHandler_WalletNotFound(t *testing.T) {
 		"asset_id":         "ETH",
 		"decimals":         18,
 		"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
-		"chain_id":         int64(1),
+		"chain_id":         "ethereum",
 		"tx_hash":          "0xabc123",
 		"block_number":     int64(12345678),
 		"from_address":     "0xsender",
@@ -340,7 +337,6 @@ func TestTransferOutHandler_GenerateEntries_Balance(t *testing.T) {
 			walletRepo.On("GetByID", ctx, walletID).Return(&wallet.Wallet{
 				ID:      walletID,
 				UserID:  userID,
-				ChainID: 1,
 				Address: "0x1234567890123456789012345678901234567890",
 			}, nil)
 
@@ -352,7 +348,7 @@ func TestTransferOutHandler_GenerateEntries_Balance(t *testing.T) {
 				"decimals":         tc.decimals,
 				"amount":           money.NewBigIntFromInt64(tc.amount).String(),
 				"usd_rate":         money.NewBigIntFromInt64(tc.usdRate).String(),
-				"chain_id":         int64(1),
+				"chain_id":         "ethereum",
 				"tx_hash":          "0xabc123",
 				"block_number":     int64(12345678),
 				"to_address":       "0xreceiver",
@@ -400,7 +396,6 @@ func TestTransferOutHandler_WithGas_GenerateEntries_Balance(t *testing.T) {
 	walletRepo.On("GetByID", ctx, walletID).Return(&wallet.Wallet{
 		ID:      walletID,
 		UserID:  userID,
-		ChainID: 1,
 		Address: "0x1234567890123456789012345678901234567890",
 	}, nil)
 
@@ -414,7 +409,7 @@ func TestTransferOutHandler_WithGas_GenerateEntries_Balance(t *testing.T) {
 		"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),        // $2000
 		"gas_amount":       money.NewBigIntFromInt64(21000000000000000).String(),   // 0.021 ETH gas
 		"gas_usd_rate":     money.NewBigIntFromInt64(200000000000).String(),        // $2000
-		"chain_id":         int64(1),
+		"chain_id":         "ethereum",
 		"tx_hash":          "0xabc123",
 		"block_number":     int64(12345678),
 		"to_address":       "0xreceiver",
@@ -492,7 +487,6 @@ func TestTransferOutHandler_ValidateData(t *testing.T) {
 			walletRepo.On("GetByID", ctx, walletID).Return(&wallet.Wallet{
 				ID:      walletID,
 				UserID:  userID,
-				ChainID: 1,
 				Address: "0x1234567890123456789012345678901234567890",
 			}, nil)
 
@@ -503,7 +497,7 @@ func TestTransferOutHandler_ValidateData(t *testing.T) {
 				"asset_id":         "ETH",
 				"decimals":         18,
 				"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
-				"chain_id":         int64(1),
+				"chain_id":         "ethereum",
 				"tx_hash":          "0xabc123",
 				"block_number":     int64(12345678),
 				"to_address":       "0xreceiver",
@@ -538,13 +532,11 @@ func TestInternalTransferHandler_GenerateEntries_Balance(t *testing.T) {
 	walletRepo.On("GetByID", ctx, sourceWalletID).Return(&wallet.Wallet{
 		ID:      sourceWalletID,
 		UserID:  userID,
-		ChainID: 1,
 		Address: "0x1111111111111111111111111111111111111111",
 	}, nil)
 	walletRepo.On("GetByID", ctx, destWalletID).Return(&wallet.Wallet{
 		ID:      destWalletID,
 		UserID:  userID,
-		ChainID: 1,
 		Address: "0x2222222222222222222222222222222222222222",
 	}, nil)
 
@@ -557,7 +549,7 @@ func TestInternalTransferHandler_GenerateEntries_Balance(t *testing.T) {
 		"decimals":         18,
 		"amount":           money.NewBigIntFromInt64(1000000000000000000).String(), // 1 ETH
 		"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),        // $2000
-		"chain_id":         int64(1),
+		"chain_id":         "ethereum",
 		"tx_hash":          "0xabc123",
 		"block_number":     int64(12345678),
 		"contract_address": "",
@@ -648,7 +640,6 @@ func TestInternalTransferHandler_ValidateData(t *testing.T) {
 			walletRepo.On("GetByID", ctx, mock.AnythingOfType("uuid.UUID")).Return(&wallet.Wallet{
 				ID:      sourceWalletID,
 				UserID:  userID,
-				ChainID: 1,
 				Address: "0x1111111111111111111111111111111111111111",
 			}, nil)
 
@@ -660,7 +651,7 @@ func TestInternalTransferHandler_ValidateData(t *testing.T) {
 				"asset_id":         "ETH",
 				"decimals":         18,
 				"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
-				"chain_id":         int64(1),
+				"chain_id":         "ethereum",
 				"tx_hash":          "0xabc123",
 				"block_number":     int64(12345678),
 				"contract_address": "",
@@ -694,13 +685,11 @@ func TestInternalTransferHandler_CrossUserWallet_ReturnsUnauthorized(t *testing.
 	walletRepo.On("GetByID", ctx, sourceWalletID).Return(&wallet.Wallet{
 		ID:      sourceWalletID,
 		UserID:  sourceOwner,
-		ChainID: 1,
 		Address: "0x1111111111111111111111111111111111111111",
 	}, nil)
 	walletRepo.On("GetByID", ctx, destWalletID).Return(&wallet.Wallet{
 		ID:      destWalletID,
 		UserID:  attacker,
-		ChainID: 1,
 		Address: "0x2222222222222222222222222222222222222222",
 	}, nil)
 
@@ -712,7 +701,7 @@ func TestInternalTransferHandler_CrossUserWallet_ReturnsUnauthorized(t *testing.
 		"asset_id":         "ETH",
 		"decimals":         18,
 		"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
-		"chain_id":         int64(1),
+		"chain_id":         "ethereum",
 		"tx_hash":          "0xabc123",
 		"block_number":     int64(12345678),
 		"contract_address": "",

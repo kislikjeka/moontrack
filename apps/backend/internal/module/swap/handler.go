@@ -110,7 +110,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 	entries := make([]*ledger.Entry, 0, 2*(len(txn.TransfersOut)+len(txn.TransfersIn))+2)
 
 	walletIDStr := txn.WalletID.String()
-	chainIDStr := fmt.Sprintf("%d", txn.ChainID)
+	chainIDStr := txn.ChainID
 
 	// Outgoing transfers (asset leaving wallet)
 	for _, tr := range txn.TransfersOut {
@@ -135,7 +135,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":        walletIDStr,
-				"account_code":     fmt.Sprintf("wallet.%s.%s", walletIDStr, tr.AssetSymbol),
+				"account_code":     fmt.Sprintf("wallet.%s.%s.%s", walletIDStr, chainIDStr, tr.AssetSymbol),
 				"tx_hash":          txn.TxHash,
 				"chain_id":         chainIDStr,
 				"swap_direction":   "out",
@@ -156,7 +156,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code": fmt.Sprintf("clearing.%d.%s", txn.ChainID, tr.AssetSymbol),
+				"account_code": fmt.Sprintf("clearing.%s.%s", txn.ChainID, tr.AssetSymbol),
 				"account_type": "CLEARING",
 				"chain_id":     chainIDStr,
 				"tx_hash":      txn.TxHash,
@@ -188,7 +188,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":        walletIDStr,
-				"account_code":     fmt.Sprintf("wallet.%s.%s", walletIDStr, tr.AssetSymbol),
+				"account_code":     fmt.Sprintf("wallet.%s.%s.%s", walletIDStr, chainIDStr, tr.AssetSymbol),
 				"tx_hash":          txn.TxHash,
 				"chain_id":         chainIDStr,
 				"swap_direction":   "in",
@@ -209,7 +209,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code": fmt.Sprintf("clearing.%d.%s", txn.ChainID, tr.AssetSymbol),
+				"account_code": fmt.Sprintf("clearing.%s.%s", txn.ChainID, tr.AssetSymbol),
 				"account_type": "CLEARING",
 				"chain_id":     chainIDStr,
 				"tx_hash":      txn.TxHash,
@@ -245,7 +245,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code": fmt.Sprintf("gas.%d.%s", txn.ChainID, feeAsset),
+				"account_code": fmt.Sprintf("gas.%s.%s", txn.ChainID, feeAsset),
 				"tx_hash":      txn.TxHash,
 				"chain_id":     chainIDStr,
 			},
@@ -265,7 +265,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":    walletIDStr,
-				"account_code": fmt.Sprintf("wallet.%s.%s", walletIDStr, feeAsset),
+				"account_code": fmt.Sprintf("wallet.%s.%s.%s", walletIDStr, chainIDStr, feeAsset),
 				"tx_hash":      txn.TxHash,
 				"chain_id":     chainIDStr,
 				"entry_type":   "gas_payment",

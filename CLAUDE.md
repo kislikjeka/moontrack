@@ -126,6 +126,33 @@ When running tests or dev servers, never use interactive/watch mode. Always use 
 
 When fixing lint/type errors, fix the actual underlying code issues. Never simplify or disable lint rules, remove type checks, or suppress errors unless explicitly asked to.
 
+## Observability (Loki MCP)
+
+Query backend logs directly via the `loki` MCP server (LogQL over Loki).
+
+**Prerequisites:**
+1. `just dev-logs` — start Grafana+Loki+Promtail stack
+2. `just loki-mcp-build` — build the Loki MCP Docker image (one-time)
+3. Restart Claude Code to connect the MCP server
+
+**MCP tool:** `loki_query` — execute LogQL queries against Loki
+
+**Key labels:** `{service="backend"}`
+
+**Key JSON fields** (use `| json` pipeline): `level`, `component`, `request_id`, `user_id`, `tx_id`, `msg`, `duration_ms`, `status`, `method`, `path`, `error`
+
+**Components:** `http`, `auth`, `ledger`, `wallet`, `asset`, `sync`, `price`, `user`
+
+**Common queries:**
+```logql
+{service="backend"} | json | level="error"                    # All errors
+{service="backend"} | json | status >= 500                    # 5xx responses
+{service="backend"} | json | request_id="<id>"                # Trace request
+{service="backend"} | json | component="ledger" | level="error" # Ledger errors
+```
+
+See `.claude/skills/observability-debugging/SKILL.md` for full LogQL reference and debugging workflows.
+
 ## Skills & Workflows
 
 When a skill template or existing skill exists for a task (e.g., skill-development skill), always use it as the base. Check `.claude/skills/` before creating new skills from scratch.

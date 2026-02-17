@@ -110,6 +110,12 @@ func (p *ZerionProcessor) detectInternalTransfer(ctx context.Context, w *wallet.
 			counterpartyAddr = t.Recipient
 		}
 
+		// Bridge guard: if counterparty is the same address as the wallet,
+		// it's a bridge (same address, different chain), not an internal transfer
+		if strings.EqualFold(counterpartyAddr, w.Address) {
+			continue
+		}
+
 		if p.isUserWallet(ctx, counterpartyAddr, w.UserID) {
 			destID := p.getWalletByAddress(ctx, counterpartyAddr, w.UserID)
 			if destID != nil {

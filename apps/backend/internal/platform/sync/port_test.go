@@ -14,7 +14,7 @@ func TestDecodedTransaction_CompileCheck(t *testing.T) {
 	tx := sync.DecodedTransaction{
 		ID:            "tx-1",
 		TxHash:        "0xabc",
-		ChainID:       1,
+		ChainID:       "ethereum",
 		OperationType: sync.OpTrade,
 		Protocol:      "Uniswap V3",
 		Transfers: []sync.DecodedTransfer{

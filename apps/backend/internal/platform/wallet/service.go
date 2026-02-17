@@ -39,6 +39,15 @@ func (s *Service) Create(ctx context.Context, wallet *Wallet) (*Wallet, error) {
 		return nil, ErrDuplicateWalletName
 	}
 
+	// Check if wallet with same address already exists for user
+	addrExists, err := s.repo.ExistsByUserAndAddress(ctx, wallet.UserID, wallet.Address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check address existence: %w", err)
+	}
+	if addrExists {
+		return nil, ErrDuplicateAddress
+	}
+
 	// Generate UUID for new wallet
 	wallet.ID = uuid.New()
 

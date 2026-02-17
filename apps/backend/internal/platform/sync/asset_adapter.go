@@ -19,9 +19,9 @@ func NewSyncAssetAdapter(assetSvc *asset.Service) *SyncAssetAdapter {
 
 // GetPriceBySymbol returns the current USD price for an asset by symbol
 // Maps symbol to CoinGecko ID and fetches price
-func (a *SyncAssetAdapter) GetPriceBySymbol(ctx context.Context, symbol string, chainID int64) (*big.Int, error) {
+func (a *SyncAssetAdapter) GetPriceBySymbol(ctx context.Context, symbol string) (*big.Int, error) {
 	// Native assets have known CoinGecko IDs
-	coinGeckoID := a.getNativeCoinGeckoID(symbol, chainID)
+	coinGeckoID := a.getNativeCoinGeckoID(symbol)
 	if coinGeckoID == "" {
 		// For ERC-20 tokens, try to find by symbol
 		// This is a best-effort lookup
@@ -45,7 +45,7 @@ func (a *SyncAssetAdapter) GetPriceBySymbol(ctx context.Context, symbol string, 
 }
 
 // getNativeCoinGeckoID returns CoinGecko ID for native chain assets
-func (a *SyncAssetAdapter) getNativeCoinGeckoID(symbol string, chainID int64) string {
+func (a *SyncAssetAdapter) getNativeCoinGeckoID(symbol string) string {
 	switch symbol {
 	case "ETH":
 		return "ethereum"

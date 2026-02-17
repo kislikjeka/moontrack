@@ -12,10 +12,9 @@ import (
 
 // Wallet represents a wallet entity for portfolio calculations
 type Wallet struct {
-	ID      uuid.UUID
-	UserID  uuid.UUID
-	Name    string
-	ChainID int64
+	ID     uuid.UUID
+	UserID uuid.UUID
+	Name   string
 }
 
 // WalletRepository defines the interface for wallet operations
@@ -68,7 +67,6 @@ type AssetHolding struct {
 type WalletBalance struct {
 	WalletID   uuid.UUID      `json:"wallet_id"`
 	WalletName string         `json:"wallet_name"`
-	ChainID    string         `json:"chain_id"`
 	Assets     []AssetBalance `json:"assets"`
 	TotalUSD   *big.Int       `json:"total_usd"` // Total USD value of all assets in this wallet
 }
@@ -211,7 +209,6 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 		walletBalances = append(walletBalances, WalletBalance{
 			WalletID:   w.ID,
 			WalletName: w.Name,
-			ChainID:    fmt.Sprintf("%d", w.ChainID),
 			Assets:     assetBalances,
 			TotalUSD:   walletTotalUSD,
 		})

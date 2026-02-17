@@ -53,7 +53,6 @@ func TestSwapHandler_SimpleSwap_Balance(t *testing.T) {
 	walletRepo.On("GetByID", ctx, walletID).Return(&wallet.Wallet{
 		ID:      walletID,
 		UserID:  userID,
-		ChainID: 1,
 		Address: "0x1234567890123456789012345678901234567890",
 	}, nil)
 
@@ -62,7 +61,7 @@ func TestSwapHandler_SimpleSwap_Balance(t *testing.T) {
 	data := map[string]interface{}{
 		"wallet_id": walletID.String(),
 		"tx_hash":   "0xswap123",
-		"chain_id":  int64(1),
+		"chain_id":  "ethereum",
 		"occurred_at": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
 		"protocol":  "uniswap_v3",
 		"transfers_out": []map[string]interface{}{
@@ -132,7 +131,6 @@ func TestSwapHandler_WithGasFee_Balance(t *testing.T) {
 	walletRepo.On("GetByID", ctx, walletID).Return(&wallet.Wallet{
 		ID:      walletID,
 		UserID:  userID,
-		ChainID: 1,
 		Address: "0x1234567890123456789012345678901234567890",
 	}, nil)
 
@@ -141,7 +139,7 @@ func TestSwapHandler_WithGasFee_Balance(t *testing.T) {
 	data := map[string]interface{}{
 		"wallet_id": walletID.String(),
 		"tx_hash":   "0xswap456",
-		"chain_id":  int64(1),
+		"chain_id":  "ethereum",
 		"occurred_at": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
 		"fee_asset":     "ETH",
 		"fee_amount":    money.NewBigIntFromInt64(21000000000000).String(), // 0.000021 ETH
@@ -206,7 +204,6 @@ func TestSwapHandler_MultiAsset(t *testing.T) {
 	walletRepo.On("GetByID", ctx, walletID).Return(&wallet.Wallet{
 		ID:      walletID,
 		UserID:  userID,
-		ChainID: 1,
 		Address: "0x1234567890123456789012345678901234567890",
 	}, nil)
 
@@ -216,7 +213,7 @@ func TestSwapHandler_MultiAsset(t *testing.T) {
 	data := map[string]interface{}{
 		"wallet_id": walletID.String(),
 		"tx_hash":   "0xmultiswap",
-		"chain_id":  int64(1),
+		"chain_id":  "ethereum",
 		"occurred_at": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
 		"transfers_out": []map[string]interface{}{
 			{
@@ -292,7 +289,6 @@ func TestSwapHandler_Validate_MissingFields(t *testing.T) {
 	walletRepo.On("GetByID", ctx, mock.AnythingOfType("uuid.UUID")).Return(&wallet.Wallet{
 		ID:      walletID,
 		UserID:  userID,
-		ChainID: 1,
 		Address: "0x1234567890123456789012345678901234567890",
 	}, nil)
 
@@ -320,7 +316,7 @@ func TestSwapHandler_Validate_MissingFields(t *testing.T) {
 		{
 			name: "invalid chain_id",
 			modifyData: func(data map[string]interface{}) {
-				data["chain_id"] = int64(0)
+				data["chain_id"] = ""
 			},
 			expectedErr: swap.ErrInvalidChainID,
 		},
@@ -374,7 +370,6 @@ func TestSwapHandler_Validate_NoTransfers(t *testing.T) {
 	walletRepo.On("GetByID", ctx, walletID).Return(&wallet.Wallet{
 		ID:      walletID,
 		UserID:  userID,
-		ChainID: 1,
 		Address: "0x1234567890123456789012345678901234567890",
 	}, nil)
 
@@ -429,7 +424,6 @@ func TestSwapHandler_EntryMetadata(t *testing.T) {
 	walletRepo.On("GetByID", ctx, walletID).Return(&wallet.Wallet{
 		ID:      walletID,
 		UserID:  userID,
-		ChainID: 1,
 		Address: "0x1234567890123456789012345678901234567890",
 	}, nil)
 
@@ -462,7 +456,7 @@ func validSwapData(walletID uuid.UUID) map[string]interface{} {
 	return map[string]interface{}{
 		"wallet_id": walletID.String(),
 		"tx_hash":   "0xswap123",
-		"chain_id":  int64(1),
+		"chain_id":  "ethereum",
 		"occurred_at": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
 		"transfers_out": []map[string]interface{}{
 			{

@@ -12,7 +12,7 @@ import (
 type SwapTransaction struct {
 	WalletID     uuid.UUID       `json:"wallet_id"`
 	TxHash       string          `json:"tx_hash"`
-	ChainID      int64           `json:"chain_id"`
+	ChainID      string          `json:"chain_id"`
 	OccurredAt   time.Time       `json:"occurred_at"`
 	Protocol     string          `json:"protocol,omitempty"`
 	TransfersIn  []SwapTransfer  `json:"transfers_in"`
@@ -42,7 +42,7 @@ func (t *SwapTransaction) Validate() error {
 	if t.TxHash == "" {
 		return ErrInvalidTxHash
 	}
-	if t.ChainID <= 0 {
+	if t.ChainID == "" {
 		return ErrInvalidChainID
 	}
 	if len(t.TransfersIn) == 0 || len(t.TransfersOut) == 0 {

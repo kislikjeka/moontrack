@@ -45,7 +45,6 @@ func NewWalletHandler(walletService WalletServiceInterface, syncService SyncServ
 // CreateWalletRequest represents the wallet creation request
 type CreateWalletRequest struct {
 	Name    string `json:"name"`
-	ChainID int64  `json:"chain_id"`
 	Address string `json:"address"`
 }
 
@@ -56,17 +55,16 @@ type UpdateWalletRequest struct {
 
 // WalletResponse represents a wallet response
 type WalletResponse struct {
-	ID            string  `json:"id"`
-	UserID        string  `json:"user_id"`
-	Name          string  `json:"name"`
-	ChainID       int64   `json:"chain_id"`
-	ChainName     string  `json:"chain_name"`
-	Address       string  `json:"address"`
-	SyncStatus string  `json:"sync_status"`
-	LastSyncAt *string `json:"last_sync_at,omitempty"`
-	SyncError     *string `json:"sync_error,omitempty"`
-	CreatedAt     string  `json:"created_at"`
-	UpdatedAt     string  `json:"updated_at"`
+	ID              string   `json:"id"`
+	UserID          string   `json:"user_id"`
+	Name            string   `json:"name"`
+	Address         string   `json:"address"`
+	SupportedChains []string `json:"supported_chains"`
+	SyncStatus      string   `json:"sync_status"`
+	LastSyncAt      *string  `json:"last_sync_at,omitempty"`
+	SyncError       *string  `json:"sync_error,omitempty"`
+	CreatedAt       string   `json:"created_at"`
+	UpdatedAt       string   `json:"updated_at"`
 }
 
 // WalletsListResponse represents the response for listing wallets
@@ -93,7 +91,6 @@ func (h *WalletHandler) CreateWallet(w http.ResponseWriter, r *http.Request) {
 	wlt := &wallet.Wallet{
 		UserID:  userID,
 		Name:    req.Name,
-		ChainID: req.ChainID,
 		Address: req.Address,
 	}
 
@@ -106,10 +103,6 @@ func (h *WalletHandler) CreateWallet(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, wallet.ErrDuplicateAddress) {
 			respondWithError(w, http.StatusConflict, "wallet address already exists for this chain")
-			return
-		}
-		if errors.Is(err, wallet.ErrInvalidChainID) {
-			respondWithError(w, http.StatusBadRequest, "invalid chain ID")
 			return
 		}
 		if errors.Is(err, wallet.ErrInvalidAddress) {
@@ -335,16 +328,15 @@ func (h *WalletHandler) TriggerSync(w http.ResponseWriter, r *http.Request) {
 // Helper function to convert domain wallet to response
 func toWalletResponse(wlt *wallet.Wallet) WalletResponse {
 	resp := WalletResponse{
-		ID:            wlt.ID.String(),
-		UserID:        wlt.UserID.String(),
-		Name:          wlt.Name,
-		ChainID:       wlt.ChainID,
-		ChainName:     wallet.GetChainName(wlt.ChainID),
-		Address:       wlt.Address,
-		SyncStatus: string(wlt.SyncStatus),
-		SyncError:  wlt.SyncError,
-		CreatedAt:     wlt.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt:     wlt.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		ID:              wlt.ID.String(),
+		UserID:          wlt.UserID.String(),
+		Name:            wlt.Name,
+		Address:         wlt.Address,
+		SupportedChains: wallet.GetSupportedChains(),
+		SyncStatus:      string(wlt.SyncStatus),
+		SyncError:       wlt.SyncError,
+		CreatedAt:       wlt.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:       wlt.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 
 	if wlt.LastSyncAt != nil {

@@ -25,15 +25,16 @@ func TestSyncAdapter_ImplementsTransactionDataProvider(t *testing.T) {
 }
 
 // =============================================================================
-// Unsupported Chain
+// Helper: build TransactionData with Relationships
 // =============================================================================
 
-func TestSyncAdapter_UnsupportedChain(t *testing.T) {
-	client := zerion.NewClient("key", testLogger())
-	adapter := zerion.NewSyncAdapter(client)
-
-	_, err := adapter.GetTransactions(context.Background(), "0xtest", 999999, time.Now())
-	assert.ErrorIs(t, err, zerion.ErrUnsupportedChain)
+func withChain(td zerion.TransactionData, chain string) zerion.TransactionData {
+	td.Relationships = zerion.Relationships{
+		Chain: zerion.ChainRelation{
+			Data: zerion.ChainData{Type: "chains", ID: chain},
+		},
+	}
+	return td
 }
 
 // =============================================================================
@@ -46,7 +47,7 @@ func TestSyncAdapter_FullConversion(t *testing.T) {
 
 	txData := zerion.TransactionResponse{
 		Data: []zerion.TransactionData{
-			{
+			withChain(zerion.TransactionData{
 				Type: "transactions",
 				ID:   "zerion-tx-1",
 				Attributes: zerion.TransactionAttributes{
@@ -96,7 +97,7 @@ func TestSyncAdapter_FullConversion(t *testing.T) {
 					},
 					ApplicationMD: &zerion.ApplicationMeta{Name: "Uniswap V3"},
 				},
-			},
+			}, "ethereum"),
 		},
 	}
 
@@ -110,14 +111,14 @@ func TestSyncAdapter_FullConversion(t *testing.T) {
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
-	txs, err := adapter.GetTransactions(context.Background(), "0xSender", 1, time.Now().Add(-24*time.Hour))
+	txs, err := adapter.GetTransactions(context.Background(), "0xSender", time.Now().Add(-24*time.Hour))
 	require.NoError(t, err)
 	require.Len(t, txs, 1)
 
 	tx := txs[0]
 	assert.Equal(t, "zerion-tx-1", tx.ID)
 	assert.Equal(t, "0xabc123", tx.TxHash)
-	assert.Equal(t, int64(1), tx.ChainID)
+	assert.Equal(t, "ethereum", tx.ChainID)
 	assert.Equal(t, sync.OperationType("trade"), tx.OperationType)
 	assert.Equal(t, "Uniswap V3", tx.Protocol)
 	assert.Equal(t, "confirmed", tx.Status)
@@ -156,13 +157,90 @@ func TestSyncAdapter_FullConversion(t *testing.T) {
 }
 
 // =============================================================================
+// Unsupported Chain Skipped
+// =============================================================================
+
+func TestSyncAdapter_SkipsUnsupportedChain(t *testing.T) {
+	txData := zerion.TransactionResponse{
+		Data: []zerion.TransactionData{
+			withChain(zerion.TransactionData{
+				ID: "tx-unsupported",
+				Attributes: zerion.TransactionAttributes{
+					OperationType: "receive",
+					Hash:          "0xunsupported",
+					MinedAt:       "2024-01-01T00:00:00Z",
+					Status:        "confirmed",
+				},
+			}, "fantom"), // unsupported chain
+			withChain(zerion.TransactionData{
+				ID: "tx-supported",
+				Attributes: zerion.TransactionAttributes{
+					OperationType: "receive",
+					Hash:          "0xsupported",
+					MinedAt:       "2024-01-01T00:00:00Z",
+					Status:        "confirmed",
+				},
+			}, "ethereum"), // supported chain
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(txData)
+	}))
+	defer server.Close()
+
+	client := zerion.NewClient("key", testLogger())
+	client.SetBaseURL(server.URL)
+	adapter := zerion.NewSyncAdapter(client)
+
+	txs, err := adapter.GetTransactions(context.Background(), "0xtest", time.Time{})
+	require.NoError(t, err)
+	require.Len(t, txs, 1)
+	assert.Equal(t, "tx-supported", txs[0].ID)
+	assert.Equal(t, "ethereum", txs[0].ChainID)
+}
+
+// =============================================================================
+// Empty Chain Relationship Skipped
+// =============================================================================
+
+func TestSyncAdapter_SkipsEmptyChain(t *testing.T) {
+	txData := zerion.TransactionResponse{
+		Data: []zerion.TransactionData{
+			{ // No relationships set — chain will be ""
+				ID: "tx-no-chain",
+				Attributes: zerion.TransactionAttributes{
+					OperationType: "receive",
+					Hash:          "0xnochain",
+					MinedAt:       "2024-01-01T00:00:00Z",
+					Status:        "confirmed",
+				},
+			},
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(txData)
+	}))
+	defer server.Close()
+
+	client := zerion.NewClient("key", testLogger())
+	client.SetBaseURL(server.URL)
+	adapter := zerion.NewSyncAdapter(client)
+
+	txs, err := adapter.GetTransactions(context.Background(), "0xtest", time.Time{})
+	require.NoError(t, err)
+	assert.Len(t, txs, 0)
+}
+
+// =============================================================================
 // Nil Safety Tests
 // =============================================================================
 
 func TestSyncAdapter_NilFungibleInfo(t *testing.T) {
 	txData := zerion.TransactionResponse{
 		Data: []zerion.TransactionData{
-			{
+			withChain(zerion.TransactionData{
 				ID: "tx-nil-fungible",
 				Attributes: zerion.TransactionAttributes{
 					OperationType: "receive",
@@ -179,7 +257,7 @@ func TestSyncAdapter_NilFungibleInfo(t *testing.T) {
 						},
 					},
 				},
-			},
+			}, "ethereum"),
 		},
 	}
 
@@ -192,7 +270,7 @@ func TestSyncAdapter_NilFungibleInfo(t *testing.T) {
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
-	txs, err := adapter.GetTransactions(context.Background(), "0xB", 1, time.Time{})
+	txs, err := adapter.GetTransactions(context.Background(), "0xB", time.Time{})
 	require.NoError(t, err)
 	require.Len(t, txs, 1)
 
@@ -206,7 +284,7 @@ func TestSyncAdapter_NilFungibleInfo(t *testing.T) {
 func TestSyncAdapter_NilFee(t *testing.T) {
 	txData := zerion.TransactionResponse{
 		Data: []zerion.TransactionData{
-			{
+			withChain(zerion.TransactionData{
 				ID: "tx-nil-fee",
 				Attributes: zerion.TransactionAttributes{
 					OperationType: "receive",
@@ -215,7 +293,7 @@ func TestSyncAdapter_NilFee(t *testing.T) {
 					Status:        "confirmed",
 					Fee:           nil,
 				},
-			},
+			}, "ethereum"),
 		},
 	}
 
@@ -228,7 +306,7 @@ func TestSyncAdapter_NilFee(t *testing.T) {
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
-	txs, err := adapter.GetTransactions(context.Background(), "0xtest", 1, time.Time{})
+	txs, err := adapter.GetTransactions(context.Background(), "0xtest", time.Time{})
 	require.NoError(t, err)
 	require.Len(t, txs, 1)
 	assert.Nil(t, txs[0].Fee)
@@ -237,7 +315,7 @@ func TestSyncAdapter_NilFee(t *testing.T) {
 func TestSyncAdapter_NilApplicationMetadata(t *testing.T) {
 	txData := zerion.TransactionResponse{
 		Data: []zerion.TransactionData{
-			{
+			withChain(zerion.TransactionData{
 				ID: "tx-nil-app",
 				Attributes: zerion.TransactionAttributes{
 					OperationType: "send",
@@ -246,7 +324,7 @@ func TestSyncAdapter_NilApplicationMetadata(t *testing.T) {
 					Status:        "confirmed",
 					ApplicationMD: nil,
 				},
-			},
+			}, "ethereum"),
 		},
 	}
 
@@ -259,7 +337,7 @@ func TestSyncAdapter_NilApplicationMetadata(t *testing.T) {
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
-	txs, err := adapter.GetTransactions(context.Background(), "0xtest", 1, time.Time{})
+	txs, err := adapter.GetTransactions(context.Background(), "0xtest", time.Time{})
 	require.NoError(t, err)
 	require.Len(t, txs, 1)
 	assert.Equal(t, "", txs[0].Protocol)
@@ -272,7 +350,7 @@ func TestSyncAdapter_NilApplicationMetadata(t *testing.T) {
 func TestSyncAdapter_EmptyQuantityInt(t *testing.T) {
 	txData := zerion.TransactionResponse{
 		Data: []zerion.TransactionData{
-			{
+			withChain(zerion.TransactionData{
 				ID: "tx-empty-qty",
 				Attributes: zerion.TransactionAttributes{
 					OperationType: "receive",
@@ -289,7 +367,7 @@ func TestSyncAdapter_EmptyQuantityInt(t *testing.T) {
 						},
 					},
 				},
-			},
+			}, "ethereum"),
 		},
 	}
 
@@ -302,35 +380,10 @@ func TestSyncAdapter_EmptyQuantityInt(t *testing.T) {
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
-	txs, err := adapter.GetTransactions(context.Background(), "0xb", 1, time.Time{})
+	txs, err := adapter.GetTransactions(context.Background(), "0xb", time.Time{})
 	require.NoError(t, err)
 	require.Len(t, txs, 1)
 	assert.Equal(t, 0, txs[0].Transfers[0].Amount.Cmp(big.NewInt(0)))
-}
-
-// =============================================================================
-// Chain Mapping in Adapter
-// =============================================================================
-
-func TestSyncAdapter_AllSupportedChains(t *testing.T) {
-	for chainID, chainName := range zerion.IDToZerionChain {
-		t.Run(chainName, func(t *testing.T) {
-			var receivedURL string
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				receivedURL = r.URL.String()
-				json.NewEncoder(w).Encode(zerion.TransactionResponse{})
-			}))
-			defer server.Close()
-
-			client := zerion.NewClient("key", testLogger())
-			client.SetBaseURL(server.URL)
-			adapter := zerion.NewSyncAdapter(client)
-
-			_, err := adapter.GetTransactions(context.Background(), "0xtest", chainID, time.Time{})
-			require.NoError(t, err)
-			assert.Contains(t, receivedURL, "filter%5Bchain_ids%5D="+chainName)
-		})
-	}
 }
 
 // =============================================================================
@@ -351,7 +404,7 @@ func TestSyncAdapter_DirectionMapping(t *testing.T) {
 		t.Run(tt.zerionDir, func(t *testing.T) {
 			txData := zerion.TransactionResponse{
 				Data: []zerion.TransactionData{
-					{
+					withChain(zerion.TransactionData{
 						ID: "tx-dir",
 						Attributes: zerion.TransactionAttributes{
 							OperationType: "send",
@@ -367,7 +420,7 @@ func TestSyncAdapter_DirectionMapping(t *testing.T) {
 								},
 							},
 						},
-					},
+					}, "ethereum"),
 				},
 			}
 
@@ -380,7 +433,7 @@ func TestSyncAdapter_DirectionMapping(t *testing.T) {
 			client.SetBaseURL(server.URL)
 			adapter := zerion.NewSyncAdapter(client)
 
-			txs, err := adapter.GetTransactions(context.Background(), "0xtest", 1, time.Time{})
+			txs, err := adapter.GetTransactions(context.Background(), "0xtest", time.Time{})
 			require.NoError(t, err)
 			require.Len(t, txs, 1)
 			assert.Equal(t, tt.expected, txs[0].Transfers[0].Direction)
@@ -395,7 +448,7 @@ func TestSyncAdapter_DirectionMapping(t *testing.T) {
 func TestSyncAdapter_SkipsInvalidMinedAt(t *testing.T) {
 	txData := zerion.TransactionResponse{
 		Data: []zerion.TransactionData{
-			{
+			withChain(zerion.TransactionData{
 				ID: "tx-bad-time",
 				Attributes: zerion.TransactionAttributes{
 					OperationType: "send",
@@ -403,8 +456,8 @@ func TestSyncAdapter_SkipsInvalidMinedAt(t *testing.T) {
 					MinedAt:       "not-a-time",
 					Status:        "confirmed",
 				},
-			},
-			{
+			}, "ethereum"),
+			withChain(zerion.TransactionData{
 				ID: "tx-good",
 				Attributes: zerion.TransactionAttributes{
 					OperationType: "receive",
@@ -412,7 +465,7 @@ func TestSyncAdapter_SkipsInvalidMinedAt(t *testing.T) {
 					MinedAt:       "2024-01-01T00:00:00Z",
 					Status:        "confirmed",
 				},
-			},
+			}, "ethereum"),
 		},
 	}
 
@@ -425,7 +478,7 @@ func TestSyncAdapter_SkipsInvalidMinedAt(t *testing.T) {
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
-	txs, err := adapter.GetTransactions(context.Background(), "0xtest", 1, time.Time{})
+	txs, err := adapter.GetTransactions(context.Background(), "0xtest", time.Time{})
 	require.NoError(t, err)
 	// Bad transaction should be skipped, only good one remains
 	require.Len(t, txs, 1)

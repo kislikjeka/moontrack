@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,10 +31,9 @@ type Wallet struct {
 	ID            uuid.UUID  `json:"id" db:"id"`
 	UserID        uuid.UUID  `json:"user_id" db:"user_id"`
 	Name          string     `json:"name" db:"name"`
-	ChainID       int64      `json:"chain_id" db:"chain_id"`         // EVM chain ID (1=ETH, 137=Polygon, etc.)
 	Address       string     `json:"address" db:"address"`           // Required EVM address (0x...)
-	SyncStatus SyncStatus `json:"sync_status" db:"sync_status"` // Sync state
-	LastSyncAt *time.Time `json:"last_sync_at" db:"last_sync_at"`
+	SyncStatus    SyncStatus `json:"sync_status" db:"sync_status"`   // Sync state
+	LastSyncAt    *time.Time `json:"last_sync_at" db:"last_sync_at"`
 	SyncError     *string    `json:"sync_error,omitempty" db:"sync_error"`
 	SyncStartedAt *time.Time `json:"sync_started_at,omitempty" db:"sync_started_at"`
 	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
@@ -52,10 +52,6 @@ func (w *Wallet) ValidateCreate() error {
 
 	if len(w.Name) > 100 {
 		return ErrWalletNameTooLong
-	}
-
-	if !IsValidEVMChainID(w.ChainID) {
-		return ErrInvalidChainID
 	}
 
 	// Validate EVM address (required)
@@ -82,10 +78,6 @@ func (w *Wallet) ValidateUpdate() error {
 		return ErrWalletNameTooLong
 	}
 
-	if w.ChainID != 0 && !IsValidEVMChainID(w.ChainID) {
-		return ErrInvalidChainID
-	}
-
 	return nil
 }
 
@@ -94,36 +86,37 @@ func (w *Wallet) NeedsSyncing() bool {
 	return w.SyncStatus == SyncStatusPending || w.SyncStatus == SyncStatusError
 }
 
-// Supported EVM chain IDs
-var supportedEVMChains = map[int64]string{
-	1:     "Ethereum Mainnet",
-	137:   "Polygon",
-	42161: "Arbitrum One",
-	10:    "Optimism",
-	8453:  "Base",
-	43114: "Avalanche C-Chain",
-	56:    "BNB Smart Chain",
+// Supported EVM chains keyed by Zerion chain name
+var supportedEVMChains = map[string]string{
+	"ethereum":  "Ethereum",
+	"polygon":   "Polygon",
+	"arbitrum":  "Arbitrum One",
+	"optimism":  "Optimism",
+	"base":      "Base",
+	"avalanche": "Avalanche",
+	"bsc":       "BNB Smart Chain",
 }
 
-// IsValidEVMChainID checks if the chain ID is supported
-func IsValidEVMChainID(chainID int64) bool {
-	_, ok := supportedEVMChains[chainID]
+// IsValidChain checks if the chain is supported
+func IsValidChain(chain string) bool {
+	_, ok := supportedEVMChains[chain]
 	return ok
 }
 
-// GetChainName returns the human-readable name for a chain ID
-func GetChainName(chainID int64) string {
-	if name, ok := supportedEVMChains[chainID]; ok {
+// GetChainName returns the human-readable name for a chain
+func GetChainName(chain string) string {
+	if name, ok := supportedEVMChains[chain]; ok {
 		return name
 	}
 	return "Unknown Chain"
 }
 
-// GetSupportedChains returns all supported chain IDs
-func GetSupportedChains() []int64 {
-	chains := make([]int64, 0, len(supportedEVMChains))
-	for chainID := range supportedEVMChains {
-		chains = append(chains, chainID)
+// GetSupportedChains returns all supported chain keys
+func GetSupportedChains() []string {
+	chains := make([]string, 0, len(supportedEVMChains))
+	for chain := range supportedEVMChains {
+		chains = append(chains, chain)
 	}
+	sort.Strings(chains)
 	return chains
 }

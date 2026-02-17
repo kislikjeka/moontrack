@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kislikjeka/moontrack/pkg/logger"
@@ -122,14 +123,14 @@ func (c *Client) doRequest(ctx context.Context, method, reqURL string, params ur
 	return nil, fmt.Errorf("Zerion API: exhausted retries")
 }
 
-// GetTransactions fetches decoded transactions for an address on a specific chain since a given time.
+// GetTransactions fetches decoded transactions for an address on the given chains since a given time.
 // It handles pagination by following the absolute Links.Next URL.
-func (c *Client) GetTransactions(ctx context.Context, address, chainID string, since time.Time) ([]TransactionData, error) {
+func (c *Client) GetTransactions(ctx context.Context, address string, chainIDs []string, since time.Time) ([]TransactionData, error) {
 	fetchStart := time.Now()
 	reqURL := fmt.Sprintf("%s/wallets/%s/transactions/", c.baseURL, address)
 
 	params := url.Values{}
-	params.Set("filter[chain_ids]", chainID)
+	params.Set("filter[chain_ids]", strings.Join(chainIDs, ","))
 	params.Set("filter[min_mined_at]", strconv.FormatInt(since.UnixMilli(), 10))
 	params.Set("filter[asset_types]", "fungible")
 	params.Set("filter[trash]", "only_non_trash")

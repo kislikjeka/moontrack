@@ -133,7 +133,7 @@ func (h *TransferInHandler) GenerateEntries(ctx context.Context, txn *TransferIn
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
 			"wallet_id":        txn.WalletID.String(),
-			"account_code":     fmt.Sprintf("wallet.%s.%s", txn.WalletID.String(), txn.AssetID),
+			"account_code":     fmt.Sprintf("wallet.%s.%s.%s", txn.WalletID.String(), txn.ChainID, txn.AssetID),
 			"tx_hash":          txn.TxHash,
 			"block_number":     txn.BlockNumber,
 			"chain_id":         txn.ChainID,
@@ -156,7 +156,7 @@ func (h *TransferInHandler) GenerateEntries(ctx context.Context, txn *TransferIn
 		OccurredAt:  txn.OccurredAt,
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
-			"account_code":     fmt.Sprintf("income.%d.%s", txn.ChainID, txn.AssetID),
+			"account_code":     fmt.Sprintf("income.%s.%s", txn.ChainID, txn.AssetID),
 			"tx_hash":          txn.TxHash,
 			"block_number":     txn.BlockNumber,
 			"chain_id":         txn.ChainID,

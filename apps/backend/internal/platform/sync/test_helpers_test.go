@@ -92,8 +92,8 @@ type MockAssetService struct {
 	mock.Mock
 }
 
-func (m *MockAssetService) GetPriceBySymbol(ctx context.Context, symbol string, chainID int64) (*interface{}, error) {
-	args := m.Called(ctx, symbol, chainID)
+func (m *MockAssetService) GetPriceBySymbol(ctx context.Context, symbol string) (*interface{}, error) {
+	args := m.Called(ctx, symbol)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -104,12 +104,11 @@ func (m *MockAssetService) GetPriceBySymbol(ctx context.Context, symbol string, 
 // Test Helpers
 // =============================================================================
 
-func newTestWallet(userID uuid.UUID, address string, chainID int64) *wallet.Wallet {
+func newTestWallet(userID uuid.UUID, address string) *wallet.Wallet {
 	return &wallet.Wallet{
 		ID:         uuid.New(),
 		UserID:     userID,
 		Name:       "Test Wallet",
-		ChainID:    chainID,
 		Address:    address,
 		SyncStatus: wallet.SyncStatusPending,
 		CreatedAt:  time.Now(),

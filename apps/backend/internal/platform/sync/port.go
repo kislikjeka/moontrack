@@ -87,7 +87,7 @@ const (
 type DecodedTransaction struct {
 	ID            string
 	TxHash        string
-	ChainID       int64
+	ChainID       string
 	OperationType OperationType
 	Protocol      string // Protocol name (e.g. "Uniswap V3"), empty if unknown
 	Transfers     []DecodedTransfer
@@ -118,12 +118,12 @@ type DecodedFee struct {
 
 // TransactionDataProvider fetches decoded transactions from an external API
 type TransactionDataProvider interface {
-	GetTransactions(ctx context.Context, address string, chainID int64, since time.Time) ([]DecodedTransaction, error)
+	GetTransactions(ctx context.Context, address string, since time.Time) ([]DecodedTransaction, error)
 }
 
 // AssetService defines asset operations for sync
 type AssetService interface {
 	// GetPriceBySymbol returns the current USD price for an asset by symbol (scaled by 10^8)
 	// Returns nil if price unavailable (graceful degradation)
-	GetPriceBySymbol(ctx context.Context, symbol string, chainID int64) (*big.Int, error)
+	GetPriceBySymbol(ctx context.Context, symbol string) (*big.Int, error)
 }

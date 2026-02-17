@@ -16,7 +16,7 @@ type TransferInTransaction struct {
 	Decimals        int           `json:"decimals"`         // Asset decimals
 	Amount          *money.BigInt `json:"amount"`           // Amount in base units
 	USDRate         *money.BigInt `json:"usd_rate"`         // USD rate scaled by 10^8
-	ChainID         int64         `json:"chain_id"`         // EVM chain ID
+	ChainID         string        `json:"chain_id"`         // EVM chain ID
 	TxHash          string        `json:"tx_hash"`          // Blockchain transaction hash
 	BlockNumber     int64         `json:"block_number"`     // Block number
 	FromAddress     string        `json:"from_address"`     // Sender address
@@ -55,7 +55,7 @@ func (t *TransferInTransaction) Validate() error {
 		return ErrInvalidBlockNumber
 	}
 
-	if t.ChainID <= 0 {
+	if t.ChainID == "" {
 		return ErrInvalidChainID
 	}
 
@@ -84,7 +84,7 @@ type TransferOutTransaction struct {
 	USDRate         *money.BigInt `json:"usd_rate"`         // USD rate scaled by 10^8
 	GasAmount       *money.BigInt `json:"gas_amount"`       // Gas fee in native token base units
 	GasUSDRate      *money.BigInt `json:"gas_usd_rate"`     // Native token USD rate scaled by 10^8
-	ChainID         int64         `json:"chain_id"`         // EVM chain ID
+	ChainID         string        `json:"chain_id"`         // EVM chain ID
 	TxHash          string        `json:"tx_hash"`          // Blockchain transaction hash
 	BlockNumber     int64         `json:"block_number"`     // Block number
 	ToAddress       string        `json:"to_address"`       // Receiver address
@@ -123,7 +123,7 @@ func (t *TransferOutTransaction) Validate() error {
 		return ErrInvalidBlockNumber
 	}
 
-	if t.ChainID <= 0 {
+	if t.ChainID == "" {
 		return ErrInvalidChainID
 	}
 
@@ -171,7 +171,7 @@ type InternalTransferTransaction struct {
 	GasUSDRate      *money.BigInt `json:"gas_usd_rate"` // Native token USD rate scaled by 10^8
 	GasDecimals     int           `json:"gas_decimals"` // Native token decimals
 	NativeAssetID   string        `json:"native_asset_id"` // Native asset symbol (ETH, MATIC, etc.)
-	ChainID         int64         `json:"chain_id"`        // EVM chain ID
+	ChainID         string        `json:"chain_id"`        // EVM chain ID
 	TxHash          string        `json:"tx_hash"`         // Blockchain transaction hash
 	BlockNumber     int64         `json:"block_number"`    // Block number
 	ContractAddress string        `json:"contract_address"` // Contract address for ERC-20 (empty for native)
@@ -217,7 +217,7 @@ func (t *InternalTransferTransaction) Validate() error {
 		return ErrInvalidBlockNumber
 	}
 
-	if t.ChainID <= 0 {
+	if t.ChainID == "" {
 		return ErrInvalidChainID
 	}
 

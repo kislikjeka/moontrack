@@ -50,7 +50,6 @@ type AssetHoldingResponse struct {
 type WalletBalanceResponse struct {
 	WalletID   string                 `json:"wallet_id"`
 	WalletName string                 `json:"wallet_name"`
-	ChainID    string                 `json:"chain_id"`
 	Assets     []AssetBalanceResponse `json:"assets"`
 	TotalUSD   string                 `json:"total_usd"`
 }
@@ -106,7 +105,6 @@ func (h *PortfolioHandler) GetPortfolioSummary(w http.ResponseWriter, r *http.Re
 		walletBalances[i] = WalletBalanceResponse{
 			WalletID:   w.WalletID.String(),
 			WalletName: w.WalletName,
-			ChainID:    w.ChainID,
 			Assets:     assets,
 			TotalUSD:   money.FormatUSD(w.TotalUSD),
 		}
@@ -162,7 +160,6 @@ func (h *PortfolioHandler) GetAssetBreakdown(w http.ResponseWriter, r *http.Requ
 		response[i] = WalletBalanceResponse{
 			WalletID:   w.WalletID.String(),
 			WalletName: w.WalletName,
-			ChainID:    w.ChainID,
 			Assets:     assets,
 			TotalUSD:   money.FormatUSD(w.TotalUSD),
 		}

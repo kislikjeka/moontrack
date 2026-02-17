@@ -32,10 +32,9 @@ func (a *WalletRepositoryAdapter) GetByUserID(ctx context.Context, userID uuid.U
 	result := make([]*Wallet, len(wallets))
 	for i, w := range wallets {
 		result[i] = &Wallet{
-			ID:      w.ID,
-			UserID:  w.UserID,
-			Name:    w.Name,
-			ChainID: w.ChainID,
+			ID:     w.ID,
+			UserID: w.UserID,
+			Name:   w.Name,
 		}
 	}
 

@@ -183,9 +183,9 @@ func (s *Service) GetAccountBalances(ctx context.Context, accountID uuid.UUID) (
 
 // GetBalance retrieves the balance for a specific wallet and asset
 // This is used by handlers that need to check balance before processing
-func (s *Service) GetBalance(ctx context.Context, walletID uuid.UUID, assetID string) (*big.Int, error) {
+func (s *Service) GetBalance(ctx context.Context, walletID uuid.UUID, chain string, assetID string) (*big.Int, error) {
 	// Build account code for wallet asset
-	accountCode := fmt.Sprintf("wallet.%s.%s", walletID.String(), assetID)
+	accountCode := fmt.Sprintf("wallet.%s.%s.%s", walletID.String(), chain, assetID)
 
 	// Find the account by code
 	account, err := s.repo.GetAccountByCode(ctx, accountCode)

@@ -177,7 +177,6 @@ func (s *Service) syncWallet(ctx context.Context, w *wallet.Wallet) error {
 	s.logger.Info("starting wallet sync",
 		"wallet_id", w.ID,
 		"address", w.Address,
-		"chain_id", w.ChainID,
 		"last_sync_at", w.LastSyncAt)
 
 	// Atomically claim the wallet for syncing
@@ -202,7 +201,7 @@ func (s *Service) syncWallet(ctx context.Context, w *wallet.Wallet) error {
 	s.logger.Debug("sync window", "wallet_id", w.ID, "since", since, "is_initial", w.LastSyncAt == nil)
 
 	// Fetch decoded transactions from Zerion
-	transactions, err := s.zerionProvider.GetTransactions(ctx, w.Address, w.ChainID, since)
+	transactions, err := s.zerionProvider.GetTransactions(ctx, w.Address, since)
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to get transactions from zerion: %v", err)
 		_ = s.walletRepo.SetSyncError(ctx, w.ID, errMsg)

@@ -42,7 +42,7 @@ func TestClient_AuthHeader(t *testing.T) {
 	client := zerion.NewClient(apiKey, testLogger())
 	client.SetBaseURL(server.URL)
 
-	_, err := client.GetTransactions(context.Background(), "0xtest", "ethereum", time.Now())
+	_, err := client.GetTransactions(context.Background(), "0xtest", []string{"ethereum"}, time.Now())
 	require.NoError(t, err)
 	assert.Equal(t, expectedAuth, receivedAuth)
 }
@@ -59,7 +59,7 @@ func TestClient_AcceptHeader(t *testing.T) {
 	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(server.URL)
 
-	_, err := client.GetTransactions(context.Background(), "0xtest", "ethereum", time.Now())
+	_, err := client.GetTransactions(context.Background(), "0xtest", []string{"ethereum"}, time.Now())
 	require.NoError(t, err)
 	assert.Equal(t, "application/json", receivedAccept)
 }
@@ -82,7 +82,7 @@ func TestClient_QueryParams(t *testing.T) {
 	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(server.URL)
 
-	_, err := client.GetTransactions(context.Background(), "0xwallet", "ethereum", since)
+	_, err := client.GetTransactions(context.Background(), "0xwallet", []string{"ethereum"}, since)
 	require.NoError(t, err)
 
 	assert.Contains(t, receivedURL, "/wallets/0xwallet/transactions/")
@@ -161,7 +161,7 @@ func TestClient_Pagination(t *testing.T) {
 	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(paginationServer.URL)
 
-	txs, err := client.GetTransactions(context.Background(), "0xtest", "ethereum", time.Now())
+	txs, err := client.GetTransactions(context.Background(), "0xtest", []string{"ethereum"}, time.Now())
 	require.NoError(t, err)
 	assert.Len(t, txs, 2)
 	assert.Equal(t, "tx1", txs[0].ID)
@@ -192,7 +192,7 @@ func TestClient_RateLimitRetry(t *testing.T) {
 	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(server.URL)
 
-	txs, err := client.GetTransactions(context.Background(), "0xtest", "ethereum", time.Now())
+	txs, err := client.GetTransactions(context.Background(), "0xtest", []string{"ethereum"}, time.Now())
 	require.NoError(t, err)
 	assert.Len(t, txs, 1)
 	// 2 rate-limited + 1 successful = 3 total requests
@@ -211,7 +211,7 @@ func TestClient_RateLimitExhaustion(t *testing.T) {
 	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(server.URL)
 
-	_, err := client.GetTransactions(context.Background(), "0xtest", "ethereum", time.Now())
+	_, err := client.GetTransactions(context.Background(), "0xtest", []string{"ethereum"}, time.Now())
 	require.Error(t, err)
 	assert.True(t, zerion.IsRateLimitError(err))
 
@@ -232,7 +232,7 @@ func TestClient_RateLimitContextCancel(t *testing.T) {
 	// Cancel immediately so the backoff sleep returns context error
 	cancel()
 
-	_, err := client.GetTransactions(ctx, "0xtest", "ethereum", time.Now())
+	_, err := client.GetTransactions(ctx, "0xtest", []string{"ethereum"}, time.Now())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
 }
@@ -251,7 +251,7 @@ func TestClient_NonOKResponse(t *testing.T) {
 	client := zerion.NewClient("key", testLogger())
 	client.SetBaseURL(server.URL)
 
-	_, err := client.GetTransactions(context.Background(), "0xtest", "ethereum", time.Now())
+	_, err := client.GetTransactions(context.Background(), "0xtest", []string{"ethereum"}, time.Now())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "status 500")
 }

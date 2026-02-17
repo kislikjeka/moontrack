@@ -32,7 +32,7 @@ func newDecodedTransaction(opType sync.OperationType, transfers []sync.DecodedTr
 	return sync.DecodedTransaction{
 		ID:            "zerion-tx-" + uuid.New().String()[:8],
 		TxHash:        "0x" + uuid.New().String()[:32],
-		ChainID:       1,
+		ChainID:       "ethereum",
 		OperationType: opType,
 		Transfers:     transfers,
 		MinedAt:       time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC),
@@ -85,7 +85,7 @@ func TestZerionProcessor_TransferIn(t *testing.T) {
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newZerionProcessor(walletRepo, ledgerSvc)
-	w := newTestWallet(userID, walletAddr, 1)
+	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpReceive, []sync.DecodedTransfer{
 		newIncomingTransfer(externalAddr),
@@ -102,7 +102,7 @@ func TestZerionProcessor_TransferIn(t *testing.T) {
 	rawData := ledgerSvc.recordedTransactions[0].RawData
 	assert.Equal(t, w.ID.String(), rawData["wallet_id"])
 	assert.Equal(t, tx.TxHash, rawData["tx_hash"])
-	assert.Equal(t, int64(1), rawData["chain_id"])
+	assert.Equal(t, "ethereum", rawData["chain_id"])
 
 	assert.Equal(t, "ETH", rawData["asset_id"])
 	assert.Equal(t, "1000000000000000000", rawData["amount"])
@@ -126,7 +126,7 @@ func TestZerionProcessor_TransferOut(t *testing.T) {
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newZerionProcessor(walletRepo, ledgerSvc)
-	w := newTestWallet(userID, walletAddr, 1)
+	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpSend, []sync.DecodedTransfer{
 		newOutgoingTransfer(externalAddr),
@@ -152,7 +152,7 @@ func TestZerionProcessor_Swap(t *testing.T) {
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newZerionProcessor(walletRepo, ledgerSvc)
-	w := newTestWallet(userID, walletAddr, 1)
+	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpTrade, []sync.DecodedTransfer{
 		{
@@ -203,14 +203,14 @@ func TestZerionProcessor_InternalTransfer(t *testing.T) {
 	ledgerSvc := new(MockLedgerService)
 
 	walletRepo.On("GetWalletsByAddressAndUserID", ctx, destAddr, userID).Return([]*wallet.Wallet{
-		{ID: destWalletID, UserID: userID, Address: destAddr, ChainID: 1},
+		{ID: destWalletID, UserID: userID, Address: destAddr},
 	}, nil)
 
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeInternalTransfer, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newZerionProcessor(walletRepo, ledgerSvc)
-	sourceWallet := newTestWallet(userID, sourceAddr, 1)
+	sourceWallet := newTestWallet(userID, sourceAddr)
 
 	tx := newDecodedTransaction(sync.OpSend, []sync.DecodedTransfer{
 		newOutgoingTransfer(destAddr),
@@ -238,11 +238,11 @@ func TestZerionProcessor_InternalTransfer_IncomingSkipped(t *testing.T) {
 	ledgerSvc := new(MockLedgerService)
 
 	walletRepo.On("GetWalletsByAddressAndUserID", ctx, sourceAddr, userID).Return([]*wallet.Wallet{
-		{ID: sourceWalletID, UserID: userID, Address: sourceAddr, ChainID: 1},
+		{ID: sourceWalletID, UserID: userID, Address: sourceAddr},
 	}, nil)
 
 	processor := newZerionProcessor(walletRepo, ledgerSvc)
-	destWallet := newTestWallet(userID, destAddr, 1)
+	destWallet := newTestWallet(userID, destAddr)
 
 	transfer := newIncomingTransfer(sourceAddr)
 	transfer.Recipient = destAddr
@@ -264,7 +264,7 @@ func TestZerionProcessor_ApproveSkipped(t *testing.T) {
 	ledgerSvc := new(MockLedgerService)
 
 	processor := newZerionProcessor(walletRepo, ledgerSvc)
-	w := newTestWallet(userID, walletAddr, 1)
+	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpApprove, nil)
 
@@ -283,7 +283,7 @@ func TestZerionProcessor_FailedTxSkipped(t *testing.T) {
 	ledgerSvc := new(MockLedgerService)
 
 	processor := newZerionProcessor(walletRepo, ledgerSvc)
-	w := newTestWallet(userID, walletAddr, 1)
+	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpReceive, []sync.DecodedTransfer{
 		newIncomingTransfer("0x9999999999999999999999999999999999999999"),
@@ -312,7 +312,7 @@ func TestZerionProcessor_DuplicateHandling(t *testing.T) {
 		Return(nil, duplicateError)
 
 	processor := newZerionProcessor(walletRepo, ledgerSvc)
-	w := newTestWallet(userID, walletAddr, 1)
+	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpReceive, []sync.DecodedTransfer{
 		newIncomingTransfer(externalAddr),
@@ -336,7 +336,7 @@ func TestZerionProcessor_USDPrices(t *testing.T) {
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newZerionProcessor(walletRepo, ledgerSvc)
-	w := newTestWallet(userID, walletAddr, 1)
+	w := newTestWallet(userID, walletAddr)
 
 	ethPrice := big.NewInt(250000000000)
 	transfer := sync.DecodedTransfer{
@@ -373,7 +373,7 @@ func TestZerionProcessor_GasFee(t *testing.T) {
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newZerionProcessor(walletRepo, ledgerSvc)
-	w := newTestWallet(userID, walletAddr, 1)
+	w := newTestWallet(userID, walletAddr)
 
 	feeUSDPrice := big.NewInt(500000000) // $5
 	tx := newDecodedTransaction(sync.OpSend, []sync.DecodedTransfer{
@@ -414,7 +414,7 @@ func TestZerionProcessor_DeFiDeposit(t *testing.T) {
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newZerionProcessor(walletRepo, ledgerSvc)
-	w := newTestWallet(userID, walletAddr, 1)
+	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpDeposit, []sync.DecodedTransfer{
 		{
@@ -451,7 +451,7 @@ func TestZerionProcessor_DeFiWithdraw(t *testing.T) {
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newZerionProcessor(walletRepo, ledgerSvc)
-	w := newTestWallet(userID, walletAddr, 1)
+	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpWithdraw, []sync.DecodedTransfer{
 		{
@@ -488,7 +488,7 @@ func TestZerionProcessor_DeFiClaim(t *testing.T) {
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newZerionProcessor(walletRepo, ledgerSvc)
-	w := newTestWallet(userID, walletAddr, 1)
+	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpClaim, []sync.DecodedTransfer{
 		{

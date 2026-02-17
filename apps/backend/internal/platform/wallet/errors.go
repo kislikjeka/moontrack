@@ -15,7 +15,7 @@ var (
 	ErrMissingAddress     = errors.New("wallet address is required")
 	ErrInvalidAddress     = errors.New("invalid EVM address format (must be 0x followed by 40 hex characters)")
 	ErrInvalidChecksum    = errors.New("invalid EVM address checksum")
-	ErrDuplicateAddress   = errors.New("wallet address already exists for this chain and user")
+	ErrDuplicateAddress   = errors.New("wallet address already exists for this user")
 
 	// Repository errors
 	ErrWalletNotFound     = errors.New("wallet not found")
