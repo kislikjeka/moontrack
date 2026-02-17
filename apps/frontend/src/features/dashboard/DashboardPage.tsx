@@ -59,7 +59,7 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Total Portfolio Value"
-          value={formatUSD(parseFloat(totalValue))}
+          value={formatUSD(Number(BigInt(totalValue)) / 100000000)}
           icon={TrendingUp}
           iconColor="primary"
         />
