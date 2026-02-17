@@ -1,25 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { formatRelativeDate } from '@/lib/format'
+import { formatRelativeDate, formatUSD } from '@/lib/format'
 import type { PortfolioSummary as PortfolioSummaryType } from '@/types/portfolio'
 
 interface PortfolioSummaryProps {
   portfolio?: PortfolioSummaryType
-}
-
-// Format big.Int string to USD value (scaled by 10^8)
-function formatPortfolioUSD(value: string): string {
-  try {
-    const bigIntValue = BigInt(value)
-    const dollars = Number(bigIntValue) / 100000000
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(dollars)
-  } catch {
-    return '$0.00'
-  }
 }
 
 export function PortfolioSummary({ portfolio }: PortfolioSummaryProps) {
@@ -47,7 +31,7 @@ export function PortfolioSummary({ portfolio }: PortfolioSummaryProps) {
           <div>
             <p className="text-sm text-muted-foreground">Total Value</p>
             <p className="text-3xl font-bold tracking-tight">
-              {formatPortfolioUSD(portfolio.total_usd_value)}
+              {formatUSD(portfolio.total_usd_value)}
             </p>
           </div>
 

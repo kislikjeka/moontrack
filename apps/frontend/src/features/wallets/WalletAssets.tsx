@@ -8,26 +8,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { AssetIcon } from '@/components/domain/AssetIcon'
+import { formatUSD } from '@/lib/format'
 import type { AssetBalance } from '@/types/portfolio'
 
 interface WalletAssetsProps {
   assets: AssetBalance[]
-}
-
-// Format big.Int string to number (scaled by 10^8)
-function formatUSDValue(value: string): string {
-  try {
-    const bigIntValue = BigInt(value)
-    const dollars = Number(bigIntValue) / 100000000
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(dollars)
-  } catch {
-    return '$0.00'
-  }
 }
 
 // Format amount with appropriate decimals
@@ -91,10 +76,10 @@ export function WalletAssets({ assets }: WalletAssetsProps) {
                   {formatAmount(asset.amount)}
                 </TableCell>
                 <TableCell className="text-right">
-                  {formatUSDValue(asset.price)}
+                  {formatUSD(asset.price)}
                 </TableCell>
                 <TableCell className="text-right font-medium">
-                  {formatUSDValue(asset.usd_value)}
+                  {formatUSD(asset.usd_value)}
                 </TableCell>
               </TableRow>
             ))}

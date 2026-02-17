@@ -44,7 +44,7 @@ export default function WalletDetailPage() {
   // Find wallet balance from portfolio
   const walletBalance = portfolio?.wallet_balances.find((wb) => wb.wallet_id === id)
   const totalValue = walletBalance
-    ? Number(BigInt(walletBalance.total_usd)) / 100000000
+    ? parseFloat(walletBalance.total_usd)
     : 0
   const assets = walletBalance?.assets || []
 

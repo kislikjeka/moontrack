@@ -10,28 +10,12 @@ import {
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TransactionTypeBadge } from '@/components/domain/TransactionTypeBadge'
-import { formatDateTime } from '@/lib/format'
+import { formatDateTime, formatUSD } from '@/lib/format'
 import type { TransactionListItem } from '@/types/transaction'
 
 interface WalletTransactionsProps {
   transactions: TransactionListItem[]
   isLoading?: boolean
-}
-
-// Format USD value from scaled integer
-function formatUSDValue(value: string): string {
-  try {
-    const bigIntValue = BigInt(value)
-    const dollars = Number(bigIntValue) / 100000000
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(dollars)
-  } catch {
-    return '$0.00'
-  }
 }
 
 export function WalletTransactions({ transactions, isLoading }: WalletTransactionsProps) {
@@ -104,7 +88,7 @@ export function WalletTransactions({ transactions, isLoading }: WalletTransactio
                 </TableCell>
                 <TableCell className="text-right">
                   <Link to={`/transactions/${tx.id}`}>
-                    {tx.usd_value ? formatUSDValue(tx.usd_value) : '-'}
+                    {tx.usd_value ? formatUSD(tx.usd_value) : '-'}
                   </Link>
                 </TableCell>
                 <TableCell className="text-right text-muted-foreground">

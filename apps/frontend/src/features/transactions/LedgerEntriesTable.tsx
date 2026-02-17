@@ -9,26 +9,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
+import { formatUSD } from '@/lib/format'
 import type { LedgerEntry } from '@/types/transaction'
 
 interface LedgerEntriesTableProps {
   entries: LedgerEntry[]
-}
-
-// Format USD value from scaled integer
-function formatUSDValue(value: string): string {
-  try {
-    const bigIntValue = BigInt(value)
-    const dollars = Number(bigIntValue) / 100000000
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(dollars)
-  } catch {
-    return '$0.00'
-  }
 }
 
 export function LedgerEntriesTable({ entries }: LedgerEntriesTableProps) {
@@ -48,7 +33,7 @@ export function LedgerEntriesTable({ entries }: LedgerEntriesTableProps) {
   // Calculate totals for balance check
   const totals = entries.reduce(
     (acc, entry) => {
-      const value = Number(BigInt(entry.usd_value || '0')) / 100000000
+      const value = parseFloat(entry.usd_value || '0')
       if (entry.debit_credit === 'DEBIT') {
         acc.debit += value
       } else {
@@ -115,12 +100,12 @@ export function LedgerEntriesTable({ entries }: LedgerEntriesTableProps) {
                 </TableCell>
                 <TableCell className="text-right">
                   {entry.debit_credit === 'DEBIT' && entry.usd_value
-                    ? formatUSDValue(entry.usd_value)
+                    ? formatUSD(entry.usd_value)
                     : '-'}
                 </TableCell>
                 <TableCell className="text-right">
                   {entry.debit_credit === 'CREDIT' && entry.usd_value
-                    ? formatUSDValue(entry.usd_value)
+                    ? formatUSD(entry.usd_value)
                     : '-'}
                 </TableCell>
               </TableRow>

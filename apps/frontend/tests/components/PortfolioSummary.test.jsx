@@ -3,9 +3,9 @@ import { PortfolioSummary } from '../../src/features/dashboard/PortfolioSummary'
 
 describe('PortfolioSummary', () => {
   // Mock portfolio data matching the PortfolioSummary type interface
-  // Values are scaled by 10^8 for precision (bigint string format)
+  // Values are human-readable decimal strings (formatted by backend)
   const mockPortfolio = {
-    total_usd_value: '12567850000000', // $125,678.50 scaled by 10^8
+    total_usd_value: '125678.50',
     total_assets: 3,
     asset_holdings: [],
     wallet_balances: [],
@@ -52,7 +52,7 @@ describe('PortfolioSummary', () => {
 
   test('formats large numbers with commas', () => {
     const largePortfolio = {
-      total_usd_value: '125000000000000000', // $1,250,000,000.00 scaled
+      total_usd_value: '1250000000.00',
       total_assets: 5,
       asset_holdings: [],
       wallet_balances: [],

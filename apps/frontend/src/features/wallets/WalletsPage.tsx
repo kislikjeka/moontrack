@@ -51,7 +51,7 @@ export default function WalletsPage() {
           {wallets.map((wallet) => {
             const balanceInfo = walletBalanceMap.get(wallet.id)
             const totalValue = balanceInfo
-              ? Number(BigInt(balanceInfo.total)) / 100000000
+              ? parseFloat(balanceInfo.total)
               : 0
             const assetCount = balanceInfo?.assetCount || 0
 

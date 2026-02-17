@@ -7,23 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { TransactionTypeBadge } from '@/components/domain/TransactionTypeBadge'
 import { LedgerEntriesTable } from './LedgerEntriesTable'
-import { formatDateTime } from '@/lib/format'
-
-// Format USD value from scaled integer
-function formatUSDValue(value: string): string {
-  try {
-    const bigIntValue = BigInt(value)
-    const dollars = Number(bigIntValue) / 100000000
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(dollars)
-  } catch {
-    return '$0.00'
-  }
-}
+import { formatDateTime, formatUSD } from '@/lib/format'
 
 export default function TransactionDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -76,7 +60,7 @@ export default function TransactionDetailPage() {
         {transaction.usd_value && (
           <div className="text-right">
             <p className="text-sm text-muted-foreground">Value</p>
-            <p className="text-2xl font-bold">{formatUSDValue(transaction.usd_value)}</p>
+            <p className="text-2xl font-bold">{formatUSD(transaction.usd_value)}</p>
           </div>
         )}
       </div>

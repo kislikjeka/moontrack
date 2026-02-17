@@ -53,8 +53,7 @@ export function WalletsList({ wallets, walletBalances }: WalletsListProps) {
         <div className="space-y-2">
           {wallets.slice(0, 4).map((wallet) => {
             const balance = balanceMap.get(wallet.id) || '0'
-            // Convert from scaled value
-            const usdValue = Number(BigInt(balance)) / 100000000
+            const usdValue = parseFloat(balance)
             return (
               <WalletCardCompact
                 key={wallet.id}

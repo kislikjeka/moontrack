@@ -116,7 +116,7 @@ func (s *TransactionService) GetTransaction(ctx context.Context, id uuid.UUID, u
 
 	usdValue := ""
 	if fields.USDValue != nil && fields.USDValue.Sign() > 0 {
-		usdValue = fields.USDValue.String()
+		usdValue = money.FormatUSD(fields.USDValue)
 	}
 
 	detail := &TransactionDetail{
@@ -167,7 +167,7 @@ func (s *TransactionService) toListItem(tx *ledger.Transaction, wallets map[uuid
 
 	usdValue := ""
 	if fields.USDValue != nil && fields.USDValue.Sign() > 0 {
-		usdValue = fields.USDValue.String()
+		usdValue = money.FormatUSD(fields.USDValue)
 	}
 
 	return &TransactionListItem{
@@ -223,7 +223,7 @@ func (s *TransactionService) toEntryResponses(entries []*ledger.Entry, walletNam
 			DisplayAmount: displayAmount,
 			AssetID:       entry.AssetID,
 			AssetSymbol:   strings.ToUpper(entry.AssetID),
-			USDValue:      entry.USDValue.String(),
+			USDValue:      money.FormatUSD(entry.USDValue),
 		}
 	}
 	return result

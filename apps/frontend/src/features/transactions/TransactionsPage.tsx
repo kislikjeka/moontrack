@@ -15,24 +15,8 @@ import {
 } from '@/components/ui/table'
 import { TransactionTypeBadge } from '@/components/domain/TransactionTypeBadge'
 import { TransactionFilters } from './TransactionFilters'
-import { formatDateTime } from '@/lib/format'
+import { formatDateTime, formatUSD } from '@/lib/format'
 import type { TransactionFilters as FiltersType } from '@/types/transaction'
-
-// Format USD value from scaled integer
-function formatUSDValue(value: string): string {
-  try {
-    const bigIntValue = BigInt(value)
-    const dollars = Number(bigIntValue) / 100000000
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(dollars)
-  } catch {
-    return '$0.00'
-  }
-}
 
 export default function TransactionsPage() {
   const [filters, setFilters] = useState<FiltersType>({
@@ -117,7 +101,7 @@ export default function TransactionsPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <Link to={`/transactions/${tx.id}`}>
-                        {tx.usd_value ? formatUSDValue(tx.usd_value) : '-'}
+                        {tx.usd_value ? formatUSD(tx.usd_value) : '-'}
                       </Link>
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground">

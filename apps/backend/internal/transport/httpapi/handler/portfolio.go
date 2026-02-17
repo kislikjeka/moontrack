@@ -86,8 +86,8 @@ func (h *PortfolioHandler) GetPortfolioSummary(w http.ResponseWriter, r *http.Re
 		assetHoldings[i] = AssetHoldingResponse{
 			AssetID:      holding.AssetID,
 			TotalAmount:  money.FromBaseUnits(holding.TotalAmount, decimals),
-			USDValue:     holding.USDValue.String(),
-			CurrentPrice: holding.CurrentPrice.String(),
+			USDValue:     money.FormatUSD(holding.USDValue),
+			CurrentPrice: money.FormatUSD(holding.CurrentPrice),
 		}
 	}
 
@@ -98,8 +98,8 @@ func (h *PortfolioHandler) GetPortfolioSummary(w http.ResponseWriter, r *http.Re
 			assets[j] = AssetBalanceResponse{
 				AssetID:  asset.AssetID,
 				Amount:   money.FromBaseUnits(asset.Amount, asset.Decimals),
-				USDValue: asset.USDValue.String(),
-				Price:    asset.Price.String(),
+				USDValue: money.FormatUSD(asset.USDValue),
+				Price:    money.FormatUSD(asset.Price),
 			}
 		}
 
@@ -108,12 +108,12 @@ func (h *PortfolioHandler) GetPortfolioSummary(w http.ResponseWriter, r *http.Re
 			WalletName: w.WalletName,
 			ChainID:    w.ChainID,
 			Assets:     assets,
-			TotalUSD:   w.TotalUSD.String(),
+			TotalUSD:   money.FormatUSD(w.TotalUSD),
 		}
 	}
 
 	response := PortfolioSummaryResponse{
-		TotalUSDValue:  summary.TotalUSDValue.String(),
+		TotalUSDValue:  money.FormatUSD(summary.TotalUSDValue),
 		TotalAssets:    summary.TotalAssets,
 		AssetHoldings:  assetHoldings,
 		WalletBalances: walletBalances,
@@ -154,8 +154,8 @@ func (h *PortfolioHandler) GetAssetBreakdown(w http.ResponseWriter, r *http.Requ
 			assets[j] = AssetBalanceResponse{
 				AssetID:  asset.AssetID,
 				Amount:   money.FromBaseUnits(asset.Amount, asset.Decimals),
-				USDValue: asset.USDValue.String(),
-				Price:    asset.Price.String(),
+				USDValue: money.FormatUSD(asset.USDValue),
+				Price:    money.FormatUSD(asset.Price),
 			}
 		}
 
@@ -164,7 +164,7 @@ func (h *PortfolioHandler) GetAssetBreakdown(w http.ResponseWriter, r *http.Requ
 			WalletName: w.WalletName,
 			ChainID:    w.ChainID,
 			Assets:     assets,
-			TotalUSD:   w.TotalUSD.String(),
+			TotalUSD:   money.FormatUSD(w.TotalUSD),
 		}
 	}
 

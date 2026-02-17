@@ -1,5 +1,6 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { formatUSD } from '@/lib/format'
 import type { AssetHolding } from '@/types/portfolio'
 
 interface AssetDistributionChartProps {
@@ -17,22 +18,6 @@ const COLORS = [
   'hsl(200, 60%, 50%)',
   'hsl(340, 70%, 50%)',
 ]
-
-// Format big.Int string to USD value (scaled by 10^8)
-function formatAssetUSD(value: string): string {
-  try {
-    const bigIntValue = BigInt(value)
-    const dollars = Number(bigIntValue) / 100000000
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(dollars)
-  } catch {
-    return '$0.00'
-  }
-}
 
 export function AssetDistributionChart({ holdings }: AssetDistributionChartProps) {
   if (!holdings || holdings.length === 0) {
@@ -54,7 +39,7 @@ export function AssetDistributionChart({ holdings }: AssetDistributionChartProps
   // Transform holdings for the chart
   const chartData = holdings.map((holding, index) => ({
     name: holding.asset_id, // Could be improved with asset name lookup
-    value: Number(BigInt(holding.usd_value)) / 100000000,
+    value: parseFloat(holding.usd_value),
     color: COLORS[index % COLORS.length],
     originalValue: holding.usd_value,
     amount: holding.total_amount,
@@ -96,7 +81,7 @@ export function AssetDistributionChart({ holdings }: AssetDistributionChartProps
                         <div className="rounded-lg border border-border bg-background p-2 text-sm shadow-sm">
                           <p className="font-medium">{data.name}</p>
                           <p className="text-muted-foreground">
-                            {formatAssetUSD(data.originalValue)} ({percentage}%)
+                            {formatUSD(data.originalValue)} ({percentage}%)
                           </p>
                         </div>
                       )

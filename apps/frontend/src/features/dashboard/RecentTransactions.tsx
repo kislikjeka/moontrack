@@ -58,7 +58,7 @@ export function RecentTransactions({ transactions }: RecentTransactionsProps) {
               <div className="text-right">
                 {tx.usd_value && (
                   <p className="text-sm font-medium">
-                    ${(Number(BigInt(tx.usd_value)) / 100000000).toFixed(2)}
+                    ${parseFloat(tx.usd_value).toFixed(2)}
                   </p>
                 )}
                 <p className="text-xs text-muted-foreground">
