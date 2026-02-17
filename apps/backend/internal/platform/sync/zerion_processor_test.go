@@ -104,10 +104,11 @@ func TestZerionProcessor_TransferIn(t *testing.T) {
 	assert.Equal(t, tx.TxHash, rawData["tx_hash"])
 	assert.Equal(t, int64(1), rawData["chain_id"])
 
-	transfers := rawData["transfers"].([]map[string]interface{})
-	require.Len(t, transfers, 1)
-	assert.Equal(t, "ETH", transfers[0]["asset_symbol"])
-	assert.Equal(t, "in", transfers[0]["direction"])
+	assert.Equal(t, "ETH", rawData["asset_id"])
+	assert.Equal(t, "1000000000000000000", rawData["amount"])
+	assert.Equal(t, 18, rawData["decimals"])
+	assert.Equal(t, externalAddr, rawData["from_address"])
+	assert.Equal(t, tx.ID, rawData["unique_id"])
 }
 
 func TestZerionProcessor_TransferOut(t *testing.T) {
@@ -354,9 +355,8 @@ func TestZerionProcessor_USDPrices(t *testing.T) {
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
 	rawData := ledgerSvc.recordedTransactions[0].RawData
-	transfers := rawData["transfers"].([]map[string]interface{})
-	require.Len(t, transfers, 1)
-	assert.Equal(t, ethPrice.String(), transfers[0]["usd_price"])
+	assert.Equal(t, "ETH", rawData["asset_id"])
+	assert.Equal(t, ethPrice.String(), rawData["usd_rate"])
 }
 
 func TestZerionProcessor_GasFee(t *testing.T) {
@@ -396,6 +396,10 @@ func TestZerionProcessor_GasFee(t *testing.T) {
 	assert.Equal(t, "21000000000000", rawData["fee_amount"])
 	assert.Equal(t, 18, rawData["fee_decimals"])
 	assert.Equal(t, feeUSDPrice.String(), rawData["fee_usd_price"])
+
+	// TransferOut should also map fee fields to gas fields
+	assert.Equal(t, "21000000000000", rawData["gas_amount"])
+	assert.Equal(t, feeUSDPrice.String(), rawData["gas_usd_rate"])
 }
 
 func TestZerionProcessor_DeFiDeposit(t *testing.T) {

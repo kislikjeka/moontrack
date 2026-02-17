@@ -174,13 +174,64 @@ func (p *ZerionProcessor) ClearCache() {
 
 func (p *ZerionProcessor) buildTransferInData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
-	data["transfers"] = p.buildTransferArray(tx.Transfers)
+	// TransferInHandler expects flat fields, not a transfers array.
+	// Find the primary "in" transfer.
+	var t *DecodedTransfer
+	for i := range tx.Transfers {
+		if tx.Transfers[i].Direction == DirectionIn {
+			t = &tx.Transfers[i]
+			break
+		}
+	}
+	if t == nil && len(tx.Transfers) > 0 {
+		t = &tx.Transfers[0]
+	}
+	if t != nil {
+		data["asset_id"] = t.AssetSymbol
+		data["amount"] = money.NewBigInt(t.Amount).String()
+		data["decimals"] = t.Decimals
+		data["contract_address"] = t.ContractAddress
+		data["from_address"] = t.Sender
+		data["unique_id"] = tx.ID
+		if t.USDPrice != nil {
+			data["usd_rate"] = t.USDPrice.String()
+		}
+	}
 	return data
 }
 
 func (p *ZerionProcessor) buildTransferOutData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
-	data["transfers"] = p.buildTransferArray(tx.Transfers)
+	// TransferOutHandler expects flat fields, not a transfers array.
+	// Find the primary "out" transfer.
+	var t *DecodedTransfer
+	for i := range tx.Transfers {
+		if tx.Transfers[i].Direction == DirectionOut {
+			t = &tx.Transfers[i]
+			break
+		}
+	}
+	if t == nil && len(tx.Transfers) > 0 {
+		t = &tx.Transfers[0]
+	}
+	if t != nil {
+		data["asset_id"] = t.AssetSymbol
+		data["amount"] = money.NewBigInt(t.Amount).String()
+		data["decimals"] = t.Decimals
+		data["contract_address"] = t.ContractAddress
+		data["to_address"] = t.Recipient
+		data["unique_id"] = tx.ID
+		if t.USDPrice != nil {
+			data["usd_rate"] = t.USDPrice.String()
+		}
+	}
+	// Map fee fields to gas fields expected by TransferOutHandler
+	if feeAmt, ok := data["fee_amount"]; ok {
+		data["gas_amount"] = feeAmt
+	}
+	if feeRate, ok := data["fee_usd_price"]; ok {
+		data["gas_usd_rate"] = feeRate
+	}
 	return data
 }
 
@@ -207,7 +258,41 @@ func (p *ZerionProcessor) buildInternalTransferData(w *wallet.Wallet, tx Decoded
 	if destWalletID != nil {
 		data["dest_wallet_id"] = destWalletID.String()
 	}
-	data["transfers"] = p.buildTransferArray(tx.Transfers)
+	// InternalTransferHandler expects flat fields.
+	// Extract the primary "out" transfer (from source wallet).
+	var t *DecodedTransfer
+	for i := range tx.Transfers {
+		if tx.Transfers[i].Direction == DirectionOut {
+			t = &tx.Transfers[i]
+			break
+		}
+	}
+	if t == nil && len(tx.Transfers) > 0 {
+		t = &tx.Transfers[0]
+	}
+	if t != nil {
+		data["asset_id"] = t.AssetSymbol
+		data["amount"] = money.NewBigInt(t.Amount).String()
+		data["decimals"] = t.Decimals
+		data["contract_address"] = t.ContractAddress
+		data["unique_id"] = tx.ID
+		if t.USDPrice != nil {
+			data["usd_rate"] = t.USDPrice.String()
+		}
+	}
+	// Map fee fields to gas fields expected by InternalTransferHandler
+	if feeAmt, ok := data["fee_amount"]; ok {
+		data["gas_amount"] = feeAmt
+	}
+	if feeRate, ok := data["fee_usd_price"]; ok {
+		data["gas_usd_rate"] = feeRate
+	}
+	if feeDec, ok := data["fee_decimals"]; ok {
+		data["gas_decimals"] = feeDec
+	}
+	if feeAsset, ok := data["fee_asset"]; ok {
+		data["native_asset_id"] = feeAsset
+	}
 	return data
 }
 
