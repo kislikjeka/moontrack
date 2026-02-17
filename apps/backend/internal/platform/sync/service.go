@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -213,19 +214,42 @@ func (s *Service) syncWallet(ctx context.Context, w *wallet.Wallet) error {
 		"count", len(transactions),
 		"since", since.Format(time.RFC3339))
 
-	// Process each transaction, tracking cursor to last successfully committed tx
+	// Sort transactions oldest-first (Zerion returns newest-first).
+	// Both phases benefit: minimizes negative-balance hits during initial sync,
+	// ensures correct ordering during incremental sync.
+	sort.Slice(transactions, func(i, j int) bool {
+		return transactions[i].MinedAt.Before(transactions[j].MinedAt)
+	})
+
+	// Two-phase sync:
+	// - Initial sync (LastSyncAt == nil): skip negative balance errors (missing prior history)
+	// - Incremental sync: stop on any error (negative balance = real problem)
+	isInitialSync := w.LastSyncAt == nil
+
 	var lastSuccessfulMinedAt *time.Time
 	var processErrors []error
 	processed := 0
+	skipped := 0
+
 	for _, tx := range transactions {
 		if err := s.zerionProcessor.ProcessTransaction(ctx, w, tx); err != nil {
+			if isInitialSync && isNegativeBalanceError(err) {
+				s.logger.Warn("skipping transaction (negative balance during initial sync)",
+					"wallet_id", w.ID,
+					"tx_hash", tx.TxHash,
+					"zerion_id", tx.ID,
+					"error", err)
+				skipped++
+				continue
+			}
+
 			s.logger.Error("failed to process transaction, stopping sync",
 				"wallet_id", w.ID,
 				"tx_hash", tx.TxHash,
 				"zerion_id", tx.ID,
 				"error", err)
 			processErrors = append(processErrors, err)
-			break // stop on first error to preserve cursor safety
+			break
 		}
 		minedAt := tx.MinedAt
 		lastSuccessfulMinedAt = &minedAt
@@ -256,7 +280,9 @@ func (s *Service) syncWallet(ctx context.Context, w *wallet.Wallet) error {
 	s.logger.Info("wallet sync completed",
 		"wallet_id", w.ID,
 		"transactions_processed", processed,
-		"errors", len(processErrors))
+		"transactions_skipped", skipped,
+		"errors", len(processErrors),
+		"is_initial_sync", isInitialSync)
 
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,6 +55,16 @@ func isDuplicateError(err error) bool {
 	}
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+// isNegativeBalanceError checks if err is a ledger negative-balance rejection.
+func isNegativeBalanceError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "would have negative balance") ||
+		strings.Contains(msg, "balance would be negative")
 }
 
 // OperationType represents the high-level category of a decoded transaction
