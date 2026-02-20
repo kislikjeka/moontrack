@@ -16,6 +16,7 @@ type ListFields struct {
 	Amount    *big.Int
 	USDValue  *big.Int
 	Direction string // "in", "out", "adjustment", "internal"
+	ChainID   string // Zerion chain name, e.g. "ethereum", "base"
 }
 
 // DetailFields contains the fields needed for transaction detail view
@@ -89,6 +90,7 @@ func (r *TransferInReader) ReadForList(raw map[string]interface{}) (*ListFields,
 		Amount:    transfer.GetAmount(),
 		USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
 		Direction: "in",
+		ChainID:   transfer.ChainID,
 	}, nil
 }
 
@@ -139,6 +141,7 @@ func (r *TransferOutReader) ReadForList(raw map[string]interface{}) (*ListFields
 		Amount:    transfer.GetAmount(),
 		USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
 		Direction: "out",
+		ChainID:   transfer.ChainID,
 	}, nil
 }
 
@@ -189,6 +192,7 @@ func (r *InternalTransferReader) ReadForList(raw map[string]interface{}) (*ListF
 		Amount:    transfer.GetAmount(),
 		USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
 		Direction: "internal",
+		ChainID:   transfer.ChainID,
 	}, nil
 }
 

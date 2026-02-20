@@ -3,6 +3,7 @@ import { ArrowRight } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { TransactionTypeBadge } from '@/components/domain/TransactionTypeBadge'
+import { ChainIcon } from '@/components/domain/ChainIcon'
 import { formatDateTime } from '@/lib/format'
 import type { TransactionListItem } from '@/types/transaction'
 
@@ -52,7 +53,12 @@ export function RecentTransactions({ transactions }: RecentTransactionsProps) {
                 <TransactionTypeBadge type={tx.type} showLabel={false} />
                 <div>
                   <p className="text-sm font-medium">{tx.display_amount}</p>
-                  <p className="text-xs text-muted-foreground">{tx.wallet_name}</p>
+                  <div className="flex items-center gap-1.5">
+                    {tx.chain_id && (
+                      <ChainIcon chainId={tx.chain_id} size="xs" />
+                    )}
+                    <p className="text-xs text-muted-foreground">{tx.wallet_name}</p>
+                  </div>
                 </div>
               </div>
               <div className="text-right">

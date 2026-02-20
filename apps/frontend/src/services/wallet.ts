@@ -33,4 +33,4 @@ export async function triggerWalletSync(walletId: string): Promise<void> {
   await api.post(`/wallets/${walletId}/sync`)
 }
 
-export { SUPPORTED_CHAINS } from '@/types/wallet'
+export { CHAIN_CONFIG } from '@/types/wallet'

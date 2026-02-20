@@ -71,13 +71,13 @@ func createTestUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool) uuid.
 	return userID
 }
 
-// Helper to create a test wallet with blockchain fields
-func createTestWallet(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userID uuid.UUID, address string, chainID int64) uuid.UUID {
+// Helper to create a test wallet
+func createTestWallet(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userID uuid.UUID, address string) uuid.UUID {
 	walletID := uuid.New()
 	_, err := pool.Exec(ctx, `
-		INSERT INTO wallets (id, user_id, name, chain_id, address, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-	`, walletID, userID, "Test Wallet "+walletID.String()[:8], chainID, address)
+		INSERT INTO wallets (id, user_id, name, address, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, NOW(), NOW())
+	`, walletID, userID, "Test Wallet "+walletID.String()[:8], address)
 	require.NoError(t, err)
 	return walletID
 }
@@ -91,7 +91,7 @@ func TestTransferIn_E2E_CreatesBalancedEntries(t *testing.T) {
 
 	// Create user and wallet
 	userID := createTestUser(t, ctx, testDB.Pool)
-	walletID := createTestWallet(t, ctx, testDB.Pool, userID, "0x1234567890123456789012345678901234567890", 1)
+	walletID := createTestWallet(t, ctx, testDB.Pool, userID, "0x1234567890123456789012345678901234567890")
 
 	// Record a transfer_in transaction
 	tx, err := svc.RecordTransaction(
@@ -106,7 +106,7 @@ func TestTransferIn_E2E_CreatesBalancedEntries(t *testing.T) {
 			"decimals":         18,
 			"amount":           money.NewBigIntFromInt64(1000000000000000000).String(), // 1 ETH
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),        // $2000
-			"chain_id":         int64(1),
+			"chain_id":         "ethereum",
 			"tx_hash":          "0xabc123def456",
 			"block_number":     int64(12345678),
 			"from_address":     "0xsender123",
@@ -147,7 +147,7 @@ func TestTransferIn_E2E_MultipleTransfers(t *testing.T) {
 	svc, repo, ctx := setupTransferTest(t)
 
 	userID := createTestUser(t, ctx, testDB.Pool)
-	walletID := createTestWallet(t, ctx, testDB.Pool, userID, "0x1234567890123456789012345678901234567890", 1)
+	walletID := createTestWallet(t, ctx, testDB.Pool, userID, "0x1234567890123456789012345678901234567890")
 
 	// Record multiple transfers
 	for i := 0; i < 3; i++ {
@@ -163,7 +163,7 @@ func TestTransferIn_E2E_MultipleTransfers(t *testing.T) {
 				"decimals":         18,
 				"amount":           money.NewBigIntFromInt64(100000000000000000).String(), // 0.1 ETH
 				"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
-				"chain_id":         int64(1),
+				"chain_id":         "ethereum",
 				"tx_hash":          "0xtx" + string(rune('a'+i)),
 				"block_number":     int64(12345678 + i),
 				"from_address":     "0xsender",
@@ -194,7 +194,7 @@ func TestTransferOut_E2E_DecreasesBalance(t *testing.T) {
 	svc, repo, ctx := setupTransferTest(t)
 
 	userID := createTestUser(t, ctx, testDB.Pool)
-	walletID := createTestWallet(t, ctx, testDB.Pool, userID, "0x1234567890123456789012345678901234567890", 1)
+	walletID := createTestWallet(t, ctx, testDB.Pool, userID, "0x1234567890123456789012345678901234567890")
 
 	// First, add some balance via transfer_in
 	_, err := svc.RecordTransaction(
@@ -209,7 +209,7 @@ func TestTransferOut_E2E_DecreasesBalance(t *testing.T) {
 			"decimals":         18,
 			"amount":           money.NewBigIntFromInt64(2000000000000000000).String(), // 2 ETH
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
-			"chain_id":         int64(1),
+			"chain_id":         "ethereum",
 			"tx_hash":          "0xincoming",
 			"block_number":     int64(12345000),
 			"from_address":     "0xfaucet",
@@ -233,7 +233,7 @@ func TestTransferOut_E2E_DecreasesBalance(t *testing.T) {
 			"decimals":         18,
 			"amount":           money.NewBigIntFromInt64(500000000000000000).String(), // 0.5 ETH
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
-			"chain_id":         int64(1),
+			"chain_id":         "ethereum",
 			"tx_hash":          "0xoutgoing123",
 			"block_number":     int64(12345100),
 			"to_address":       "0xreceiver",
@@ -266,7 +266,7 @@ func TestTransferOut_E2E_WithGas(t *testing.T) {
 	svc, _, ctx := setupTransferTest(t)
 
 	userID := createTestUser(t, ctx, testDB.Pool)
-	walletID := createTestWallet(t, ctx, testDB.Pool, userID, "0x1234567890123456789012345678901234567890", 1)
+	walletID := createTestWallet(t, ctx, testDB.Pool, userID, "0x1234567890123456789012345678901234567890")
 
 	// First, add some balance
 	_, err := svc.RecordTransaction(
@@ -281,7 +281,7 @@ func TestTransferOut_E2E_WithGas(t *testing.T) {
 			"decimals":         18,
 			"amount":           money.NewBigIntFromInt64(5000000000000000000).String(), // 5 ETH
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
-			"chain_id":         int64(1),
+			"chain_id":         "ethereum",
 			"tx_hash":          "0xinitial",
 			"block_number":     int64(12345000),
 			"from_address":     "0xfaucet",
@@ -307,7 +307,7 @@ func TestTransferOut_E2E_WithGas(t *testing.T) {
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
 			"gas_amount":       money.NewBigIntFromInt64(21000000000000000).String(), // 0.021 ETH gas
 			"gas_usd_rate":     money.NewBigIntFromInt64(200000000000).String(),
-			"chain_id":         int64(1),
+			"chain_id":         "ethereum",
 			"tx_hash":          "0xwithgas",
 			"block_number":     int64(12345100),
 			"to_address":       "0xreceiver",
@@ -333,8 +333,8 @@ func TestInternalTransfer_E2E_MovesBalance(t *testing.T) {
 	svc, repo, ctx := setupTransferTest(t)
 
 	userID := createTestUser(t, ctx, testDB.Pool)
-	sourceWalletID := createTestWallet(t, ctx, testDB.Pool, userID, "0x1111111111111111111111111111111111111111", 1)
-	destWalletID := createTestWallet(t, ctx, testDB.Pool, userID, "0x2222222222222222222222222222222222222222", 1)
+	sourceWalletID := createTestWallet(t, ctx, testDB.Pool, userID, "0x1111111111111111111111111111111111111111")
+	destWalletID := createTestWallet(t, ctx, testDB.Pool, userID, "0x2222222222222222222222222222222222222222")
 
 	// Add initial balance to source wallet
 	_, err := svc.RecordTransaction(
@@ -349,7 +349,7 @@ func TestInternalTransfer_E2E_MovesBalance(t *testing.T) {
 			"decimals":         18,
 			"amount":           money.NewBigIntFromInt64(3000000000000000000).String(), // 3 ETH
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
-			"chain_id":         int64(1),
+			"chain_id":         "ethereum",
 			"tx_hash":          "0xinitial",
 			"block_number":     int64(12345000),
 			"from_address":     "0xfaucet",
@@ -374,7 +374,7 @@ func TestInternalTransfer_E2E_MovesBalance(t *testing.T) {
 			"decimals":         18,
 			"amount":           money.NewBigIntFromInt64(1000000000000000000).String(), // 1 ETH
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
-			"chain_id":         int64(1),
+			"chain_id":         "ethereum",
 			"tx_hash":          "0xinternal123",
 			"block_number":     int64(12345100),
 			"contract_address": "",
@@ -418,7 +418,7 @@ func TestTransfer_Reconciliation_AfterMultipleTransfers(t *testing.T) {
 	svc, repo, ctx := setupTransferTest(t)
 
 	userID := createTestUser(t, ctx, testDB.Pool)
-	walletID := createTestWallet(t, ctx, testDB.Pool, userID, "0x1234567890123456789012345678901234567890", 1)
+	walletID := createTestWallet(t, ctx, testDB.Pool, userID, "0x1234567890123456789012345678901234567890")
 
 	// Record multiple incoming transfers
 	for i := 0; i < 5; i++ {
@@ -434,7 +434,7 @@ func TestTransfer_Reconciliation_AfterMultipleTransfers(t *testing.T) {
 				"decimals":         18,
 				"amount":           money.NewBigIntFromInt64(100000000000000000).String(), // 0.1 ETH
 				"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
-				"chain_id":         int64(1),
+				"chain_id":         "ethereum",
 				"tx_hash":          "0xin" + string(rune('0'+i)),
 				"block_number":     int64(12345000 + i),
 				"from_address":     "0xsender",
@@ -460,7 +460,7 @@ func TestTransfer_Reconciliation_AfterMultipleTransfers(t *testing.T) {
 				"decimals":         18,
 				"amount":           money.NewBigIntFromInt64(50000000000000000).String(), // 0.05 ETH
 				"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
-				"chain_id":         int64(1),
+				"chain_id":         "ethereum",
 				"tx_hash":          "0xout" + string(rune('0'+i)),
 				"block_number":     int64(12345100 + i),
 				"to_address":       "0xreceiver",
@@ -496,7 +496,7 @@ func TestTransferIn_Idempotency_NoDuplicates(t *testing.T) {
 	svc, repo, ctx := setupTransferTest(t)
 
 	userID := createTestUser(t, ctx, testDB.Pool)
-	walletID := createTestWallet(t, ctx, testDB.Pool, userID, "0x1234567890123456789012345678901234567890", 1)
+	walletID := createTestWallet(t, ctx, testDB.Pool, userID, "0x1234567890123456789012345678901234567890")
 
 	externalID := "idempotent-transfer-123"
 
@@ -513,7 +513,7 @@ func TestTransferIn_Idempotency_NoDuplicates(t *testing.T) {
 			"decimals":         18,
 			"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
-			"chain_id":         int64(1),
+			"chain_id":         "ethereum",
 			"tx_hash":          "0xidempotent",
 			"block_number":     int64(12345678),
 			"from_address":     "0xsender",
@@ -538,7 +538,7 @@ func TestTransferIn_Idempotency_NoDuplicates(t *testing.T) {
 			"decimals":         18,
 			"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
-			"chain_id":         int64(1),
+			"chain_id":         "ethereum",
 			"tx_hash":          "0xidempotent",
 			"block_number":     int64(12345678),
 			"from_address":     "0xsender",

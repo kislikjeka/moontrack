@@ -7,6 +7,7 @@ export interface AssetHolding {
 
 export interface AssetBalance {
   asset_id: string
+  chain_id?: string // Zerion chain name, e.g. "ethereum", "base"
   amount: string
   usd_value: string // Human-readable decimal, e.g. "41.15"
   price: string // Human-readable decimal, e.g. "82304.52"
@@ -15,7 +16,6 @@ export interface AssetBalance {
 export interface WalletBalance {
   wallet_id: string
   wallet_name: string
-  chain_id: string
   assets: AssetBalance[]
   total_usd: string // Human-readable decimal, e.g. "41.15"
 }

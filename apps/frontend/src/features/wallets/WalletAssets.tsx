@@ -68,7 +68,7 @@ export function WalletAssets({ assets }: WalletAssetsProps) {
               <TableRow key={asset.asset_id}>
                 <TableCell>
                   <div className="flex items-center gap-2">
-                    <AssetIcon symbol={asset.asset_id} size="sm" />
+                    <AssetIcon symbol={asset.asset_id} chainId={asset.chain_id} size="sm" />
                     <span className="font-medium">{asset.asset_id}</span>
                   </div>
                 </TableCell>

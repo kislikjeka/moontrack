@@ -22,6 +22,7 @@ export interface TransactionListItem {
   status: TransactionStatus
   occurred_at: string
   usd_value?: string
+  chain_id?: string
 }
 
 export interface LedgerEntry {

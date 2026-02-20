@@ -91,6 +91,7 @@ type TransactionListItemResponse struct {
 	Status        string `json:"status"`
 	OccurredAt    string `json:"occurred_at"`
 	USDValue      string `json:"usd_value,omitempty"`
+	ChainID       string `json:"chain_id,omitempty"`
 }
 
 // TransactionListResponse represents a paginated list of transactions
@@ -309,6 +310,7 @@ func (h *TransactionHandler) GetTransactions(w http.ResponseWriter, r *http.Requ
 			Status:        tx.Status,
 			OccurredAt:    tx.OccurredAt,
 			USDValue:      tx.USDValue,
+			ChainID:       tx.ChainID,
 		}
 	}
 

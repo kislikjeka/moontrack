@@ -15,7 +15,7 @@ type TransferInData struct {
 	Decimals        int
 	Amount          *money.BigInt
 	USDRate         *money.BigInt
-	ChainID         int64
+	ChainID         string
 	TxHash          string
 	BlockNumber     int64
 	FromAddress     string
@@ -77,9 +77,7 @@ func ParseTransferInFromRawData(raw map[string]interface{}) (*TransferInData, er
 	}
 
 	// Parse chain_id
-	if chainID, ok := raw["chain_id"].(float64); ok {
-		data.ChainID = int64(chainID)
-	} else if chainID, ok := raw["chain_id"].(int64); ok {
+	if chainID, ok := raw["chain_id"].(string); ok {
 		data.ChainID = chainID
 	}
 
@@ -139,7 +137,7 @@ type TransferOutData struct {
 	USDRate         *money.BigInt
 	GasAmount       *money.BigInt
 	GasUSDRate      *money.BigInt
-	ChainID         int64
+	ChainID         string
 	TxHash          string
 	BlockNumber     int64
 	ToAddress       string
@@ -201,9 +199,7 @@ func ParseTransferOutFromRawData(raw map[string]interface{}) (*TransferOutData, 
 	}
 
 	// Parse chain_id
-	if chainID, ok := raw["chain_id"].(float64); ok {
-		data.ChainID = int64(chainID)
-	} else if chainID, ok := raw["chain_id"].(int64); ok {
+	if chainID, ok := raw["chain_id"].(string); ok {
 		data.ChainID = chainID
 	}
 
@@ -264,7 +260,7 @@ type InternalTransferData struct {
 	USDRate         *money.BigInt
 	GasAmount       *money.BigInt
 	GasUSDRate      *money.BigInt
-	ChainID         int64
+	ChainID         string
 	TxHash          string
 	BlockNumber     int64
 	ContractAddress string
@@ -334,9 +330,7 @@ func ParseInternalTransferFromRawData(raw map[string]interface{}) (*InternalTran
 	}
 
 	// Parse chain_id
-	if chainID, ok := raw["chain_id"].(float64); ok {
-		data.ChainID = int64(chainID)
-	} else if chainID, ok := raw["chain_id"].(int64); ok {
+	if chainID, ok := raw["chain_id"].(string); ok {
 		data.ChainID = chainID
 	}
 

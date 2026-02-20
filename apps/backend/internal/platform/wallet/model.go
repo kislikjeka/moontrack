@@ -88,13 +88,13 @@ func (w *Wallet) NeedsSyncing() bool {
 
 // Supported EVM chains keyed by Zerion chain name
 var supportedEVMChains = map[string]string{
-	"ethereum":  "Ethereum",
-	"polygon":   "Polygon",
-	"arbitrum":  "Arbitrum One",
-	"optimism":  "Optimism",
-	"base":      "Base",
-	"avalanche": "Avalanche",
-	"bsc":       "BNB Smart Chain",
+	"ethereum":            "Ethereum",
+	"polygon":             "Polygon",
+	"arbitrum":            "Arbitrum One",
+	"optimism":            "Optimism",
+	"base":                "Base",
+	"avalanche":           "Avalanche",
+	"binance-smart-chain": "BNB Smart Chain",
 }
 
 // IsValidChain checks if the chain is supported

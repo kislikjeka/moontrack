@@ -74,10 +74,11 @@ type WalletBalance struct {
 // AssetBalance represents balance for a single asset in a wallet
 type AssetBalance struct {
 	AssetID  string   `json:"asset_id"`
-	Amount   *big.Int `json:"amount"`    // Amount in base units
-	USDValue *big.Int `json:"usd_value"` // USD value (scaled by 10^8)
-	Price    *big.Int `json:"price"`     // Price per unit (scaled by 10^8)
-	Decimals int      `json:"decimals"`  // Asset decimal places for display conversion
+	ChainID  string   `json:"chain_id,omitempty"` // Zerion chain name, e.g. "ethereum", "base"
+	Amount   *big.Int `json:"amount"`             // Amount in base units
+	USDValue *big.Int `json:"usd_value"`          // USD value (scaled by 10^8)
+	Price    *big.Int `json:"price"`              // Price per unit (scaled by 10^8)
+	Decimals int      `json:"decimals"`           // Asset decimal places for display conversion
 }
 
 // PortfolioSummary represents the complete portfolio overview
@@ -107,13 +108,25 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 		accounts = append(accounts, walletAccounts...)
 	}
 
-	// Aggregate balances by asset
-	assetTotals := make(map[string]*big.Int)                // assetID -> total amount
-	walletAssets := make(map[uuid.UUID]map[string]*big.Int) // walletID -> assetID -> amount
+	// walletAssetEntry tracks amount and chain for a wallet+asset+chain combination
+	type walletAssetEntry struct {
+		AssetID string
+		ChainID string
+		Amount  *big.Int
+	}
+
+	// Aggregate balances by asset (cross-wallet) and by wallet+asset+chain
+	assetTotals := make(map[string]*big.Int)                        // assetID -> total amount
+	walletAssets := make(map[uuid.UUID]map[string]*walletAssetEntry) // walletID -> "assetID:chainID" -> entry
 
 	for _, account := range accounts {
 		if account.WalletID == nil {
 			continue // Skip non-wallet accounts
+		}
+
+		chainID := ""
+		if account.ChainID != nil {
+			chainID = *account.ChainID
 		}
 
 		// Get balances for this account
@@ -123,21 +136,26 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 		}
 
 		for _, balance := range balances {
-			// Add to asset totals
+			// Add to asset totals (aggregated across all chains for portfolio overview)
 			if _, exists := assetTotals[balance.AssetID]; !exists {
 				assetTotals[balance.AssetID] = big.NewInt(0)
 			}
 			assetTotals[balance.AssetID].Add(assetTotals[balance.AssetID], balance.Balance)
 
-			// Add to wallet-specific tracking
+			// Add to wallet-specific tracking keyed by assetID:chainID
+			key := balance.AssetID + ":" + chainID
 			if _, exists := walletAssets[*account.WalletID]; !exists {
-				walletAssets[*account.WalletID] = make(map[string]*big.Int)
+				walletAssets[*account.WalletID] = make(map[string]*walletAssetEntry)
 			}
-			if _, exists := walletAssets[*account.WalletID][balance.AssetID]; !exists {
-				walletAssets[*account.WalletID][balance.AssetID] = big.NewInt(0)
+			if _, exists := walletAssets[*account.WalletID][key]; !exists {
+				walletAssets[*account.WalletID][key] = &walletAssetEntry{
+					AssetID: balance.AssetID,
+					ChainID: chainID,
+					Amount:  big.NewInt(0),
+				}
 			}
-			walletAssets[*account.WalletID][balance.AssetID].Add(
-				walletAssets[*account.WalletID][balance.AssetID],
+			walletAssets[*account.WalletID][key].Amount.Add(
+				walletAssets[*account.WalletID][key].Amount,
 				balance.Balance,
 			)
 		}
@@ -178,26 +196,27 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 	// Build wallet balances from walletAssets map
 	walletBalances := make([]WalletBalance, 0)
 	for _, w := range wallets {
-		assets, exists := walletAssets[w.ID]
+		entries, exists := walletAssets[w.ID]
 		if !exists {
 			continue
 		}
 		walletTotalUSD := big.NewInt(0)
 		assetBalances := make([]AssetBalance, 0)
-		for assetID, amount := range assets {
-			if amount.Sign() == 0 {
+		for _, entry := range entries {
+			if entry.Amount.Sign() == 0 {
 				continue
 			}
-			price := prices[assetID]
+			price := prices[entry.AssetID]
 			if price == nil {
 				price = big.NewInt(0)
 			}
-			decimals := money.GetDecimals(assetID)
-			usdValue := money.CalcUSDValue(amount, price, decimals)
+			decimals := money.GetDecimals(entry.AssetID)
+			usdValue := money.CalcUSDValue(entry.Amount, price, decimals)
 			walletTotalUSD.Add(walletTotalUSD, usdValue)
 			assetBalances = append(assetBalances, AssetBalance{
-				AssetID:  assetID,
-				Amount:   new(big.Int).Set(amount),
+				AssetID:  entry.AssetID,
+				ChainID:  entry.ChainID,
+				Amount:   new(big.Int).Set(entry.Amount),
 				USDValue: usdValue,
 				Price:    new(big.Int).Set(price),
 				Decimals: decimals,
@@ -271,8 +290,14 @@ func (s *PortfolioService) GetAssetBreakdown(ctx context.Context, userID uuid.UU
 			decimals := money.GetDecimals(assetID)
 			usdValue := money.CalcUSDValue(balance.Balance, price, decimals)
 
+			chainID := ""
+			if account.ChainID != nil {
+				chainID = *account.ChainID
+			}
+
 			assetBalance := AssetBalance{
 				AssetID:  assetID,
+				ChainID:  chainID,
 				Amount:   new(big.Int).Set(balance.Balance),
 				USDValue: usdValue,
 				Price:    price,

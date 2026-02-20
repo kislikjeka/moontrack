@@ -134,6 +134,7 @@ func (s *TransactionService) GetTransaction(ctx context.Context, id uuid.UUID, u
 			Status:        string(tx.Status),
 			OccurredAt:    tx.OccurredAt.Format(time.RFC3339),
 			USDValue:      usdValue,
+			ChainID:       fields.ChainID,
 		},
 		Source:     tx.Source,
 		ExternalID: tx.ExternalID,
@@ -184,6 +185,7 @@ func (s *TransactionService) toListItem(tx *ledger.Transaction, wallets map[uuid
 		Status:        string(tx.Status),
 		OccurredAt:    tx.OccurredAt.Format(time.RFC3339),
 		USDValue:      usdValue,
+		ChainID:       fields.ChainID,
 	}, nil
 }
 

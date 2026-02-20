@@ -15,6 +15,7 @@ type TransactionListItem struct {
 	Status        string `json:"status"`
 	OccurredAt    string `json:"occurred_at"`
 	USDValue      string `json:"usd_value,omitempty"`
+	ChainID       string `json:"chain_id,omitempty"` // Zerion chain name, e.g. "ethereum", "base"
 }
 
 // TransactionDetail represents a transaction in detail view

@@ -1,3 +1,5 @@
+import { CHAIN_CONFIG } from '@/types/wallet'
+
 /**
  * Format a number as USD currency
  */
@@ -117,29 +119,20 @@ export function truncateAddress(address: string, startChars = 6, endChars = 4): 
   return `${address.slice(0, startChars)}...${address.slice(-endChars)}`
 }
 
-// Block explorer URLs for supported chains
-const EXPLORER_URLS: Record<number, string> = {
-  1: 'https://etherscan.io',
-  137: 'https://polygonscan.com',
-  42161: 'https://arbiscan.io',
-  10: 'https://optimistic.etherscan.io',
-  8453: 'https://basescan.org',
-}
-
 /**
  * Get block explorer URL for a transaction hash
  */
-export function getExplorerTxUrl(chainId: number, txHash: string): string {
-  const baseUrl = EXPLORER_URLS[chainId]
-  if (!baseUrl) return ''
-  return `${baseUrl}/tx/${txHash}`
+export function getExplorerTxUrl(chainId: string, txHash: string): string {
+  const config = CHAIN_CONFIG[chainId]
+  if (!config) return ''
+  return `${config.explorerUrl}/tx/${txHash}`
 }
 
 /**
  * Get block explorer URL for an address
  */
-export function getExplorerAddressUrl(chainId: number, address: string): string {
-  const baseUrl = EXPLORER_URLS[chainId]
-  if (!baseUrl) return ''
-  return `${baseUrl}/address/${address}`
+export function getExplorerAddressUrl(chainId: string, address: string): string {
+  const config = CHAIN_CONFIG[chainId]
+  if (!config) return ''
+  return `${config.explorerUrl}/address/${address}`
 }

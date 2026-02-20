@@ -5,13 +5,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -19,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { SUPPORTED_CHAINS, isValidEVMAddress } from '@/types/wallet'
+import { isValidEVMAddress } from '@/types/wallet'
 import { toast } from 'sonner'
 
 interface CreateWalletDialogProps {
@@ -29,7 +22,6 @@ interface CreateWalletDialogProps {
 
 export function CreateWalletDialog({ open, onOpenChange }: CreateWalletDialogProps) {
   const [name, setName] = useState('')
-  const [chainId, setChainId] = useState<string>('')
   const [address, setAddress] = useState('')
   const [addressError, setAddressError] = useState('')
   const createWallet = useCreateWallet()
@@ -64,11 +56,6 @@ export function CreateWalletDialog({ open, onOpenChange }: CreateWalletDialogPro
       return
     }
 
-    if (!chainId) {
-      toast.error('Please select a chain')
-      return
-    }
-
     if (!validateAddress(address)) {
       toast.error('Please enter a valid EVM address')
       return
@@ -77,7 +64,6 @@ export function CreateWalletDialog({ open, onOpenChange }: CreateWalletDialogPro
     try {
       await createWallet.mutateAsync({
         name: name.trim(),
-        chain_id: Number(chainId),
         address: address.trim(),
       })
       toast.success('Wallet created successfully')
@@ -89,7 +75,6 @@ export function CreateWalletDialog({ open, onOpenChange }: CreateWalletDialogPro
 
   const handleClose = () => {
     setName('')
-    setChainId('')
     setAddress('')
     setAddressError('')
     onOpenChange(false)
@@ -101,7 +86,7 @@ export function CreateWalletDialog({ open, onOpenChange }: CreateWalletDialogPro
         <DialogHeader>
           <DialogTitle>Create Wallet</DialogTitle>
           <DialogDescription>
-            Add an EVM wallet to track. Transactions will be synced automatically.
+            Add an EVM wallet address. Assets across all supported chains will be tracked automatically.
           </DialogDescription>
         </DialogHeader>
 
@@ -110,31 +95,11 @@ export function CreateWalletDialog({ open, onOpenChange }: CreateWalletDialogPro
             <Label htmlFor="name">Wallet Name</Label>
             <Input
               id="name"
-              placeholder="My Ethereum Wallet"
+              placeholder="My Wallet"
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={createWallet.isPending}
             />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="chain">Chain</Label>
-            <Select
-              value={chainId}
-              onValueChange={setChainId}
-              disabled={createWallet.isPending}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select a chain" />
-              </SelectTrigger>
-              <SelectContent>
-                {SUPPORTED_CHAINS.map((chain) => (
-                  <SelectItem key={chain.id} value={String(chain.id)}>
-                    {chain.name} ({chain.symbol})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
 
           <div className="space-y-2">

@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, Wallet } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { AddressDisplay } from './AddressDisplay'
 import { SyncStatusBadge } from './SyncStatusBadge'
+import { ChainIconRow } from './ChainIcon'
 import { cn } from '@/lib/utils'
 import { formatUSD, formatRelativeDate } from '@/lib/format'
 import type { Wallet as WalletType } from '@/types/wallet'
@@ -14,32 +15,12 @@ interface WalletCardProps {
   className?: string
 }
 
-// Chain labels - supports both numeric and string chain IDs for backwards compatibility
-const chainLabels: Record<string | number, string> = {
-  1: 'ETH',
-  137: 'MATIC',
-  42161: 'ARB',
-  10: 'OP',
-  8453: 'BASE',
-  // Legacy string IDs
-  ethereum: 'ETH',
-  polygon: 'MATIC',
-  arbitrum: 'ARB',
-  optimism: 'OP',
-  base: 'BASE',
-  bitcoin: 'BTC',
-  solana: 'SOL',
-  'binance-smart-chain': 'BSC',
-  avalanche: 'AVAX',
-}
-
 export function WalletCard({
   wallet,
   totalValue = 0,
   assetCount = 0,
   className,
 }: WalletCardProps) {
-  const chainLabel = chainLabels[wallet.chain_id] || String(wallet.chain_id)
   const numValue = typeof totalValue === 'string' ? parseFloat(totalValue) : totalValue
 
   return (
@@ -51,12 +32,12 @@ export function WalletCard({
         )}
       >
         <CardContent className="p-4">
-          {/* Header row: chain badge + info | status + link */}
+          {/* Header row: wallet icon + info | status + link */}
           <div className="flex items-start justify-between gap-3">
-            {/* Left: chain badge + wallet info */}
+            {/* Left: wallet icon + wallet info */}
             <div className="flex items-center gap-3 min-w-0">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary font-mono text-xs font-medium flex-shrink-0">
-                {chainLabel}
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary flex-shrink-0">
+                <Wallet className="h-5 w-5" />
               </div>
               <div className="min-w-0">
                 <h3 className="font-medium truncate">{wallet.name}</h3>
@@ -74,6 +55,13 @@ export function WalletCard({
               <ExternalLink className="h-4 w-4 text-muted-foreground" />
             </div>
           </div>
+
+          {/* Chain icons row */}
+          {wallet.supported_chains && wallet.supported_chains.length > 0 && (
+            <div className="mt-2">
+              <ChainIconRow chains={wallet.supported_chains} size="xs" maxVisible={7} />
+            </div>
+          )}
 
           <div className="mt-4 flex items-end justify-between">
             <div>
@@ -100,7 +88,6 @@ export function WalletCardCompact({
   totalValue = 0,
   className,
 }: Omit<WalletCardProps, 'assetCount'>) {
-  const chainLabel = chainLabels[wallet.chain_id] || String(wallet.chain_id)
   const numValue = typeof totalValue === 'string' ? parseFloat(totalValue) : totalValue
 
   return (
@@ -112,8 +99,8 @@ export function WalletCardCompact({
         )}
       >
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary font-mono text-xs font-medium">
-            {chainLabel}
+          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <Wallet className="h-4 w-4" />
           </div>
           <div>
             <div className="flex items-center gap-2">

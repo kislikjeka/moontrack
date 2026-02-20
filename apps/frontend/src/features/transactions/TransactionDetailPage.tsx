@@ -6,8 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { TransactionTypeBadge } from '@/components/domain/TransactionTypeBadge'
+import { ChainIcon } from '@/components/domain/ChainIcon'
 import { LedgerEntriesTable } from './LedgerEntriesTable'
 import { formatDateTime, formatUSD } from '@/lib/format'
+import { getChainName } from '@/types/wallet'
 
 export default function TransactionDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -87,6 +89,15 @@ export default function TransactionDetailPage() {
                 </Link>
               </dd>
             </div>
+            {transaction.chain_id && (
+              <div>
+                <dt className="text-sm text-muted-foreground">Network</dt>
+                <dd className="font-medium flex items-center gap-2">
+                  <ChainIcon chainId={transaction.chain_id} size="sm" />
+                  {getChainName(transaction.chain_id)}
+                </dd>
+              </div>
+            )}
             <div>
               <dt className="text-sm text-muted-foreground">Asset</dt>
               <dd className="font-medium">{transaction.asset_symbol}</dd>

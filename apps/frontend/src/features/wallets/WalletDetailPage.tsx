@@ -1,5 +1,5 @@
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Trash2, RefreshCw, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Trash2, RefreshCw, AlertCircle, Wallet } from 'lucide-react'
 import { useWallet, useDeleteWallet, useTriggerSync } from '@/hooks/useWallets'
 import { usePortfolio } from '@/hooks/usePortfolio'
 import { useTransactions } from '@/hooks/useTransactions'
@@ -9,6 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AddressDisplay } from '@/components/domain/AddressDisplay'
 import { SyncStatusBadge } from '@/components/domain/SyncStatusBadge'
+import { ChainIconRow } from '@/components/domain/ChainIcon'
 import {
   Dialog,
   DialogContent,
@@ -23,7 +24,6 @@ import { WalletTransactions } from './WalletTransactions'
 import { toast } from 'sonner'
 import { useState } from 'react'
 import { formatRelativeDate } from '@/lib/format'
-import { getChainName, getChainSymbol } from '@/types/wallet'
 
 export default function WalletDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -86,9 +86,6 @@ export default function WalletDetailPage() {
     )
   }
 
-  const chainName = getChainName(wallet.chain_id)
-  const chainLabel = getChainSymbol(wallet.chain_id)
-
   return (
     <div className="space-y-6">
       {/* Back button */}
@@ -103,15 +100,20 @@ export default function WalletDetailPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary font-mono text-sm font-medium">
-              {chainLabel}
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Wallet className="h-6 w-6" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-2xl font-bold tracking-tight">{wallet.name}</h1>
                 <SyncStatusBadge status={wallet.sync_status} />
               </div>
-              <p className="text-muted-foreground">{chainName}</p>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <span className="text-sm">Multi-chain EVM</span>
+                {wallet.supported_chains && wallet.supported_chains.length > 0 && (
+                  <ChainIconRow chains={wallet.supported_chains} size="xs" maxVisible={7} />
+                )}
+              </div>
             </div>
           </div>
           {wallet.address && (
@@ -190,7 +192,6 @@ export default function WalletDetailPage() {
           {wallet.last_sync_at && (
             <p className="text-sm text-muted-foreground">
               Last synced {formatRelativeDate(wallet.last_sync_at)}
-              {wallet.last_sync_block && ` (block ${wallet.last_sync_block.toLocaleString()})`}
             </p>
           )}
         </div>

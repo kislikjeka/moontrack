@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -81,15 +82,15 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	// Register user
 	registeredUser, err := h.userService.Register(r.Context(), req.Email, req.Password)
 	if err != nil {
-		if err == user.ErrUserAlreadyExists {
+		if errors.Is(err, user.ErrUserAlreadyExists) {
 			respondError(w, "user with this email already exists", http.StatusConflict)
 			return
 		}
-		if err == user.ErrPasswordTooShort {
+		if errors.Is(err, user.ErrPasswordTooShort) {
 			respondError(w, "password must be at least 8 characters", http.StatusBadRequest)
 			return
 		}
-		if err == user.ErrInvalidEmail {
+		if errors.Is(err, user.ErrInvalidEmail) {
 			respondError(w, "invalid email address", http.StatusBadRequest)
 			return
 		}
@@ -137,7 +138,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// Authenticate user
 	authenticatedUser, err := h.userService.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
-		if err == user.ErrInvalidPassword {
+		if errors.Is(err, user.ErrInvalidPassword) || errors.Is(err, user.ErrUserNotFound) {
 			respondError(w, "invalid email or password", http.StatusUnauthorized)
 			return
 		}

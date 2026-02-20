@@ -57,6 +57,7 @@ type WalletBalanceResponse struct {
 // AssetBalanceResponse represents an asset balance in a wallet
 type AssetBalanceResponse struct {
 	AssetID  string `json:"asset_id"`
+	ChainID  string `json:"chain_id,omitempty"`
 	Amount   string `json:"amount"`
 	USDValue string `json:"usd_value"`
 	Price    string `json:"price"`
@@ -96,6 +97,7 @@ func (h *PortfolioHandler) GetPortfolioSummary(w http.ResponseWriter, r *http.Re
 		for j, asset := range w.Assets {
 			assets[j] = AssetBalanceResponse{
 				AssetID:  asset.AssetID,
+				ChainID:  asset.ChainID,
 				Amount:   money.FromBaseUnits(asset.Amount, asset.Decimals),
 				USDValue: money.FormatUSD(asset.USDValue),
 				Price:    money.FormatUSD(asset.Price),
@@ -151,6 +153,7 @@ func (h *PortfolioHandler) GetAssetBreakdown(w http.ResponseWriter, r *http.Requ
 		for j, asset := range w.Assets {
 			assets[j] = AssetBalanceResponse{
 				AssetID:  asset.AssetID,
+				ChainID:  asset.ChainID,
 				Amount:   money.FromBaseUnits(asset.Amount, asset.Decimals),
 				USDValue: money.FormatUSD(asset.USDValue),
 				Price:    money.FormatUSD(asset.Price),

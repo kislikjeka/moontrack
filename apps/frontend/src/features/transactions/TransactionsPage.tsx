@@ -14,8 +14,10 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { TransactionTypeBadge } from '@/components/domain/TransactionTypeBadge'
+import { ChainIcon } from '@/components/domain/ChainIcon'
 import { TransactionFilters } from './TransactionFilters'
 import { formatDateTime, formatUSD } from '@/lib/format'
+import { getChainShortName } from '@/types/wallet'
 import type { TransactionFilters as FiltersType } from '@/types/transaction'
 
 export default function TransactionsPage() {
@@ -66,6 +68,7 @@ export default function TransactionsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Type</TableHead>
+                  <TableHead>Network</TableHead>
                   <TableHead>Wallet</TableHead>
                   <TableHead>Asset</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
@@ -79,6 +82,20 @@ export default function TransactionsPage() {
                     <TableCell>
                       <Link to={`/transactions/${tx.id}`}>
                         <TransactionTypeBadge type={tx.type} />
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <Link to={`/transactions/${tx.id}`}>
+                        {tx.chain_id ? (
+                          <div className="flex items-center gap-1.5">
+                            <ChainIcon chainId={tx.chain_id} size="xs" />
+                            <span className="text-xs text-muted-foreground">
+                              {getChainShortName(tx.chain_id)}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">-</span>
+                        )}
                       </Link>
                     </TableCell>
                     <TableCell>
