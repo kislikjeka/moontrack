@@ -71,6 +71,14 @@ type LotDisposal struct {
 	CreatedAt        time.Time
 }
 
+// PositionWAC represents the weighted average cost for an (account, asset) position.
+type PositionWAC struct {
+	AccountID       uuid.UUID
+	Asset           string
+	TotalQuantity   *big.Int
+	WeightedAvgCost *big.Int // USD scaled 10^8
+}
+
 // LotOverrideHistory records changes to a lot's cost basis override.
 type LotOverrideHistory struct {
 	ID               uuid.UUID

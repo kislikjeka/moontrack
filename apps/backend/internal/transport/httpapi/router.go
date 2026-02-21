@@ -21,6 +21,7 @@ type Config struct {
 	HealthHandler      *handler.HealthHandler
 	DocsHandler        *handler.DocsHandler
 	AssetHandler       *handler.AssetHandler
+	TaxLotHandler      *handler.TaxLotHandler
 	JWTMiddleware      func(http.Handler) http.Handler
 }
 
@@ -84,6 +85,13 @@ func NewRouter(cfg Config) *chi.Mux {
 				if cfg.PortfolioHandler != nil {
 					r.Get("/portfolio", cfg.PortfolioHandler.GetPortfolioSummary)
 					r.Get("/portfolio/assets", cfg.PortfolioHandler.GetAssetBreakdown)
+				}
+
+				// Tax lot routes
+				if cfg.TaxLotHandler != nil {
+					r.Get("/lots", cfg.TaxLotHandler.GetLots)
+					r.Put("/lots/{id}/override", cfg.TaxLotHandler.OverrideCostBasis)
+					r.Get("/positions/wac", cfg.TaxLotHandler.GetWAC)
 				}
 
 				// Asset routes (unified)

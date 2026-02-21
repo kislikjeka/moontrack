@@ -109,9 +109,36 @@ func (r *TaxLotRepository) GetTaxLot(ctx context.Context, id uuid.UUID) (*ledger
 	lot, err := r.scanTaxLot(row)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("tax lot not found: %w", err)
+			return nil, ledger.ErrLotNotFound
 		}
 		return nil, fmt.Errorf("failed to get tax lot: %w", err)
+	}
+	return lot, nil
+}
+
+// GetTaxLotForUpdate retrieves a single tax lot by ID with a row-level lock (FOR UPDATE).
+// Must be called within a transaction context.
+func (r *TaxLotRepository) GetTaxLotForUpdate(ctx context.Context, id uuid.UUID) (*ledger.TaxLot, error) {
+	query := `
+		SELECT id, transaction_id, account_id, asset,
+		       quantity_acquired, quantity_remaining, acquired_at,
+		       auto_cost_basis_per_unit, auto_cost_basis_source,
+		       override_cost_basis_per_unit, override_reason, override_at,
+		       linked_source_lot_id, created_at
+		FROM tax_lots
+		WHERE id = $1
+		FOR UPDATE
+	`
+
+	q := r.getQueryer(ctx)
+	row := q.QueryRow(ctx, query, id)
+
+	lot, err := r.scanTaxLot(row)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, ledger.ErrLotNotFound
+		}
+		return nil, fmt.Errorf("failed to get tax lot for update: %w", err)
 	}
 	return lot, nil
 }
@@ -391,6 +418,69 @@ func (r *TaxLotRepository) GetOverrideHistory(ctx context.Context, lotID uuid.UU
 	}
 
 	return history, nil
+}
+
+// ---------------------------------------------------------------------------
+// WAC (weighted average cost)
+// ---------------------------------------------------------------------------
+
+// RefreshWAC refreshes the position_wac materialized view concurrently.
+func (r *TaxLotRepository) RefreshWAC(ctx context.Context) error {
+	_, err := r.pool.Exec(ctx, "REFRESH MATERIALIZED VIEW CONCURRENTLY position_wac")
+	if err != nil {
+		return fmt.Errorf("failed to refresh position_wac: %w", err)
+	}
+	return nil
+}
+
+// GetWAC returns WAC positions for the given account IDs.
+func (r *TaxLotRepository) GetWAC(ctx context.Context, accountIDs []uuid.UUID) ([]*ledger.PositionWAC, error) {
+	if len(accountIDs) == 0 {
+		return nil, nil
+	}
+
+	query := `
+		SELECT account_id, asset, total_quantity, weighted_avg_cost
+		FROM position_wac
+		WHERE account_id = ANY($1)
+		ORDER BY asset ASC
+	`
+
+	rows, err := r.pool.Query(ctx, query, accountIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query position_wac: %w", err)
+	}
+	defer rows.Close()
+
+	var positions []*ledger.PositionWAC
+	for rows.Next() {
+		var p ledger.PositionWAC
+		var totalQtyStr, wacStr string
+
+		if err := rows.Scan(&p.AccountID, &p.Asset, &totalQtyStr, &wacStr); err != nil {
+			return nil, fmt.Errorf("failed to scan position_wac row: %w", err)
+		}
+
+		totalQty, ok := new(big.Int).SetString(totalQtyStr, 10)
+		if !ok {
+			return nil, fmt.Errorf("failed to parse total_quantity: %s", totalQtyStr)
+		}
+		p.TotalQuantity = totalQty
+
+		wac, ok := new(big.Int).SetString(wacStr, 10)
+		if !ok {
+			return nil, fmt.Errorf("failed to parse weighted_avg_cost: %s", wacStr)
+		}
+		p.WeightedAvgCost = wac
+
+		positions = append(positions, &p)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating position_wac: %w", err)
+	}
+
+	return positions, nil
 }
 
 // ---------------------------------------------------------------------------

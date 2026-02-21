@@ -14,6 +14,7 @@ type TaxLotRepository interface {
 	// Lot CRUD
 	CreateTaxLot(ctx context.Context, lot *TaxLot) error
 	GetTaxLot(ctx context.Context, id uuid.UUID) (*TaxLot, error)
+	GetTaxLotForUpdate(ctx context.Context, id uuid.UUID) (*TaxLot, error)
 	GetOpenLotsFIFO(ctx context.Context, accountID uuid.UUID, asset string) ([]*TaxLot, error)
 	UpdateLotRemaining(ctx context.Context, lotID uuid.UUID, newRemaining *big.Int) error
 	GetLotsByAccount(ctx context.Context, accountID uuid.UUID, asset string) ([]*TaxLot, error)
@@ -28,4 +29,8 @@ type TaxLotRepository interface {
 	ClearOverride(ctx context.Context, lotID uuid.UUID) error
 	CreateOverrideHistory(ctx context.Context, history *LotOverrideHistory) error
 	GetOverrideHistory(ctx context.Context, lotID uuid.UUID) ([]*LotOverrideHistory, error)
+
+	// WAC (weighted average cost)
+	RefreshWAC(ctx context.Context) error
+	GetWAC(ctx context.Context, accountIDs []uuid.UUID) ([]*PositionWAC, error)
 }

@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Wallet,
   ArrowLeftRight,
+  Calculator,
   Settings,
   LogOut,
   Moon,
@@ -23,6 +24,7 @@ const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/wallets', label: 'Wallets', icon: Wallet },
   { to: '/transactions', label: 'Transactions', icon: ArrowLeftRight },
+  { to: '/cost-basis', label: 'Cost Basis', icon: Calculator },
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
 

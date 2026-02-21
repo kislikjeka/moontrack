@@ -22,6 +22,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/module/transfer"
 	"github.com/kislikjeka/moontrack/internal/platform/asset"
 	"github.com/kislikjeka/moontrack/internal/platform/sync"
+	"github.com/kislikjeka/moontrack/internal/platform/taxlot"
 	"github.com/kislikjeka/moontrack/internal/platform/user"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi"
@@ -113,6 +114,9 @@ func main() {
 	ledgerSvc.RegisterPostBalanceHook(taxLotHook)
 	log.Info("TaxLot hook registered")
 
+	// Initialize tax lot service (cost basis API)
+	taxLotSvc := taxlot.NewService(taxLotRepo, ledgerRepo, walletRepo, log)
+
 	// Register transaction handlers with the registry
 
 	// Asset adjustment handler
@@ -181,6 +185,7 @@ func main() {
 	transactionHandler := handler.NewTransactionHandler(ledgerSvc, transactionSvc, assetSvc)
 	portfolioHandler := handler.NewPortfolioHandler(portfolioSvc)
 	assetHandler := handler.NewAssetHandler(assetSvc)
+	taxLotHandler := handler.NewTaxLotHandler(taxLotSvc)
 	docsHandler := handler.NewDocsHandler(openAPISpec)
 
 	// Create JWT middleware
@@ -204,6 +209,7 @@ func main() {
 		TransactionHandler: transactionHandler,
 		PortfolioHandler:   portfolioHandler,
 		AssetHandler:       assetHandler,
+		TaxLotHandler:      taxLotHandler,
 		DocsHandler:        docsHandler,
 		JWTMiddleware:      jwtMiddleware,
 	}

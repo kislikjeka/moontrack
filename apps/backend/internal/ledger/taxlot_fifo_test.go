@@ -30,6 +30,15 @@ func (m *mockTaxLotRepo) GetTaxLot(_ context.Context, id uuid.UUID) (*TaxLot, er
 	return nil, ErrLotNotFound
 }
 
+func (m *mockTaxLotRepo) GetTaxLotForUpdate(_ context.Context, id uuid.UUID) (*TaxLot, error) {
+	for _, l := range m.lots {
+		if l.ID == id {
+			return l, nil
+		}
+	}
+	return nil, ErrLotNotFound
+}
+
 func (m *mockTaxLotRepo) GetOpenLotsFIFO(_ context.Context, accountID uuid.UUID, asset string) ([]*TaxLot, error) {
 	var open []*TaxLot
 	for _, l := range m.lots {
@@ -83,6 +92,14 @@ func (m *mockTaxLotRepo) CreateOverrideHistory(_ context.Context, _ *LotOverride
 }
 
 func (m *mockTaxLotRepo) GetOverrideHistory(_ context.Context, _ uuid.UUID) ([]*LotOverrideHistory, error) {
+	return nil, nil
+}
+
+func (m *mockTaxLotRepo) RefreshWAC(_ context.Context) error {
+	return nil
+}
+
+func (m *mockTaxLotRepo) GetWAC(_ context.Context, _ []uuid.UUID) ([]*PositionWAC, error) {
 	return nil, nil
 }
 
