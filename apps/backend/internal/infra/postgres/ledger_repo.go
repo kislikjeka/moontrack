@@ -111,7 +111,8 @@ func (r *LedgerRepository) GetAccount(ctx context.Context, id uuid.UUID) (*ledge
 	var walletID sql.NullString
 	var chainID sql.NullString
 
-	err := r.pool.QueryRow(ctx, query, id).Scan(
+	q := r.getQueryer(ctx)
+	err := q.QueryRow(ctx, query, id).Scan(
 		&account.ID,
 		&account.Code,
 		&account.Type,

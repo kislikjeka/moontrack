@@ -4,11 +4,16 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 )
+
+// PostBalanceHook runs inside the DB transaction after balance updates,
+// before CommitTx. If it returns an error, the transaction rolls back.
+type PostBalanceHook func(ctx context.Context, tx *Transaction) error
 
 // Service orchestrates the ledger operations
 // This is the main service for recording transactions and managing the ledger
@@ -229,6 +234,12 @@ func (s *Service) ReconcileBalance(ctx context.Context, accountID uuid.UUID, ass
 	}
 
 	return nil
+}
+
+// RegisterPostBalanceHook adds a hook that runs inside the DB transaction
+// after balance updates but before commit. Hooks are called in registration order.
+func (s *Service) RegisterPostBalanceHook(hook PostBalanceHook) {
+	s.committer.postBalanceHooks = append(s.committer.postBalanceHooks, hook)
 }
 
 // createFailedTransaction creates a failed transaction record
@@ -490,8 +501,9 @@ func (v *transactionValidator) validateAccountBalances(ctx context.Context, tx *
 
 // transactionCommitter commits transactions to the ledger
 type transactionCommitter struct {
-	repo   Repository
-	logger *logger.Logger
+	repo             Repository
+	logger           *logger.Logger
+	postBalanceHooks []PostBalanceHook
 }
 
 func newTransactionCommitter(repo Repository, log *logger.Logger) *transactionCommitter {
@@ -528,6 +540,13 @@ func (c *transactionCommitter) commit(ctx context.Context, tx *Transaction) erro
 	c.logger.Debug("updating balances", "tx_id", tx.ID.String())
 	if err := c.updateBalances(txCtx, tx); err != nil {
 		return fmt.Errorf("failed to update balances: %w", err)
+	}
+
+	// Run post-balance hooks (still inside DB transaction)
+	for _, hook := range c.postBalanceHooks {
+		if err := hook(txCtx, tx); err != nil {
+			return fmt.Errorf("post-balance hook failed: %w", err)
+		}
 	}
 
 	// Commit the DB transaction
@@ -567,7 +586,15 @@ func (c *transactionCommitter) updateBalances(ctx context.Context, tx *Transacti
 		balanceChanges[key].change.Add(balanceChanges[key].change, entry.SignedAmount())
 	}
 
-	for _, bc := range balanceChanges {
+	// Sort keys to acquire locks in deterministic order and prevent deadlocks
+	keys := make([]string, 0, len(balanceChanges))
+	for k := range balanceChanges {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		bc := balanceChanges[k]
 		if err := c.applyBalanceChange(ctx, bc); err != nil {
 			return fmt.Errorf("failed to apply balance change for %s:%s: %w", bc.accountID, bc.assetID, err)
 		}

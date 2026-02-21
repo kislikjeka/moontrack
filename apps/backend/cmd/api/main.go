@@ -107,6 +107,12 @@ func main() {
 	ledgerSvc := ledger.NewService(ledgerRepo, handlerRegistry, log)
 	walletSvc := wallet.NewService(walletRepo, log)
 
+	// Register tax lot hook (cost basis tracking)
+	taxLotRepo := postgres.NewTaxLotRepository(db.Pool)
+	taxLotHook := ledger.NewTaxLotHook(taxLotRepo, ledgerRepo, log)
+	ledgerSvc.RegisterPostBalanceHook(taxLotHook)
+	log.Info("TaxLot hook registered")
+
 	// Register transaction handlers with the registry
 
 	// Asset adjustment handler
