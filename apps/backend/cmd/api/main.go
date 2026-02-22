@@ -16,6 +16,7 @@ import (
 	infraRedis "github.com/kislikjeka/moontrack/internal/infra/redis"
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/module/adjustment"
+	"github.com/kislikjeka/moontrack/internal/module/defi"
 	"github.com/kislikjeka/moontrack/internal/module/portfolio"
 	"github.com/kislikjeka/moontrack/internal/module/swap"
 	"github.com/kislikjeka/moontrack/internal/module/transactions"
@@ -141,6 +142,19 @@ func main() {
 	swapHandler := swap.NewSwapHandler(walletRepo, log)
 	handlerRegistry.Register(swapHandler)
 	log.Info("Registered swap handler")
+
+	// DeFi handlers (deposit, withdraw, claim)
+	defiDepositHandler := defi.NewDeFiDepositHandler(walletRepo, log)
+	handlerRegistry.Register(defiDepositHandler)
+	log.Info("Registered defi deposit handler")
+
+	defiWithdrawHandler := defi.NewDeFiWithdrawHandler(walletRepo, log)
+	handlerRegistry.Register(defiWithdrawHandler)
+	log.Info("Registered defi withdraw handler")
+
+	defiClaimHandler := defi.NewDeFiClaimHandler(walletRepo, log)
+	handlerRegistry.Register(defiClaimHandler)
+	log.Info("Registered defi claim handler")
 
 	// Initialize portfolio service (using price adapter for symbol→CoinGecko resolution)
 	walletAdapter := portfolio.NewWalletRepositoryAdapter(walletRepo)

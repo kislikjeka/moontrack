@@ -305,18 +305,21 @@ func (p *ZerionProcessor) buildInternalTransferData(w *wallet.Wallet, tx Decoded
 func (p *ZerionProcessor) buildDeFiDepositData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 	data["transfers"] = p.buildTransferArray(tx.Transfers)
+	data["operation_type"] = string(tx.OperationType)
 	return data
 }
 
 func (p *ZerionProcessor) buildDeFiWithdrawData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 	data["transfers"] = p.buildTransferArray(tx.Transfers)
+	data["operation_type"] = string(tx.OperationType)
 	return data
 }
 
 func (p *ZerionProcessor) buildDeFiClaimData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 	data["transfers"] = p.buildTransferArray(tx.Transfers)
+	data["operation_type"] = string(tx.OperationType)
 	return data
 }
 
