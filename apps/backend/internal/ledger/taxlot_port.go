@@ -18,6 +18,7 @@ type TaxLotRepository interface {
 	GetOpenLotsFIFO(ctx context.Context, accountID uuid.UUID, asset string) ([]*TaxLot, error)
 	UpdateLotRemaining(ctx context.Context, lotID uuid.UUID, newRemaining *big.Int) error
 	GetLotsByAccount(ctx context.Context, accountID uuid.UUID, asset string) ([]*TaxLot, error)
+	GetLotsByTransaction(ctx context.Context, txID uuid.UUID) ([]*TaxLot, error)
 
 	// Disposal CRUD
 	CreateDisposal(ctx context.Context, disposal *LotDisposal) error

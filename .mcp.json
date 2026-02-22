@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "loki": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "-e", "LOKI_URL=http://host.docker.internal:3100",
+        "moontrack-loki-mcp:latest"
+      ]
+    }
+  }
+}

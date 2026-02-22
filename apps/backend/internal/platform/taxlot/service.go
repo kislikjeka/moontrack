@@ -19,9 +19,26 @@ type WACPosition struct {
 	WalletID        uuid.UUID
 	WalletName      string
 	AccountID       uuid.UUID
+	ChainID         string
 	Asset           string
 	TotalQuantity   *big.Int
 	WeightedAvgCost *big.Int
+}
+
+// TransactionLotImpact contains all lot-related data for a transaction.
+type TransactionLotImpact struct {
+	AcquiredLots []*ledger.TaxLot
+	Disposals    []*DisposalDetail
+	HasLotImpact bool
+}
+
+// DisposalDetail enriches a LotDisposal with lot metadata for display.
+type DisposalDetail struct {
+	ledger.LotDisposal
+	LotAsset                     string
+	LotAcquiredAt                time.Time
+	LotEffectiveCostBasisPerUnit *big.Int
+	LotAutoSource                ledger.CostBasisSource
 }
 
 // Service provides business logic for tax lot operations.
@@ -123,7 +140,70 @@ func (s *Service) OverrideCostBasis(ctx context.Context, userID uuid.UUID, lotID
 		"reason", reason,
 	)
 
+	if err := s.ForceRefreshWAC(ctx); err != nil {
+		s.logger.Warn("failed to refresh WAC after override", "lot_id", lotID, "error", err)
+	}
+
 	return nil
+}
+
+// GetLotImpactByTransaction returns all lot acquisitions and disposals for a transaction.
+func (s *Service) GetLotImpactByTransaction(ctx context.Context, userID, txID uuid.UUID) (*TransactionLotImpact, error) {
+	acquired, err := s.taxLotRepo.GetLotsByTransaction(ctx, txID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get lots by transaction: %w", err)
+	}
+
+	rawDisposals, err := s.taxLotRepo.GetDisposalsByTransaction(ctx, txID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get disposals by transaction: %w", err)
+	}
+
+	if len(acquired) == 0 && len(rawDisposals) == 0 {
+		return &TransactionLotImpact{HasLotImpact: false}, nil
+	}
+
+	// Verify ownership via at least one lot or disposal's lot
+	ownershipVerified := false
+	for _, lot := range acquired {
+		if _, err := s.verifyLotOwnership(ctx, userID, lot.AccountID); err == nil {
+			ownershipVerified = true
+			break
+		}
+	}
+
+	// Enrich disposals with lot metadata
+	var disposals []*DisposalDetail
+	for _, d := range rawDisposals {
+		lot, err := s.taxLotRepo.GetTaxLot(ctx, d.LotID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get lot %s for disposal: %w", d.LotID, err)
+		}
+
+		if !ownershipVerified {
+			if _, err := s.verifyLotOwnership(ctx, userID, lot.AccountID); err == nil {
+				ownershipVerified = true
+			}
+		}
+
+		disposals = append(disposals, &DisposalDetail{
+			LotDisposal:                  *d,
+			LotAsset:                     lot.Asset,
+			LotAcquiredAt:                lot.AcquiredAt,
+			LotEffectiveCostBasisPerUnit: lot.EffectiveCostBasisPerUnit(),
+			LotAutoSource:                lot.AutoCostBasisSource,
+		})
+	}
+
+	if !ownershipVerified {
+		return nil, ErrLotNotOwned
+	}
+
+	return &TransactionLotImpact{
+		AcquiredLots: acquired,
+		Disposals:    disposals,
+		HasLotImpact: len(acquired) > 0 || len(disposals) > 0,
+	}, nil
 }
 
 // GetWAC returns weighted average cost positions, enriched with wallet context.
@@ -147,8 +227,9 @@ func (s *Service) GetWAC(ctx context.Context, userID uuid.UUID, walletID *uuid.U
 		return nil, fmt.Errorf("failed to get WAC positions: %w", err)
 	}
 
-	// We need account→wallet mapping. Build it from ledger accounts.
+	// We need account→wallet and account→chainID mappings. Build from ledger accounts.
 	accountToWallet := make(map[uuid.UUID]uuid.UUID)
+	accountToChainID := make(map[uuid.UUID]string)
 	for wID := range walletMap {
 		accounts, err := s.ledgerRepo.FindAccountsByWallet(ctx, wID)
 		if err != nil {
@@ -156,10 +237,13 @@ func (s *Service) GetWAC(ctx context.Context, userID uuid.UUID, walletID *uuid.U
 		}
 		for _, acc := range accounts {
 			accountToWallet[acc.ID] = wID
+			if acc.ChainID != nil {
+				accountToChainID[acc.ID] = *acc.ChainID
+			}
 		}
 	}
 
-	// Enrich with wallet context
+	// Enrich with wallet context (per-chain positions)
 	var result []WACPosition
 	for _, p := range rawPositions {
 		wID, ok := accountToWallet[p.AccountID]
@@ -171,9 +255,49 @@ func (s *Service) GetWAC(ctx context.Context, userID uuid.UUID, walletID *uuid.U
 			WalletID:        wID,
 			WalletName:      w.Name,
 			AccountID:       p.AccountID,
+			ChainID:         accountToChainID[p.AccountID],
 			Asset:           p.Asset,
 			TotalQuantity:   p.TotalQuantity,
 			WeightedAvgCost: p.WeightedAvgCost,
+		})
+	}
+
+	// Compute aggregated WAC per (wallet_id, asset)
+	type aggKey struct {
+		WalletID uuid.UUID
+		Asset    string
+	}
+	agg := make(map[aggKey]struct {
+		totalQty   *big.Int
+		costSum    *big.Int // SUM(qty * wac)
+		walletName string
+	})
+	for _, p := range result {
+		k := aggKey{p.WalletID, p.Asset}
+		entry, ok := agg[k]
+		if !ok {
+			entry.totalQty = new(big.Int)
+			entry.costSum = new(big.Int)
+			entry.walletName = p.WalletName
+		}
+		entry.totalQty.Add(entry.totalQty, p.TotalQuantity)
+		entry.costSum.Add(entry.costSum, new(big.Int).Mul(p.TotalQuantity, p.WeightedAvgCost))
+		agg[k] = entry
+	}
+
+	for k, v := range agg {
+		wac := new(big.Int)
+		if v.totalQty.Sign() > 0 {
+			wac.Div(v.costSum, v.totalQty)
+		}
+		result = append(result, WACPosition{
+			WalletID:        k.WalletID,
+			WalletName:      v.walletName,
+			AccountID:       uuid.Nil,
+			ChainID:         "",
+			Asset:           k.Asset,
+			TotalQuantity:   v.totalQty,
+			WeightedAvgCost: wac,
 		})
 	}
 
@@ -254,6 +378,17 @@ func (s *Service) getAccountsForUser(ctx context.Context, userID uuid.UUID, wall
 	}
 
 	return walletMap, accountIDs, nil
+}
+
+// ForceRefreshWAC refreshes the WAC materialized view bypassing the throttle.
+func (s *Service) ForceRefreshWAC(ctx context.Context) error {
+	s.wacRefreshMu.Lock()
+	defer s.wacRefreshMu.Unlock()
+	if err := s.taxLotRepo.RefreshWAC(ctx); err != nil {
+		return err
+	}
+	s.lastWACRefresh = time.Now()
+	return nil
 }
 
 // maybeRefreshWAC refreshes the WAC materialized view at most once every 30 seconds.

@@ -13,7 +13,6 @@ import TransactionsPage from '@/features/transactions/TransactionsPage'
 import TransactionFormPage from '@/features/transactions/TransactionFormPage'
 import TransactionDetailPage from '@/features/transactions/TransactionDetailPage'
 import SettingsPage from '@/features/settings/SettingsPage'
-import CostBasisPage from '@/features/cost-basis/CostBasisPage'
 import { Layout } from '@/components/layout/Layout'
 
 function App() {
@@ -86,18 +85,6 @@ function App() {
               <ProtectedRoute>
                 <Layout>
                   <TransactionDetailPage />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-
-          {/* Cost Basis */}
-          <Route
-            path="/cost-basis"
-            element={
-              <ProtectedRoute>
-                <Layout>
-                  <CostBasisPage />
                 </Layout>
               </ProtectedRoute>
             }

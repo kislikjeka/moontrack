@@ -1,0 +1,20 @@
+meta {
+  name: Get Transactions - Since Timestamp
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{ZERION_BASE_URL}}/wallets/{{WALLET_ADDRESS}}/transactions/?filter[chain_ids]=base&filter[min_mined_at]={{MIN_MINED_AT}}&filter[asset_types]=fungible&filter[trash]=only_non_trash
+  body: none
+  auth: basic
+}
+
+auth:basic {
+  username: {{ZERION_API_KEY}}
+  password:
+}
+
+headers {
+  Accept: application/json
+}

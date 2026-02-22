@@ -1,0 +1,1329 @@
+{
+    "links": {
+        "self": "https://api.zerion.io/v1/wallets/0x1f2f9372217f57cb7937e5a3a8612c787fb83d45/transactions/?currency=usd&filter%5Basset_types%5D=fungible&filter%5Bchain_ids%5D=base&filter%5Bmin_mined_at%5D=1763495565868&filter%5Btrash%5D=only_non_trash&page%5Bafter%5D=WyIiLCIiXQ%3D%3D&page%5Bsize%5D=50"
+    },
+    "data": [
+        {
+            "type": "transactions",
+            "id": "9cd52e6be6555c579156b48c8db78d01",
+            "attributes": {
+                "address": "0x1f2f9372217f57cb7937e5a3a8612c787fb83d45",
+                "operation_type": "receive",
+                "hash": "0xfae4a679041a7e4584a0ed2d544abc148da8bcaa10dd393fd3c9ff69377c0360",
+                "mined_at_block": 42233339,
+                "mined_at": "2026-02-16T15:33:45Z",
+                "sent_from": "0x9683495e5bbd30d741eddd3f972d7ae5188423b2",
+                "sent_to": "0xad3b67bca8935cb510c8d18bd45f0b94f54a968f",
+                "status": "confirmed",
+                "nonce": 354140,
+                "fee": {
+                    "fungible_info": {
+                        "id": "eth",
+                        "name": "Ethereum",
+                        "symbol": "ETH",
+                        "icon": {
+                            "url": "https://cdn.zerion.io/eth.png"
+                        },
+                        "flags": {
+                            "verified": true
+                        },
+                        "implementations": [
+                            {
+                                "chain_id": "abstract",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "arbitrum",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "astar-zkevm",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "aurora",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "base",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "blast",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "bob",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "cyber",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "ethereum",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "ink",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "katana",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "linea",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "lisk",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "manta-pacific",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "megaeth",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "mode",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "optimism",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "polygon-zkevm",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "polynomial",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "rari",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "redstone",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "scroll",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "soneium",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "swellchain",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "taiko",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "unichain",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "wonder",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "world",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "zero",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "zkcandy",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "zklink-nova",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "zksync-era",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "zora",
+                                "address": "",
+                                "decimals": 18
+                            }
+                        ]
+                    },
+                    "quantity": {
+                        "int": "6170464924595",
+                        "decimals": 18,
+                        "float": 6.1704649246e-06,
+                        "numeric": "0.000006170464924595"
+                    },
+                    "price": null,
+                    "value": null
+                },
+                "transfers": [
+                    {
+                        "fungible_info": {
+                            "id": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                            "name": "USDC",
+                            "symbol": "USDC",
+                            "icon": {
+                                "url": "https://cdn.zerion.io/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.png"
+                            },
+                            "flags": {
+                                "verified": true
+                            },
+                            "implementations": [
+                                {
+                                    "chain_id": "0g",
+                                    "address": "0x1f3aa82227281ca364bfb3d253b0f1af1da6473e",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "abstract",
+                                    "address": "0x84a71ccd554cc1b02749b35d22f684cc8ec987e1",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "ape",
+                                    "address": "0xf1815bd50389c46847f0bda824ec8da914045d14",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "arbitrum",
+                                    "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "aurora",
+                                    "address": "0xb12bfca5a55806aaf64e99521918a4bf0fc40802",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "avalanche",
+                                    "address": "0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "base",
+                                    "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "berachain",
+                                    "address": "0x549943e04f40284185054145c6e4e9568c1d3241",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "binance-smart-chain",
+                                    "address": "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "celo",
+                                    "address": "0xceba9300f2b948710d2653dd7b07f33a8b32118c",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "degen",
+                                    "address": "0xf1815bd50389c46847f0bda824ec8da914045d14",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "ethereum",
+                                    "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "gravity-alpha",
+                                    "address": "0xfbda5f676cb37624f28265a144a48b0d6e87d3b6",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "hypercore",
+                                    "address": "",
+                                    "decimals": 8
+                                },
+                                {
+                                    "chain_id": "hyperevm",
+                                    "address": "0xb88339cb7199b77e23db6e890353e22632ba630f",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "ink",
+                                    "address": "0x2d270e6886d130d724215a266106e6832161eaed",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "katana",
+                                    "address": "0x203a662b0bd271a6ed5a60edfbd04bfce608fd36",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "lens",
+                                    "address": "0x88f08e304ec4f90d644cec3fb69b8ad414acf884",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "linea",
+                                    "address": "0x176211869ca2b568f2a7d4ee941e073a821ee1ff",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "manta-pacific",
+                                    "address": "0xb73603c5d87fa094b7314c74ace2e64d165016fb",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "mantle",
+                                    "address": "0x09bc4e0d864854c6afb6eb9a9cdf58ac190d0df9",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "metis-andromeda",
+                                    "address": "0xea32a96608495e54156ae48931a7c20f0dcc1a21",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "mode",
+                                    "address": "0xd988097fb8612cc24eec14542bc03424c656005f",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "monad",
+                                    "address": "0x754704bc059f8c67012fed69bc8a327a5aafb603",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "okbchain",
+                                    "address": "0x74b7f16337b8972027f6196a17a631ac6de26d22",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "optimism",
+                                    "address": "0x0b2c639c533813f4aa9d7837caf62653d097ff85",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "polygon",
+                                    "address": "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "polygon-zkevm",
+                                    "address": "0xa8ce8aee21bc2a48a5ef670afcc9274c7bbbc035",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "rari",
+                                    "address": "0xfbda5f676cb37624f28265a144a48b0d6e87d3b6",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "ronin",
+                                    "address": "0x0b7007c13325c48911f73a2dad5fa5dcbf808adc",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "scroll",
+                                    "address": "0x06efdbff2a14a7c8e15944d1f4a48f9f95f663a4",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "sei",
+                                    "address": "0xe15fc38f6d8c56af07bbcbe3baf5708a2bf42392",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "solana",
+                                    "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "soneium",
+                                    "address": "0xba9986d2381edf1da03b0b9c1f8b00dc4aacc369",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "sonic",
+                                    "address": "0x29219dd400f2bf60e5a23d13be72b486d4038894",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "taiko",
+                                    "address": "0x07d83526730c7438048d55a4fc0b850e2aab6f0b",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "unichain",
+                                    "address": "0x078d782b760474a361dda0af3839290b0ef57ad6",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "wonder",
+                                    "address": "0x3b50ac254a535200461c1cd3819ecd5eb1bc5ba3",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "world",
+                                    "address": "0x79a02482a880bce3f13e09da970dc34db4cd24d1",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "xdai",
+                                    "address": "0xddafbb505ad214d7b80b1f830fccc89b60fb7a83",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "xinfin-xdc",
+                                    "address": "0xfa2958cb79b0491cc627c1557f441ef849ca8eb1",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "zero",
+                                    "address": "0x6a6394f47dd0baf794808f2749c09bd4ee874e70",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "zksync-era",
+                                    "address": "0x1d17cbcf0d6d143135ae902365d2e5e2a16538d4",
+                                    "decimals": 6
+                                },
+                                {
+                                    "chain_id": "zora",
+                                    "address": "0xcccccccc7021b32ebb4e8c08314bd62f7c653ec4",
+                                    "decimals": 6
+                                }
+                            ]
+                        },
+                        "direction": "in",
+                        "quantity": {
+                            "int": "2910829",
+                            "decimals": 6,
+                            "float": 2.910829,
+                            "numeric": "2.910829"
+                        },
+                        "value": 2.8900296512957797,
+                        "price": 0.9928544931,
+                        "sender": "0xad3b67bca8935cb510c8d18bd45f0b94f54a968f",
+                        "recipient": "0x1f2f9372217f57cb7937e5a3a8612c787fb83d45",
+                        "act_id": "0"
+                    }
+                ],
+                "approvals": [],
+                "flags": {
+                    "is_trash": false
+                },
+                "acts": [
+                    {
+                        "id": "0",
+                        "type": "receive",
+                        "application_metadata": {
+                            "contract_address": "0xad3b67bca8935cb510c8d18bd45f0b94f54a968f"
+                        }
+                    }
+                ]
+            },
+            "relationships": {
+                "chain": {
+                    "links": {
+                        "related": "https://api.zerion.io/v1/chains/base"
+                    },
+                    "data": {
+                        "type": "chains",
+                        "id": "base"
+                    }
+                }
+            }
+        },
+        {
+            "type": "transactions",
+            "id": "16dba5b27573536ba0767b0ac8dd15a9",
+            "attributes": {
+                "address": "0x1f2f9372217f57cb7937e5a3a8612c787fb83d45",
+                "operation_type": "execute",
+                "hash": "0xd8625928ac9df85059188a26fd5618118efd5c8ff8f0a59b869f578a3681ce17",
+                "mined_at_block": 42233286,
+                "mined_at": "2026-02-16T15:31:59Z",
+                "sent_from": "0x1f2f9372217f57cb7937e5a3a8612c787fb83d45",
+                "sent_to": "0xe12e0f117d23a5ccc57f8935cd8c4e80cd91ff01",
+                "status": "confirmed",
+                "nonce": 0,
+                "fee": {
+                    "fungible_info": {
+                        "id": "eth",
+                        "name": "Ethereum",
+                        "symbol": "ETH",
+                        "icon": {
+                            "url": "https://cdn.zerion.io/eth.png"
+                        },
+                        "flags": {
+                            "verified": true
+                        },
+                        "implementations": [
+                            {
+                                "chain_id": "abstract",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "arbitrum",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "astar-zkevm",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "aurora",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "base",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "blast",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "bob",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "cyber",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "ethereum",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "ink",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "katana",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "linea",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "lisk",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "manta-pacific",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "megaeth",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "mode",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "optimism",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "polygon-zkevm",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "polynomial",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "rari",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "redstone",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "scroll",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "soneium",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "swellchain",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "taiko",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "unichain",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "wonder",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "world",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "zero",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "zkcandy",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "zklink-nova",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "zksync-era",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "zora",
+                                "address": "",
+                                "decimals": 18
+                            }
+                        ]
+                    },
+                    "quantity": {
+                        "int": "2251056770168",
+                        "decimals": 18,
+                        "float": 2.2510567702e-06,
+                        "numeric": "0.000002251056770168"
+                    },
+                    "price": 1965.7999999999997,
+                    "value": 0.004425127398859159
+                },
+                "transfers": [
+                    {
+                        "fungible_info": {
+                            "id": "eth",
+                            "name": "Ethereum",
+                            "symbol": "ETH",
+                            "icon": {
+                                "url": "https://cdn.zerion.io/eth.png"
+                            },
+                            "flags": {
+                                "verified": true
+                            },
+                            "implementations": [
+                                {
+                                    "chain_id": "abstract",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "arbitrum",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "astar-zkevm",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "aurora",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "base",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "blast",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "bob",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "cyber",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "ethereum",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "ink",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "katana",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "linea",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "lisk",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "manta-pacific",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "megaeth",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "mode",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "optimism",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "polygon-zkevm",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "polynomial",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "rari",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "redstone",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "scroll",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "soneium",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "swellchain",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "taiko",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "unichain",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "wonder",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "world",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "zero",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "zkcandy",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "zklink-nova",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "zksync-era",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "zora",
+                                    "address": "",
+                                    "decimals": 18
+                                }
+                            ]
+                        },
+                        "direction": "out",
+                        "quantity": {
+                            "int": "1496591982600000",
+                            "decimals": 18,
+                            "float": 0.0014965919826,
+                            "numeric": "0.001496591982600000"
+                        },
+                        "value": 2.9420005193950796,
+                        "price": 1965.7999999999997,
+                        "sender": "0x1f2f9372217f57cb7937e5a3a8612c787fb83d45",
+                        "recipient": "0xe12e0f117d23a5ccc57f8935cd8c4e80cd91ff01",
+                        "act_id": "0"
+                    }
+                ],
+                "approvals": [],
+                "flags": {
+                    "is_trash": false
+                },
+                "acts": [
+                    {
+                        "id": "0",
+                        "type": "execute",
+                        "application_metadata": {
+                            "contract_address": "0xe12e0f117d23a5ccc57f8935cd8c4e80cd91ff01",
+                            "method": {
+                                "id": "0x8c72b608",
+                                "name": ""
+                            }
+                        }
+                    }
+                ]
+            },
+            "relationships": {
+                "chain": {
+                    "links": {
+                        "related": "https://api.zerion.io/v1/chains/base"
+                    },
+                    "data": {
+                        "type": "chains",
+                        "id": "base"
+                    }
+                }
+            }
+        },
+        {
+            "type": "transactions",
+            "id": "7739af8835d45bc1905348587e2c8ff6",
+            "attributes": {
+                "address": "0x1f2f9372217f57cb7937e5a3a8612c787fb83d45",
+                "operation_type": "receive",
+                "hash": "0x94d1f664deb745c3d0e7be1b3b4b9e58faee6e071b6013c84a13d651c91a38d1",
+                "mined_at_block": 41844314,
+                "mined_at": "2026-02-07T15:26:15Z",
+                "sent_from": "0x9afcd847c633b820a2f291794d28d374b555811b",
+                "sent_to": "0x1f2f9372217f57cb7937e5a3a8612c787fb83d45",
+                "status": "confirmed",
+                "nonce": 54,
+                "fee": {
+                    "fungible_info": {
+                        "id": "eth",
+                        "name": "Ethereum",
+                        "symbol": "ETH",
+                        "icon": {
+                            "url": "https://cdn.zerion.io/eth.png"
+                        },
+                        "flags": {
+                            "verified": true
+                        },
+                        "implementations": [
+                            {
+                                "chain_id": "abstract",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "arbitrum",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "astar-zkevm",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "aurora",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "base",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "blast",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "bob",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "cyber",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "ethereum",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "ink",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "katana",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "linea",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "lisk",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "manta-pacific",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "megaeth",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "mode",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "optimism",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "polygon-zkevm",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "polynomial",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "rari",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "redstone",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "scroll",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "soneium",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "swellchain",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "taiko",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "unichain",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "wonder",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "world",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "zero",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "zkcandy",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "zklink-nova",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "zksync-era",
+                                "address": "",
+                                "decimals": 18
+                            },
+                            {
+                                "chain_id": "zora",
+                                "address": "",
+                                "decimals": 18
+                            }
+                        ]
+                    },
+                    "quantity": {
+                        "int": "288372726380",
+                        "decimals": 18,
+                        "float": 2.883727264e-07,
+                        "numeric": "0.000000288372726380"
+                    },
+                    "price": 2042.1000000000001,
+                    "value": 0.00058888594458144
+                },
+                "transfers": [
+                    {
+                        "fungible_info": {
+                            "id": "eth",
+                            "name": "Ethereum",
+                            "symbol": "ETH",
+                            "icon": {
+                                "url": "https://cdn.zerion.io/eth.png"
+                            },
+                            "flags": {
+                                "verified": true
+                            },
+                            "implementations": [
+                                {
+                                    "chain_id": "abstract",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "arbitrum",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "astar-zkevm",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "aurora",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "base",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "blast",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "bob",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "cyber",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "ethereum",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "ink",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "katana",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "linea",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "lisk",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "manta-pacific",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "megaeth",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "mode",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "optimism",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "polygon-zkevm",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "polynomial",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "rari",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "redstone",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "scroll",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "soneium",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "swellchain",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "taiko",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "unichain",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "wonder",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "world",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "zero",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "zkcandy",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "zklink-nova",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "zksync-era",
+                                    "address": "",
+                                    "decimals": 18
+                                },
+                                {
+                                    "chain_id": "zora",
+                                    "address": "",
+                                    "decimals": 18
+                                }
+                            ]
+                        },
+                        "direction": "in",
+                        "quantity": {
+                            "int": "3000000000000000",
+                            "decimals": 18,
+                            "float": 0.003,
+                            "numeric": "0.003000000000000000"
+                        },
+                        "value": 6.1263000000000005,
+                        "price": 2042.1000000000001,
+                        "sender": "0x9afcd847c633b820a2f291794d28d374b555811b",
+                        "recipient": "0x1f2f9372217f57cb7937e5a3a8612c787fb83d45",
+                        "act_id": "0"
+                    }
+                ],
+                "approvals": [],
+                "flags": {
+                    "is_trash": false
+                },
+                "acts": [
+                    {
+                        "id": "0",
+                        "type": "receive",
+                        "application_metadata": {
+                            "contract_address": "0x9afcd847c633b820a2f291794d28d374b555811b"
+                        }
+                    }
+                ]
+            },
+            "relationships": {
+                "chain": {
+                    "links": {
+                        "related": "https://api.zerion.io/v1/chains/base"
+                    },
+                    "data": {
+                        "type": "chains",
+                        "id": "base"
+                    }
+                }
+            }
+        }
+    ]
+}

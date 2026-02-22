@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -204,6 +205,29 @@ func (r *TaxLotRepository) GetLotsByAccount(ctx context.Context, accountID uuid.
 	rows, err := q.Query(ctx, query, accountID, asset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query lots by account: %w", err)
+	}
+	defer rows.Close()
+
+	return r.collectTaxLots(rows)
+}
+
+// GetLotsByTransaction returns all lots for a given transaction ordered by acquired_at.
+func (r *TaxLotRepository) GetLotsByTransaction(ctx context.Context, txID uuid.UUID) ([]*ledger.TaxLot, error) {
+	query := `
+		SELECT id, transaction_id, account_id, asset,
+		       quantity_acquired, quantity_remaining, acquired_at,
+		       auto_cost_basis_per_unit, auto_cost_basis_source,
+		       override_cost_basis_per_unit, override_reason, override_at,
+		       linked_source_lot_id, created_at
+		FROM tax_lots
+		WHERE transaction_id = $1
+		ORDER BY acquired_at ASC
+	`
+
+	q := r.getQueryer(ctx)
+	rows, err := q.Query(ctx, query, txID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query lots by transaction: %w", err)
 	}
 	defer rows.Close()
 
@@ -461,13 +485,13 @@ func (r *TaxLotRepository) GetWAC(ctx context.Context, accountIDs []uuid.UUID) (
 			return nil, fmt.Errorf("failed to scan position_wac row: %w", err)
 		}
 
-		totalQty, ok := new(big.Int).SetString(totalQtyStr, 10)
+		totalQty, ok := new(big.Int).SetString(truncateDecimal(totalQtyStr), 10)
 		if !ok {
 			return nil, fmt.Errorf("failed to parse total_quantity: %s", totalQtyStr)
 		}
 		p.TotalQuantity = totalQty
 
-		wac, ok := new(big.Int).SetString(wacStr, 10)
+		wac, ok := new(big.Int).SetString(truncateDecimal(wacStr), 10)
 		if !ok {
 			return nil, fmt.Errorf("failed to parse weighted_avg_cost: %s", wacStr)
 		}
@@ -628,4 +652,14 @@ func (r *TaxLotRepository) collectDisposals(rows pgx.Rows) ([]*ledger.LotDisposa
 		return nil, fmt.Errorf("error iterating disposals: %w", err)
 	}
 	return disposals, nil
+}
+
+// truncateDecimal strips any decimal portion from a numeric string.
+// PostgreSQL NUMERIC division can produce decimals; we truncate toward zero
+// to fit big.Int parsing while preserving integer precision.
+func truncateDecimal(s string) string {
+	if i := strings.IndexByte(s, '.'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }

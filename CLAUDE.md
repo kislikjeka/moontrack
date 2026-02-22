@@ -135,20 +135,25 @@ Query backend logs directly via the `loki` MCP server (LogQL over Loki).
 2. `just loki-mcp-build` — build the Loki MCP Docker image (one-time)
 3. Restart Claude Code to connect the MCP server
 
-**MCP tool:** `loki_query` — execute LogQL queries against Loki
+**MCP tools:**
+- `loki_query` — execute LogQL queries against Loki
+- `loki_label_names` — list available labels (discovery)
+- `loki_label_values` — get values for a label (e.g., `component`, `level`)
 
-**Key labels:** `{service="backend"}`
+**Indexed labels** (use in stream selectors `{...}`): `service`, `level`, `component`
 
-**Key JSON fields** (use `| json` pipeline): `level`, `component`, `request_id`, `user_id`, `tx_id`, `msg`, `duration_ms`, `status`, `method`, `path`, `error`
+**Key JSON fields** (use `| json` pipeline): `request_id`, `user_id`, `tx_id`, `msg`, `duration_ms`, `status`, `method`, `path`, `error`, `remote_addr`, `bytes`, `user_agent`
 
-**Components:** `http`, `auth`, `ledger`, `wallet`, `asset`, `sync`, `price`, `user`
+**Level values are UPPERCASE:** `DEBUG`, `INFO`, `WARN`, `ERROR`
+
+**Components:** `ledger`, `taxlot_hook`, `wallet`, `user`, `asset`, `price_updater`, `sync`, `transfer`, `coingecko`, `zerion`, `cache`
 
 **Common queries:**
 ```logql
-{service="backend"} | json | level="error"                    # All errors
-{service="backend"} | json | status >= 500                    # 5xx responses
-{service="backend"} | json | request_id="<id>"                # Trace request
-{service="backend"} | json | component="ledger" | level="error" # Ledger errors
+{service="backend", level="ERROR"}                             # All errors
+{service="backend"} | json | status >= 500                     # 5xx responses
+{service="backend"} | json | request_id="<id>"                 # Trace request
+{service="backend", component="ledger", level="ERROR"}         # Ledger errors
 ```
 
 See `.claude/skills/observability-debugging/SKILL.md` for full LogQL reference and debugging workflows.

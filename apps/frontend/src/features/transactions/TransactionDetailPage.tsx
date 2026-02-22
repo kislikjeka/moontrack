@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { TransactionTypeBadge } from '@/components/domain/TransactionTypeBadge'
 import { ChainIcon } from '@/components/domain/ChainIcon'
 import { LedgerEntriesTable } from './LedgerEntriesTable'
+import { TransactionLotImpactSection } from './TransactionLotImpactSection'
 import { formatDateTime, formatUSD } from '@/lib/format'
 import { getChainName } from '@/types/wallet'
 
@@ -126,6 +127,9 @@ export default function TransactionDetailPage() {
 
       {/* Ledger entries */}
       <LedgerEntriesTable entries={transaction.entries} />
+
+      {/* Lot impact */}
+      <TransactionLotImpactSection transactionId={transaction.id} />
     </div>
   )
 }

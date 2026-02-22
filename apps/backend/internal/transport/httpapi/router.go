@@ -92,6 +92,7 @@ func NewRouter(cfg Config) *chi.Mux {
 					r.Get("/lots", cfg.TaxLotHandler.GetLots)
 					r.Put("/lots/{id}/override", cfg.TaxLotHandler.OverrideCostBasis)
 					r.Get("/positions/wac", cfg.TaxLotHandler.GetWAC)
+					r.Get("/transactions/{id}/lots", cfg.TaxLotHandler.GetTransactionLots)
 				}
 
 				// Asset routes (unified)

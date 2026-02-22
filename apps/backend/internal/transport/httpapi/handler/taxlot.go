@@ -21,6 +21,7 @@ type TaxLotServiceInterface interface {
 	GetLotsByWallet(ctx context.Context, userID, walletID uuid.UUID, asset string) ([]*ledger.TaxLot, error)
 	OverrideCostBasis(ctx context.Context, userID uuid.UUID, lotID uuid.UUID, costBasis *big.Int, reason string) error
 	GetWAC(ctx context.Context, userID uuid.UUID, walletID *uuid.UUID) ([]taxlot.WACPosition, error)
+	GetLotImpactByTransaction(ctx context.Context, userID, txID uuid.UUID) (*taxlot.TransactionLotImpact, error)
 }
 
 // TaxLotHandler handles tax lot HTTP requests.
@@ -58,6 +59,8 @@ type PositionWACResponse struct {
 	WalletID        string `json:"wallet_id"`
 	WalletName      string `json:"wallet_name"`
 	AccountID       string `json:"account_id"`
+	ChainID         string `json:"chain_id"`
+	IsAggregated    bool   `json:"is_aggregated"`
 	Asset           string `json:"asset"`
 	TotalQuantity   string `json:"total_quantity"`
 	WeightedAvgCost string `json:"weighted_avg_cost"`
@@ -73,6 +76,27 @@ type TaxLotsListResponse struct {
 // WACPositionsResponse is the JSON envelope for WAC positions.
 type WACPositionsResponse struct {
 	Positions []PositionWACResponse `json:"positions"`
+}
+
+// TransactionLotImpactResponse is the JSON envelope for transaction lot impact.
+type TransactionLotImpactResponse struct {
+	AcquiredLots []TaxLotResponse        `json:"acquired_lots"`
+	Disposals    []DisposalDetailResponse `json:"disposals"`
+	HasLotImpact bool                     `json:"has_lot_impact"`
+}
+
+// DisposalDetailResponse is the JSON representation of a disposal with lot metadata.
+type DisposalDetailResponse struct {
+	ID               string `json:"id"`
+	LotID            string `json:"lot_id"`
+	QuantityDisposed string `json:"quantity_disposed"`
+	ProceedsPerUnit  string `json:"proceeds_per_unit"`
+	DisposalType     string `json:"disposal_type"`
+	DisposedAt       string `json:"disposed_at"`
+	LotAsset         string `json:"lot_asset"`
+	LotAcquiredAt    string `json:"lot_acquired_at"`
+	LotCostBasis     string `json:"lot_cost_basis_per_unit"`
+	LotAutoSource    string `json:"lot_auto_cost_basis_source"`
 }
 
 // --- Request types ---
@@ -226,6 +250,8 @@ func (h *TaxLotHandler) GetWAC(w http.ResponseWriter, r *http.Request) {
 			WalletID:        p.WalletID.String(),
 			WalletName:      p.WalletName,
 			AccountID:       p.AccountID.String(),
+			ChainID:         p.ChainID,
+			IsAggregated:    p.AccountID == uuid.Nil,
 			Asset:           p.Asset,
 			TotalQuantity:   money.FromBaseUnits(p.TotalQuantity, decimals),
 			WeightedAvgCost: money.FormatUSD(p.WeightedAvgCost),
@@ -233,6 +259,60 @@ func (h *TaxLotHandler) GetWAC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusOK, WACPositionsResponse{Positions: response})
+}
+
+// GetTransactionLots handles GET /transactions/{id}/lots
+func (h *TaxLotHandler) GetTransactionLots(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserIDFromContext(r.Context())
+	if !ok {
+		respondWithError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	txIDStr := chi.URLParam(r, "id")
+	txID, err := uuid.Parse(txIDStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "invalid transaction ID")
+		return
+	}
+
+	impact, err := h.taxLotService.GetLotImpactByTransaction(r.Context(), userID, txID)
+	if err != nil {
+		if errors.Is(err, taxlot.ErrLotNotOwned) {
+			respondWithError(w, http.StatusForbidden, "access denied")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "failed to get transaction lots")
+		return
+	}
+
+	acquiredLots := make([]TaxLotResponse, 0, len(impact.AcquiredLots))
+	for _, lot := range impact.AcquiredLots {
+		acquiredLots = append(acquiredLots, toTaxLotResponse(lot))
+	}
+
+	disposals := make([]DisposalDetailResponse, 0, len(impact.Disposals))
+	for _, d := range impact.Disposals {
+		decimals := money.GetDecimals(d.LotAsset)
+		disposals = append(disposals, DisposalDetailResponse{
+			ID:               d.ID.String(),
+			LotID:            d.LotID.String(),
+			QuantityDisposed: money.FromBaseUnits(d.QuantityDisposed, decimals),
+			ProceedsPerUnit:  money.FormatUSD(d.ProceedsPerUnit),
+			DisposalType:     string(d.DisposalType),
+			DisposedAt:       d.DisposedAt.Format("2006-01-02T15:04:05Z07:00"),
+			LotAsset:         d.LotAsset,
+			LotAcquiredAt:    d.LotAcquiredAt.Format("2006-01-02T15:04:05Z07:00"),
+			LotCostBasis:     money.FormatUSD(d.LotEffectiveCostBasisPerUnit),
+			LotAutoSource:    string(d.LotAutoSource),
+		})
+	}
+
+	respondWithJSON(w, http.StatusOK, TransactionLotImpactResponse{
+		AcquiredLots: acquiredLots,
+		Disposals:    disposals,
+		HasLotImpact: impact.HasLotImpact,
+	})
 }
 
 // --- Helpers ---

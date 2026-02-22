@@ -1,5 +1,5 @@
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Trash2, RefreshCw, AlertCircle, Wallet } from 'lucide-react'
+import { ArrowLeft, Trash2, RefreshCw, AlertCircle, Wallet, ArrowLeftRight } from 'lucide-react'
 import { useWallet, useDeleteWallet, useTriggerSync } from '@/hooks/useWallets'
 import { usePortfolio } from '@/hooks/usePortfolio'
 import { useTransactions } from '@/hooks/useTransactions'
@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { AddressDisplay } from '@/components/domain/AddressDisplay'
 import { SyncStatusBadge } from '@/components/domain/SyncStatusBadge'
 import { ChainIconRow } from '@/components/domain/ChainIcon'
@@ -19,23 +20,27 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { WalletAssets } from './WalletAssets'
-import { WalletTransactions } from './WalletTransactions'
+import { WalletHoldings } from './WalletHoldings'
+import { TransactionFilters } from '@/features/transactions/TransactionFilters'
+import { TransactionListTable } from '@/features/transactions/TransactionListTable'
 import { toast } from 'sonner'
 import { useState } from 'react'
 import { formatRelativeDate } from '@/lib/format'
+import type { TransactionFilters as FiltersType } from '@/types/transaction'
 
 export default function WalletDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
+  const [txFilters, setTxFilters] = useState<FiltersType>({
+    wallet_id: id,
+    page: 1,
+    page_size: 20,
+  })
 
   const { data: wallet, isLoading: walletLoading } = useWallet(id || '')
   const { data: portfolio, isLoading: portfolioLoading } = usePortfolio()
-  const { data: transactionsData, isLoading: transactionsLoading } = useTransactions({
-    wallet_id: id,
-    page_size: 20,
-  })
+  const { data: transactionsData, isLoading: transactionsLoading } = useTransactions(txFilters)
   const deleteWallet = useDeleteWallet()
   const triggerSync = useTriggerSync()
 
@@ -47,6 +52,9 @@ export default function WalletDetailPage() {
     ? parseFloat(walletBalance.total_usd)
     : 0
   const assets = walletBalance?.assets || []
+
+  const transactions = transactionsData?.transactions || []
+  const txTotal = transactionsData?.total || 0
 
   const handleDelete = async () => {
     if (!id) return
@@ -200,19 +208,74 @@ export default function WalletDetailPage() {
       {/* Tabs */}
       <Tabs defaultValue="assets" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="assets">Assets</TabsTrigger>
+          <TabsTrigger value="assets">Holdings</TabsTrigger>
           <TabsTrigger value="transactions">Transactions</TabsTrigger>
         </TabsList>
 
         <TabsContent value="assets">
-          <WalletAssets assets={assets} />
+          <WalletHoldings walletId={id!} assets={assets} />
         </TabsContent>
 
         <TabsContent value="transactions">
-          <WalletTransactions
-            transactions={transactionsData?.transactions || []}
-            isLoading={transactionsLoading}
-          />
+          <div className="space-y-4">
+            <TransactionFilters
+              filters={txFilters}
+              onFiltersChange={setTxFilters}
+              showWalletFilter={false}
+            />
+
+            {transactionsLoading ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base font-medium">Transactions</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {[...Array(3)].map((_, i) => (
+                      <Skeleton key={i} className="h-12" />
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            ) : transactions.length > 0 ? (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base font-medium">
+                    {txTotal} {txTotal === 1 ? 'Transaction' : 'Transactions'}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <TransactionListTable
+                    transactions={transactions}
+                    total={txTotal}
+                    page={txFilters.page || 1}
+                    pageSize={txFilters.page_size || 20}
+                    onPageChange={(page) => setTxFilters({ ...txFilters, page })}
+                    showWalletColumn={false}
+                  />
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base font-medium">Transactions</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                    <div className="rounded-full bg-muted p-3 mb-3">
+                      <ArrowLeftRight className="h-6 w-6" />
+                    </div>
+                    <p>No transactions for this wallet</p>
+                    <p className="text-sm">
+                      {txFilters.type
+                        ? 'Try adjusting your filters'
+                        : 'Transactions will appear here once your wallet is synced'}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         </TabsContent>
       </Tabs>
     </div>

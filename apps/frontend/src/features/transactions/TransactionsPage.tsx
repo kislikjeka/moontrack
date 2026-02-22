@@ -5,19 +5,8 @@ import { useTransactions } from '@/hooks/useTransactions'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { TransactionTypeBadge } from '@/components/domain/TransactionTypeBadge'
-import { ChainIcon } from '@/components/domain/ChainIcon'
 import { TransactionFilters } from './TransactionFilters'
-import { formatDateTime, formatUSD } from '@/lib/format'
-import { getChainShortName } from '@/types/wallet'
+import { TransactionListTable } from './TransactionListTable'
 import type { TransactionFilters as FiltersType } from '@/types/transaction'
 
 export default function TransactionsPage() {
@@ -64,103 +53,13 @@ export default function TransactionsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Network</TableHead>
-                  <TableHead>Wallet</TableHead>
-                  <TableHead>Asset</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-right">Value</TableHead>
-                  <TableHead className="text-right">Date</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {transactions.map((tx) => (
-                  <TableRow key={tx.id}>
-                    <TableCell>
-                      <Link to={`/transactions/${tx.id}`}>
-                        <TransactionTypeBadge type={tx.type} />
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Link to={`/transactions/${tx.id}`}>
-                        {tx.chain_id ? (
-                          <div className="flex items-center gap-1.5">
-                            <ChainIcon chainId={tx.chain_id} size="xs" />
-                            <span className="text-xs text-muted-foreground">
-                              {getChainShortName(tx.chain_id)}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">-</span>
-                        )}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Link
-                        to={`/transactions/${tx.id}`}
-                        className="text-sm text-muted-foreground hover:text-foreground"
-                      >
-                        {tx.wallet_name}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Link to={`/transactions/${tx.id}`} className="font-medium">
-                        {tx.asset_symbol}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-right font-mono">
-                      <Link to={`/transactions/${tx.id}`}>
-                        {tx.display_amount}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Link to={`/transactions/${tx.id}`}>
-                        {tx.usd_value ? formatUSD(tx.usd_value) : '-'}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-right text-muted-foreground">
-                      <Link to={`/transactions/${tx.id}`}>
-                        {formatDateTime(tx.occurred_at)}
-                      </Link>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-
-            {/* Pagination */}
-            {total > (filters.page_size || 20) && (
-              <div className="flex items-center justify-between pt-4">
-                <p className="text-sm text-muted-foreground">
-                  Page {filters.page || 1} of {Math.ceil(total / (filters.page_size || 20))}
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={(filters.page || 1) <= 1}
-                    onClick={() =>
-                      setFilters({ ...filters, page: (filters.page || 1) - 1 })
-                    }
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={(filters.page || 1) >= Math.ceil(total / (filters.page_size || 20))}
-                    onClick={() =>
-                      setFilters({ ...filters, page: (filters.page || 1) + 1 })
-                    }
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            )}
+            <TransactionListTable
+              transactions={transactions}
+              total={total}
+              page={filters.page || 1}
+              pageSize={filters.page_size || 20}
+              onPageChange={(page) => setFilters({ ...filters, page })}
+            />
           </CardContent>
         </Card>
       ) : (

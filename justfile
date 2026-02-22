@@ -90,6 +90,9 @@ migrate-create name:
 db-clear-data:
     @echo "Clearing all portfolio data (keeping user accounts)..."
     docker exec moontrack-postgres psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} -c "\
+        DELETE FROM lot_override_history; \
+        DELETE FROM lot_disposals; \
+        DELETE FROM tax_lots; \
         DELETE FROM entries; \
         DELETE FROM account_balances; \
         DELETE FROM accounts; \

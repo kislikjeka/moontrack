@@ -66,6 +66,16 @@ func (m *mockTaxLotRepo) GetLotsByAccount(_ context.Context, _ uuid.UUID, _ stri
 	return nil, nil
 }
 
+func (m *mockTaxLotRepo) GetLotsByTransaction(_ context.Context, txID uuid.UUID) ([]*TaxLot, error) {
+	var result []*TaxLot
+	for _, l := range m.lots {
+		if l.TransactionID == txID {
+			result = append(result, l)
+		}
+	}
+	return result, nil
+}
+
 func (m *mockTaxLotRepo) CreateDisposal(_ context.Context, disposal *LotDisposal) error {
 	m.disposals = append(m.disposals, disposal)
 	return nil
