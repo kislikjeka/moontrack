@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/pkg/logger"
+	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
 // WACPosition enriches PositionWAC with wallet context for the frontend.
@@ -39,6 +42,7 @@ type DisposalDetail struct {
 	LotAcquiredAt                time.Time
 	LotEffectiveCostBasisPerUnit *big.Int
 	LotAutoSource                ledger.CostBasisSource
+	RealizedGainLoss             *big.Int
 }
 
 // Service provides business logic for tax lot operations.
@@ -62,7 +66,7 @@ func NewService(taxLotRepo ledger.TaxLotRepository, ledgerRepo ledger.Repository
 }
 
 // GetLotsByWallet returns tax lots for a wallet+asset, verifying ownership.
-func (s *Service) GetLotsByWallet(ctx context.Context, userID, walletID uuid.UUID, asset string) ([]*ledger.TaxLot, error) {
+func (s *Service) GetLotsByWallet(ctx context.Context, userID, walletID uuid.UUID, asset string, chainID string) ([]*ledger.TaxLot, error) {
 	// Verify wallet ownership
 	if _, err := s.verifyWalletOwnership(ctx, userID, walletID); err != nil {
 		return nil, err
@@ -74,14 +78,52 @@ func (s *Service) GetLotsByWallet(ctx context.Context, userID, walletID uuid.UUI
 		return nil, fmt.Errorf("failed to find accounts for wallet: %w", err)
 	}
 
+	chainMap := make(map[uuid.UUID]string, len(accounts))
 	var allLots []*ledger.TaxLot
 	for _, acc := range accounts {
+		if acc.ChainID != nil {
+			chainMap[acc.ID] = *acc.ChainID
+		}
 		lots, err := s.taxLotRepo.GetLotsByAccount(ctx, acc.ID, asset)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get lots for account %s: %w", acc.ID, err)
 		}
 		allLots = append(allLots, lots...)
 	}
+
+	// Populate chain_id on lots from chainMap
+	for _, lot := range allLots {
+		lot.ChainID = chainMap[lot.AccountID]
+	}
+
+	// Filter by chain_id if specified
+	if chainID != "" {
+		filtered := allLots[:0]
+		lowerChainID := strings.ToLower(chainID)
+		for _, lot := range allLots {
+			if strings.ToLower(lot.ChainID) == lowerChainID {
+				filtered = append(filtered, lot)
+			}
+		}
+		allLots = filtered
+	}
+
+	// Sort: chain grouping (when no filter) → newest first
+	sort.Slice(allLots, func(i, j int) bool {
+		// Group by chain when showing all chains
+		if chainID == "" {
+			ci := strings.ToLower(allLots[i].ChainID)
+			cj := strings.ToLower(allLots[j].ChainID)
+			if ci != cj {
+				return ci < cj
+			}
+		}
+		// Newest first (descending by AcquiredAt)
+		if !allLots[i].AcquiredAt.Equal(allLots[j].AcquiredAt) {
+			return allLots[i].AcquiredAt.After(allLots[j].AcquiredAt)
+		}
+		return allLots[i].CreatedAt.After(allLots[j].CreatedAt)
+	})
 
 	return allLots, nil
 }
@@ -186,13 +228,26 @@ func (s *Service) GetLotImpactByTransaction(ctx context.Context, userID, txID uu
 			}
 		}
 
-		disposals = append(disposals, &DisposalDetail{
+		detail := &DisposalDetail{
 			LotDisposal:                  *d,
 			LotAsset:                     lot.Asset,
 			LotAcquiredAt:                lot.AcquiredAt,
 			LotEffectiveCostBasisPerUnit: lot.EffectiveCostBasisPerUnit(),
 			LotAutoSource:                lot.AutoCostBasisSource,
-		})
+		}
+
+		// Compute realized gain/loss: (proceeds - cost) * qty / 10^decimals
+		// Both prices are USD scaled 10^8, qty is in base units, result is USD scaled 10^8
+		if d.ProceedsPerUnit != nil && lot.EffectiveCostBasisPerUnit() != nil {
+			decimals := money.GetDecimals(lot.Asset)
+			priceDiff := new(big.Int).Sub(d.ProceedsPerUnit, lot.EffectiveCostBasisPerUnit())
+			gainLoss := new(big.Int).Mul(priceDiff, d.QuantityDisposed)
+			divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
+			gainLoss.Div(gainLoss, divisor)
+			detail.RealizedGainLoss = gainLoss
+		}
+
+		disposals = append(disposals, detail)
 	}
 
 	if !ownershipVerified {
