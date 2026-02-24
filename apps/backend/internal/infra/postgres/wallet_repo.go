@@ -74,7 +74,7 @@ func (r *WalletRepository) Create(ctx context.Context, w *wallet.Wallet) error {
 // GetByID retrieves a wallet by ID
 func (r *WalletRepository) GetByID(ctx context.Context, id uuid.UUID) (*wallet.Wallet, error) {
 	query := `
-		SELECT id, user_id, name, address, sync_status, last_sync_at, sync_error, sync_started_at, created_at, updated_at
+		SELECT id, user_id, name, address, sync_status, last_sync_at, sync_error, sync_started_at, created_at, updated_at, sync_phase, collect_cursor_at
 		FROM wallets
 		WHERE id = $1
 	`
@@ -91,6 +91,8 @@ func (r *WalletRepository) GetByID(ctx context.Context, id uuid.UUID) (*wallet.W
 		&w.SyncStartedAt,
 		&w.CreatedAt,
 		&w.UpdatedAt,
+		&w.SyncPhase,
+		&w.CollectCursorAt,
 	)
 
 	if err != nil {
@@ -106,7 +108,7 @@ func (r *WalletRepository) GetByID(ctx context.Context, id uuid.UUID) (*wallet.W
 // GetByUserID retrieves all wallets for a user
 func (r *WalletRepository) GetByUserID(ctx context.Context, userID uuid.UUID) ([]*wallet.Wallet, error) {
 	query := `
-		SELECT id, user_id, name, address, sync_status, last_sync_at, sync_error, sync_started_at, created_at, updated_at
+		SELECT id, user_id, name, address, sync_status, last_sync_at, sync_error, sync_started_at, created_at, updated_at, sync_phase, collect_cursor_at
 		FROM wallets
 		WHERE user_id = $1
 		ORDER BY created_at DESC
@@ -132,6 +134,8 @@ func (r *WalletRepository) GetByUserID(ctx context.Context, userID uuid.UUID) ([
 			&w.SyncStartedAt,
 			&w.CreatedAt,
 			&w.UpdatedAt,
+			&w.SyncPhase,
+			&w.CollectCursorAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan wallet: %w", err)
@@ -219,7 +223,7 @@ func (r *WalletRepository) ExistsByUserAndAddress(ctx context.Context, userID uu
 // GetWalletsForSync retrieves wallets that need syncing (pending, error, synced, or stale syncing)
 func (r *WalletRepository) GetWalletsForSync(ctx context.Context) ([]*wallet.Wallet, error) {
 	query := `
-		SELECT id, user_id, name, address, sync_status, last_sync_at, sync_error, sync_started_at, created_at, updated_at
+		SELECT id, user_id, name, address, sync_status, last_sync_at, sync_error, sync_started_at, created_at, updated_at, sync_phase, collect_cursor_at
 		FROM wallets
 		WHERE sync_status IN ('pending', 'error', 'synced')
 		   OR (sync_status = 'syncing' AND sync_started_at < NOW() - INTERVAL '15 minutes')
@@ -252,6 +256,8 @@ func (r *WalletRepository) GetWalletsForSync(ctx context.Context) ([]*wallet.Wal
 			&w.SyncStartedAt,
 			&w.CreatedAt,
 			&w.UpdatedAt,
+			&w.SyncPhase,
+			&w.CollectCursorAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan wallet: %w", err)
@@ -269,7 +275,7 @@ func (r *WalletRepository) GetWalletsForSync(ctx context.Context) ([]*wallet.Wal
 // GetWalletsByAddressAndUserID retrieves wallets with a given address for a specific user
 func (r *WalletRepository) GetWalletsByAddressAndUserID(ctx context.Context, address string, userID uuid.UUID) ([]*wallet.Wallet, error) {
 	query := `
-		SELECT id, user_id, name, address, sync_status, last_sync_at, sync_error, sync_started_at, created_at, updated_at
+		SELECT id, user_id, name, address, sync_status, last_sync_at, sync_error, sync_started_at, created_at, updated_at, sync_phase, collect_cursor_at
 		FROM wallets
 		WHERE lower(address) = lower($1) AND user_id = $2
 	`
@@ -294,6 +300,8 @@ func (r *WalletRepository) GetWalletsByAddressAndUserID(ctx context.Context, add
 			&w.SyncStartedAt,
 			&w.CreatedAt,
 			&w.UpdatedAt,
+			&w.SyncPhase,
+			&w.CollectCursorAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan wallet: %w", err)
@@ -390,5 +398,49 @@ func (r *WalletRepository) SetSyncError(ctx context.Context, walletID uuid.UUID,
 		return wallet.ErrWalletNotFound
 	}
 
+	return nil
+}
+
+// SetSyncPhase updates the wallet's sync phase
+func (r *WalletRepository) SetSyncPhase(ctx context.Context, walletID uuid.UUID, phase string) error {
+	query := `
+		UPDATE wallets
+		SET sync_phase = $1, updated_at = $2
+		WHERE id = $3
+	`
+	result, err := r.pool.Exec(ctx, query, phase, time.Now(), walletID)
+	if err != nil {
+		return fmt.Errorf("failed to set sync phase: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return wallet.ErrWalletNotFound
+	}
+	return nil
+}
+
+// SetCollectCursor updates the wallet's collect cursor timestamp
+func (r *WalletRepository) SetCollectCursor(ctx context.Context, walletID uuid.UUID, cursor time.Time) error {
+	query := `
+		UPDATE wallets
+		SET collect_cursor_at = $1, updated_at = $2
+		WHERE id = $3
+	`
+	result, err := r.pool.Exec(ctx, query, cursor, time.Now(), walletID)
+	if err != nil {
+		return fmt.Errorf("failed to set collect cursor: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return wallet.ErrWalletNotFound
+	}
+	return nil
+}
+
+// WipeWalletLedger calls the wipe_wallet_ledger function to reset ledger data for replay
+func (r *WalletRepository) WipeWalletLedger(ctx context.Context, walletID uuid.UUID) error {
+	query := `SELECT wipe_wallet_ledger($1)`
+	_, err := r.pool.Exec(ctx, query, walletID)
+	if err != nil {
+		return fmt.Errorf("failed to wipe wallet ledger: %w", err)
+	}
 	return nil
 }

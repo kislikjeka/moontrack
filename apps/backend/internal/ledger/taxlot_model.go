@@ -43,6 +43,7 @@ type TaxLot struct {
 	OverrideAt               *time.Time // nullable
 	LinkedSourceLotID        *uuid.UUID // nullable — for internal transfers
 	CreatedAt                time.Time
+	ChainID                  string     // not persisted — populated at runtime by service layer
 }
 
 // EffectiveCostBasisPerUnit returns the cost basis to use for PnL calculations.

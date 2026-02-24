@@ -3,7 +3,6 @@ package sync
 import (
 	"context"
 	"fmt"
-	"sort"
 	"sync"
 	"time"
 
@@ -17,8 +16,14 @@ import (
 type Service struct {
 	config          *Config
 	walletRepo      WalletRepository
+	ledgerSvc       LedgerService
 	zerionProvider  TransactionDataProvider
 	zerionProcessor *ZerionProcessor
+	rawTxRepo       RawTransactionRepository
+	posProvider     PositionDataProvider
+	collector       *Collector
+	reconciler      *Reconciler
+	processor       *Processor
 	logger          *logger.Logger
 	wg              sync.WaitGroup
 	stopCh          chan struct{}
@@ -34,6 +39,8 @@ func NewService(
 	assetSvc AssetService,
 	logger *logger.Logger,
 	zerionProvider TransactionDataProvider,
+	posProvider PositionDataProvider,
+	rawTxRepo RawTransactionRepository,
 ) *Service {
 	if config == nil {
 		config = DefaultConfig()
@@ -45,14 +52,28 @@ func NewService(
 		zerionProc = NewZerionProcessor(walletRepo, ledgerSvc, logger)
 	}
 
-	return &Service{
+	svc := &Service{
 		config:          config,
 		walletRepo:      walletRepo,
+		ledgerSvc:       ledgerSvc,
 		zerionProvider:  zerionProvider,
 		zerionProcessor: zerionProc,
+		rawTxRepo:       rawTxRepo,
+		posProvider:     posProvider,
 		logger:          logger.WithField("component", "sync"),
 		stopCh:          make(chan struct{}),
 	}
+
+	// Create sub-services for the 3-phase sync pipeline
+	if zerionProvider != nil && rawTxRepo != nil {
+		svc.collector = NewCollector(zerionProvider, rawTxRepo, walletRepo, config, logger)
+		svc.processor = NewProcessor(rawTxRepo, walletRepo, zerionProc, ledgerSvc, logger)
+	}
+	if posProvider != nil && rawTxRepo != nil {
+		svc.reconciler = NewReconciler(rawTxRepo, posProvider, walletRepo, logger)
+	}
+
+	return svc
 }
 
 // Run starts the background sync service
@@ -172,7 +193,9 @@ func (s *Service) SyncWallet(ctx context.Context, walletID uuid.UUID) error {
 	return fmt.Errorf("wallet not found or not pending sync")
 }
 
-// syncWallet syncs a single wallet using the Zerion decoded transaction API (time-based cursor)
+// syncWallet syncs a single wallet using the two-phase sync pipeline:
+// Initial sync: Collect → Reconcile → Process
+// Incremental sync: Collect → Process
 func (s *Service) syncWallet(ctx context.Context, w *wallet.Wallet) error {
 	s.logger.Info("starting wallet sync",
 		"wallet_id", w.ID,
@@ -189,99 +212,78 @@ func (s *Service) syncWallet(ctx context.Context, w *wallet.Wallet) error {
 		return nil
 	}
 
-	// Determine "since" time for fetching transactions
-	var since time.Time
-	if w.LastSyncAt != nil {
-		since = *w.LastSyncAt
-	} else {
-		// Initial sync — look back by configured duration
-		since = time.Now().Add(-s.config.InitialSyncLookback)
-	}
+	isInitial := w.LastSyncAt == nil
 
-	s.logger.Debug("sync window", "wallet_id", w.ID, "since", since, "is_initial", w.LastSyncAt == nil)
+	if isInitial {
+		s.logger.Info("initial sync: collect → reconcile → process", "wallet_id", w.ID)
 
-	// Fetch decoded transactions from Zerion
-	transactions, err := s.zerionProvider.GetTransactions(ctx, w.Address, since)
-	if err != nil {
-		errMsg := fmt.Sprintf("failed to get transactions from zerion: %v", err)
-		_ = s.walletRepo.SetSyncError(ctx, w.ID, errMsg)
-		return fmt.Errorf("failed to get transactions from zerion: %w", err)
-	}
+		// Phase 1: Collect all raw transactions
+		count, err := s.collector.CollectAll(ctx, w)
+		if err != nil {
+			errMsg := fmt.Sprintf("collect phase failed: %v", err)
+			_ = s.walletRepo.SetSyncError(ctx, w.ID, errMsg)
+			return fmt.Errorf("collect phase failed: %w", err)
+		}
+		s.logger.Info("collect phase complete", "wallet_id", w.ID, "collected", count)
 
-	s.logger.Info("fetched decoded transactions",
-		"wallet_id", w.ID,
-		"count", len(transactions),
-		"since", since.Format(time.RFC3339))
-
-	// Sort transactions oldest-first (Zerion returns newest-first).
-	// Both phases benefit: minimizes negative-balance hits during initial sync,
-	// ensures correct ordering during incremental sync.
-	sort.Slice(transactions, func(i, j int) bool {
-		return transactions[i].MinedAt.Before(transactions[j].MinedAt)
-	})
-
-	// Two-phase sync:
-	// - Initial sync (LastSyncAt == nil): skip negative balance errors (missing prior history)
-	// - Incremental sync: stop on any error (negative balance = real problem)
-	isInitialSync := w.LastSyncAt == nil
-
-	var lastSuccessfulMinedAt *time.Time
-	var processErrors []error
-	processed := 0
-	skipped := 0
-
-	for _, tx := range transactions {
-		if err := s.zerionProcessor.ProcessTransaction(ctx, w, tx); err != nil {
-			if isInitialSync && isNegativeBalanceError(err) {
-				s.logger.Warn("skipping transaction (negative balance during initial sync)",
-					"wallet_id", w.ID,
-					"tx_hash", tx.TxHash,
-					"zerion_id", tx.ID,
-					"error", err)
-				skipped++
-				continue
+		// Phase 2: Reconcile with on-chain balances (creates genesis raws)
+		if s.reconciler != nil {
+			genesisCount, err := s.reconciler.Reconcile(ctx, w)
+			if err != nil {
+				errMsg := fmt.Sprintf("reconcile phase failed: %v", err)
+				_ = s.walletRepo.SetSyncError(ctx, w.ID, errMsg)
+				return fmt.Errorf("reconcile phase failed: %w", err)
 			}
-
-			s.logger.Error("failed to process transaction, stopping sync",
-				"wallet_id", w.ID,
-				"tx_hash", tx.TxHash,
-				"zerion_id", tx.ID,
-				"error", err)
-			processErrors = append(processErrors, err)
-			break
+			s.logger.Info("reconcile phase complete", "wallet_id", w.ID, "genesis_created", genesisCount)
 		}
-		minedAt := tx.MinedAt
-		lastSuccessfulMinedAt = &minedAt
-		processed++
-	}
 
-	// Update cursor ONLY to last successfully committed transaction's MinedAt
-	if lastSuccessfulMinedAt != nil {
-		if err := s.walletRepo.SetSyncCompletedAt(ctx, w.ID, *lastSuccessfulMinedAt); err != nil {
-			return fmt.Errorf("failed to mark sync completed: %w", err)
-		}
-		s.logger.Debug("sync cursor advanced", "wallet_id", w.ID, "new_cursor", *lastSuccessfulMinedAt)
-	} else if len(processErrors) == 0 {
-		// No transactions and no errors — wallet is up to date
-		if err := s.walletRepo.SetSyncCompletedAt(ctx, w.ID, time.Now()); err != nil {
-			return fmt.Errorf("failed to mark sync completed: %w", err)
+		// Phase 3: Process all in chronological order
+		if err := s.processor.ProcessAll(ctx, w); err != nil {
+			errMsg := fmt.Sprintf("process phase failed: %v", err)
+			_ = s.walletRepo.SetSyncError(ctx, w.ID, errMsg)
+			return fmt.Errorf("process phase failed: %w", err)
 		}
 	} else {
-		// First transaction failed — don't advance cursor
-		errMsg := fmt.Sprintf("sync failed on first transaction: %v", processErrors[0])
-		_ = s.walletRepo.SetSyncError(ctx, w.ID, errMsg)
-		s.logger.Warn("sync error persisted", "wallet_id", w.ID, "error", processErrors[0])
+		s.logger.Info("incremental sync: collect → process", "wallet_id", w.ID)
+
+		// Phase 1: Collect new transactions only
+		count, err := s.collector.CollectIncremental(ctx, w)
+		if err != nil {
+			errMsg := fmt.Sprintf("collect phase failed: %v", err)
+			_ = s.walletRepo.SetSyncError(ctx, w.ID, errMsg)
+			return fmt.Errorf("collect phase failed: %w", err)
+		}
+		s.logger.Info("collect phase complete", "wallet_id", w.ID, "collected", count)
+
+		// Phase 2: Process new transactions
+		if err := s.processor.ProcessAll(ctx, w); err != nil {
+			errMsg := fmt.Sprintf("process phase failed: %v", err)
+			_ = s.walletRepo.SetSyncError(ctx, w.ID, errMsg)
+			return fmt.Errorf("process phase failed: %w", err)
+		}
 	}
 
-	// Clear address cache after each wallet sync
-	s.zerionProcessor.ClearCache()
+	// Reset sync phase to idle after completion
+	_ = s.walletRepo.SetSyncPhase(ctx, w.ID, string(SyncPhaseIdle))
 
-	s.logger.Info("wallet sync completed",
-		"wallet_id", w.ID,
-		"transactions_processed", processed,
-		"transactions_skipped", skipped,
-		"errors", len(processErrors),
-		"is_initial_sync", isInitialSync)
+	s.logger.Info("wallet sync completed", "wallet_id", w.ID, "is_initial", isInitial)
 
 	return nil
+}
+
+// operationPriority returns sort priority for same-block ordering.
+// Lower values sort first: inflows before outflows.
+func operationPriority(op OperationType) int {
+	switch op {
+	case OpReceive, OpClaim, OpMint:
+		return 0 // inflows first
+	case OpDeposit, OpWithdraw:
+		return 1 // DeFi middle
+	case OpTrade, OpExecute:
+		return 2 // swaps
+	case OpSend, OpBurn:
+		return 3 // outflows last
+	default:
+		return 2
+	}
 }

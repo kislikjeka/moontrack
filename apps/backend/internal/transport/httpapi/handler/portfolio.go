@@ -48,10 +48,11 @@ type AssetHoldingResponse struct {
 
 // WalletBalanceResponse represents a wallet balance in the API response
 type WalletBalanceResponse struct {
-	WalletID   string                 `json:"wallet_id"`
-	WalletName string                 `json:"wallet_name"`
-	Assets     []AssetBalanceResponse `json:"assets"`
-	TotalUSD   string                 `json:"total_usd"`
+	WalletID   string                  `json:"wallet_id"`
+	WalletName string                  `json:"wallet_name"`
+	Assets     []AssetBalanceResponse  `json:"assets"`
+	Holdings   []HoldingGroupResponse  `json:"holdings,omitempty"`
+	TotalUSD   string                  `json:"total_usd"`
 }
 
 // AssetBalanceResponse represents an asset balance in a wallet
@@ -61,6 +62,24 @@ type AssetBalanceResponse struct {
 	Amount   string `json:"amount"`
 	USDValue string `json:"usd_value"`
 	Price    string `json:"price"`
+}
+
+// HoldingGroupResponse is the JSON representation of a holding group (asset across chains).
+type HoldingGroupResponse struct {
+	AssetID       string                 `json:"asset_id"`
+	TotalAmount   string                 `json:"total_amount"`
+	TotalUSDValue string                 `json:"total_usd_value"`
+	Price         string                 `json:"price"`
+	AggregatedWAC string                 `json:"aggregated_wac,omitempty"`
+	Chains        []ChainHoldingResponse `json:"chains"`
+}
+
+// ChainHoldingResponse is the JSON representation of a per-chain holding.
+type ChainHoldingResponse struct {
+	ChainID  string `json:"chain_id"`
+	Amount   string `json:"amount"`
+	USDValue string `json:"usd_value"`
+	WAC      string `json:"wac,omitempty"`
 }
 
 // GetPortfolioSummary handles GET /portfolio
@@ -104,10 +123,38 @@ func (h *PortfolioHandler) GetPortfolioSummary(w http.ResponseWriter, r *http.Re
 			}
 		}
 
+		// Serialize holdings
+		holdings := make([]HoldingGroupResponse, len(w.Holdings))
+		for k, hg := range w.Holdings {
+			decimals := money.GetDecimals(hg.AssetID)
+			chains := make([]ChainHoldingResponse, len(hg.Chains))
+			for l, ch := range hg.Chains {
+				chains[l] = ChainHoldingResponse{
+					ChainID:  ch.ChainID,
+					Amount:   money.FromBaseUnits(ch.Amount, decimals),
+					USDValue: money.FormatUSD(ch.USDValue),
+				}
+				if ch.WAC != nil {
+					chains[l].WAC = money.FormatUSD(ch.WAC)
+				}
+			}
+			holdings[k] = HoldingGroupResponse{
+				AssetID:       hg.AssetID,
+				TotalAmount:   money.FromBaseUnits(hg.TotalAmount, decimals),
+				TotalUSDValue: money.FormatUSD(hg.TotalUSDValue),
+				Price:         money.FormatUSD(hg.Price),
+				Chains:        chains,
+			}
+			if hg.AggregatedWAC != nil {
+				holdings[k].AggregatedWAC = money.FormatUSD(hg.AggregatedWAC)
+			}
+		}
+
 		walletBalances[i] = WalletBalanceResponse{
 			WalletID:   w.WalletID.String(),
 			WalletName: w.WalletName,
 			Assets:     assets,
+			Holdings:   holdings,
 			TotalUSD:   money.FormatUSD(w.TotalUSD),
 		}
 	}

@@ -50,6 +50,21 @@ func (m *MockWalletRepository) SetSyncError(ctx context.Context, walletID uuid.U
 	return args.Error(0)
 }
 
+func (m *MockWalletRepository) SetSyncPhase(ctx context.Context, walletID uuid.UUID, phase string) error {
+	args := m.Called(ctx, walletID, phase)
+	return args.Error(0)
+}
+
+func (m *MockWalletRepository) SetCollectCursor(ctx context.Context, walletID uuid.UUID, cursor time.Time) error {
+	args := m.Called(ctx, walletID, cursor)
+	return args.Error(0)
+}
+
+func (m *MockWalletRepository) WipeWalletLedger(ctx context.Context, walletID uuid.UUID) error {
+	args := m.Called(ctx, walletID)
+	return args.Error(0)
+}
+
 // =============================================================================
 // Mock Ledger Service
 // =============================================================================
@@ -101,6 +116,84 @@ func (m *MockAssetService) GetPriceBySymbol(ctx context.Context, symbol string) 
 }
 
 // =============================================================================
+// Mock RawTransactionRepository
+// =============================================================================
+
+type MockRawTransactionRepository struct {
+	mock.Mock
+}
+
+func (m *MockRawTransactionRepository) UpsertRawTransaction(ctx context.Context, raw *sync.RawTransaction) error {
+	args := m.Called(ctx, raw)
+	return args.Error(0)
+}
+
+func (m *MockRawTransactionRepository) GetPendingByWallet(ctx context.Context, walletID uuid.UUID) ([]*sync.RawTransaction, error) {
+	args := m.Called(ctx, walletID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*sync.RawTransaction), args.Error(1)
+}
+
+func (m *MockRawTransactionRepository) GetAllByWallet(ctx context.Context, walletID uuid.UUID) ([]*sync.RawTransaction, error) {
+	args := m.Called(ctx, walletID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*sync.RawTransaction), args.Error(1)
+}
+
+func (m *MockRawTransactionRepository) MarkProcessed(ctx context.Context, rawID uuid.UUID, ledgerTxID uuid.UUID) error {
+	args := m.Called(ctx, rawID, ledgerTxID)
+	return args.Error(0)
+}
+
+func (m *MockRawTransactionRepository) MarkSkipped(ctx context.Context, rawID uuid.UUID, reason string) error {
+	args := m.Called(ctx, rawID, reason)
+	return args.Error(0)
+}
+
+func (m *MockRawTransactionRepository) MarkError(ctx context.Context, rawID uuid.UUID, errMsg string) error {
+	args := m.Called(ctx, rawID, errMsg)
+	return args.Error(0)
+}
+
+func (m *MockRawTransactionRepository) ResetProcessingStatus(ctx context.Context, walletID uuid.UUID) error {
+	args := m.Called(ctx, walletID)
+	return args.Error(0)
+}
+
+func (m *MockRawTransactionRepository) GetEarliestMinedAt(ctx context.Context, walletID uuid.UUID) (*time.Time, error) {
+	args := m.Called(ctx, walletID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*time.Time), args.Error(1)
+}
+
+func (m *MockRawTransactionRepository) DeleteSyntheticByWallet(ctx context.Context, walletID uuid.UUID) error {
+	args := m.Called(ctx, walletID)
+	return args.Error(0)
+}
+
+// =============================================================================
+// Mock PositionDataProvider
+// =============================================================================
+
+type MockPositionDataProvider struct {
+	mock.Mock
+}
+
+func (m *MockPositionDataProvider) GetPositions(ctx context.Context, address string) ([]sync.OnChainPosition, error) {
+	args := m.Called(ctx, address)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]sync.OnChainPosition), args.Error(1)
+}
+
+// =============================================================================
 // Test Helpers
 // =============================================================================
 
@@ -119,3 +212,5 @@ func newTestWallet(userID uuid.UUID, address string) *wallet.Wallet {
 // Ensure mocks implement the interfaces
 var _ sync.WalletRepository = (*MockWalletRepository)(nil)
 var _ sync.LedgerService = (*MockLedgerService)(nil)
+var _ sync.RawTransactionRepository = (*MockRawTransactionRepository)(nil)
+var _ sync.PositionDataProvider = (*MockPositionDataProvider)(nil)

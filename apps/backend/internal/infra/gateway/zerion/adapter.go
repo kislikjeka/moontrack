@@ -19,6 +19,7 @@ type SyncAdapter struct {
 
 // Compile-time check that SyncAdapter implements TransactionDataProvider
 var _ sync.TransactionDataProvider = (*SyncAdapter)(nil)
+var _ sync.PositionDataProvider = (*SyncAdapter)(nil)
 
 // NewSyncAdapter creates a new Zerion sync adapter
 func NewSyncAdapter(client *Client) *SyncAdapter {
@@ -61,6 +62,9 @@ func convertTransaction(td TransactionData, chain string) (sync.DecodedTransacti
 
 	transfers := make([]sync.DecodedTransfer, 0, len(td.Attributes.Transfers))
 	for _, zt := range td.Attributes.Transfers {
+		if zt.FungibleInfo == nil {
+			continue // skip NFT transfers — only track fungible assets
+		}
 		dt := convertTransfer(zt, chain)
 		transfers = append(transfers, dt)
 	}
@@ -184,4 +188,54 @@ func parseIntString(s string) *big.Int {
 func usdFloatToBigInt(price float64) *big.Int {
 	scaled := math.Round(price * 1e8)
 	return big.NewInt(int64(scaled))
+}
+
+// GetPositions fetches on-chain positions and converts them to domain types
+func (a *SyncAdapter) GetPositions(ctx context.Context, address string) ([]sync.OnChainPosition, error) {
+	chainIDs := wallet.GetSupportedChains()
+
+	positions, err := a.client.GetPositions(ctx, address, chainIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]sync.OnChainPosition, 0, len(positions))
+	for _, pd := range positions {
+		chain := pd.Relationships.Chain.Data.ID
+		if chain == "" || !wallet.IsValidChain(chain) {
+			continue
+		}
+
+		var symbol string
+		var contractAddr string
+		var decimals int
+		if pd.Attributes.FungibleInfo != nil {
+			symbol = pd.Attributes.FungibleInfo.Symbol
+			if impl := pd.Attributes.FungibleInfo.ImplementationByChain(chain); impl != nil {
+				contractAddr = strings.ToLower(impl.Address)
+				decimals = impl.Decimals
+			}
+			if decimals == 0 {
+				decimals = pd.Attributes.Quantity.Decimals
+			}
+		}
+
+		quantity := parseIntString(pd.Attributes.Quantity.Int)
+
+		var usdPrice *big.Int
+		if pd.Attributes.Price > 0 {
+			usdPrice = usdFloatToBigInt(pd.Attributes.Price)
+		}
+
+		result = append(result, sync.OnChainPosition{
+			ChainID:         chain,
+			AssetSymbol:     symbol,
+			ContractAddress: contractAddr,
+			Decimals:        decimals,
+			Quantity:        quantity,
+			USDPrice:        usdPrice,
+		})
+	}
+
+	return result, nil
 }

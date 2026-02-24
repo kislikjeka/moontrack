@@ -19,6 +19,7 @@ import type { TaxLot, CostBasisSource } from '@/types/taxlot'
 interface LotDetailTableProps {
   walletId: string
   asset: string
+  chainId?: string
 }
 
 const sourceBadgeVariants: Record<CostBasisSource, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
@@ -28,8 +29,8 @@ const sourceBadgeVariants: Record<CostBasisSource, { label: string; variant: 'de
   genesis_approximation: { label: 'Genesis', variant: 'destructive' },
 }
 
-export function LotDetailTable({ walletId, asset }: LotDetailTableProps) {
-  const { data: lots, isLoading } = useTaxLots(walletId, asset)
+export function LotDetailTable({ walletId, asset, chainId }: LotDetailTableProps) {
+  const { data: lots, isLoading } = useTaxLots(walletId, asset, chainId)
   const [selectedLot, setSelectedLot] = useState<TaxLot | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
 
@@ -61,6 +62,7 @@ export function LotDetailTable({ walletId, asset }: LotDetailTableProps) {
           <TableRow>
             <TableHead className="w-12">#</TableHead>
             <TableHead>Acquired</TableHead>
+            {!chainId && <TableHead>Chain</TableHead>}
             <TableHead className="text-right">Qty Acquired</TableHead>
             <TableHead className="text-right">Remaining</TableHead>
             <TableHead className="text-right">Cost/Unit</TableHead>
@@ -79,6 +81,7 @@ export function LotDetailTable({ walletId, asset }: LotDetailTableProps) {
               <TableRow key={lot.id}>
                 <TableCell className="text-muted-foreground">{index + 1}</TableCell>
                 <TableCell>{formatDate(lot.acquired_at)}</TableCell>
+                {!chainId && <TableCell className="capitalize text-muted-foreground">{lot.chain_id || '—'}</TableCell>}
                 <TableCell className="text-right font-mono">{lot.quantity_acquired}</TableCell>
                 <TableCell className="text-right font-mono">{lot.quantity_remaining}</TableCell>
                 <TableCell className="text-right font-mono">

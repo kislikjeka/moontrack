@@ -66,11 +66,20 @@ type Fee struct {
 // ZTransfer represents a single token movement in a Zerion transaction
 type ZTransfer struct {
 	FungibleInfo *FungibleInfo `json:"fungible_info"`
+	NftInfo      *NftInfo      `json:"nft_info"` // non-nil for NFT transfers
 	Direction    string        `json:"direction"` // "in" or "out"
 	Quantity     Quantity      `json:"quantity"`
 	Sender       string        `json:"sender"`
 	Recipient    string        `json:"recipient"`
 	Price        *float64      `json:"price"` // USD price per unit, nil if unavailable
+}
+
+// NftInfo describes an NFT involved in a transfer
+type NftInfo struct {
+	ContractAddress string `json:"contract_address"`
+	TokenID         string `json:"token_id"`
+	Name            string `json:"name"`
+	Interface       string `json:"interface"` // "erc721" or "erc1155"
 }
 
 // FungibleInfo describes the token involved in a transfer or fee
@@ -122,4 +131,27 @@ type Approval struct {
 type ApplicationMeta struct {
 	Name string `json:"name"`
 	Icon *IconInfo `json:"icon"`
+}
+
+// PositionResponse is the Zerion API response for wallet positions
+type PositionResponse struct {
+	Links Links          `json:"links"`
+	Data  []PositionData `json:"data"`
+}
+
+// PositionData wraps a single position with its type and ID
+type PositionData struct {
+	Type          string             `json:"type"`
+	ID            string             `json:"id"`
+	Attributes    PositionAttributes `json:"attributes"`
+	Relationships Relationships      `json:"relationships"`
+}
+
+// PositionAttributes contains the position fields
+type PositionAttributes struct {
+	PositionType string        `json:"position_type"`
+	Quantity     Quantity      `json:"quantity"`
+	Value        *float64      `json:"value"`
+	Price        float64       `json:"price"`
+	FungibleInfo *FungibleInfo `json:"fungible_info"`
 }

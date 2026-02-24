@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"math/big"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -46,6 +45,20 @@ type WalletRepository interface {
 
 	// SetSyncError marks a wallet sync as failed
 	SetSyncError(ctx context.Context, walletID uuid.UUID, errMsg string) error
+
+	// SetSyncPhase updates the wallet's sync phase
+	SetSyncPhase(ctx context.Context, walletID uuid.UUID, phase string) error
+
+	// SetCollectCursor updates the wallet's collect cursor timestamp
+	SetCollectCursor(ctx context.Context, walletID uuid.UUID, cursor time.Time) error
+
+	// WipeWalletLedger calls the wipe_wallet_ledger function to reset ledger data for replay
+	WipeWalletLedger(ctx context.Context, walletID uuid.UUID) error
+}
+
+// PositionDataProvider fetches on-chain positions (balances) from an external API
+type PositionDataProvider interface {
+	GetPositions(ctx context.Context, address string) ([]OnChainPosition, error)
 }
 
 // isDuplicateError checks if the error is due to a unique constraint violation (PostgreSQL error code 23505)
@@ -55,16 +68,6 @@ func isDuplicateError(err error) bool {
 	}
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
-}
-
-// isNegativeBalanceError checks if err is a ledger negative-balance rejection.
-func isNegativeBalanceError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "would have negative balance") ||
-		strings.Contains(msg, "balance would be negative")
 }
 
 // OperationType represents the high-level category of a decoded transaction

@@ -28,6 +28,9 @@ const (
 	TxTypeDefiDeposit TransactionType = "defi_deposit"  // Deposit into DeFi protocol
 	TxTypeDefiWithdraw TransactionType = "defi_withdraw" // Withdraw from DeFi protocol
 	TxTypeDefiClaim   TransactionType = "defi_claim"    // Claim DeFi rewards
+
+	// Synthetic transaction types
+	TxTypeGenesisBalance TransactionType = "genesis_balance" // Auto-created to cover missing prior history
 )
 
 // AllTransactionTypes returns all valid transaction types
@@ -43,6 +46,7 @@ func AllTransactionTypes() []TransactionType {
 		TxTypeDefiDeposit,
 		TxTypeDefiWithdraw,
 		TxTypeDefiClaim,
+		TxTypeGenesisBalance,
 	}
 }
 
@@ -51,7 +55,8 @@ func (t TransactionType) IsValid() bool {
 	switch t {
 	case TxTypeTransferIn, TxTypeTransferOut, TxTypeInternalTransfer,
 		TxTypeManualIncome, TxTypeManualOutcome, TxTypeAssetAdjustment,
-		TxTypeSwap, TxTypeDefiDeposit, TxTypeDefiWithdraw, TxTypeDefiClaim:
+		TxTypeSwap, TxTypeDefiDeposit, TxTypeDefiWithdraw, TxTypeDefiClaim,
+		TxTypeGenesisBalance:
 		return true
 	}
 	return false
@@ -85,6 +90,8 @@ func (t TransactionType) Label() string {
 		return "DeFi Withdraw"
 	case TxTypeDefiClaim:
 		return "DeFi Claim"
+	case TxTypeGenesisBalance:
+		return "Genesis Balance"
 	default:
 		return "Unknown"
 	}

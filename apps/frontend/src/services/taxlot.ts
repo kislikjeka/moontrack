@@ -2,10 +2,12 @@ import api from './api'
 import type { TaxLot, PositionWAC, OverrideCostBasisRequest, TransactionLotImpact } from '@/types/taxlot'
 
 export const taxlotService = {
-  async getLots(walletId: string, asset: string): Promise<TaxLot[]> {
-    const response = await api.get<{ lots: TaxLot[] }>('/lots', {
-      params: { wallet_id: walletId, asset },
-    })
+  async getLots(walletId: string, asset: string, chainId?: string): Promise<TaxLot[]> {
+    const params: Record<string, string> = { wallet_id: walletId, asset }
+    if (chainId) {
+      params.chain_id = chainId
+    }
+    const response = await api.get<{ lots: TaxLot[] }>('/lots', { params })
     return response.data.lots || []
   },
 

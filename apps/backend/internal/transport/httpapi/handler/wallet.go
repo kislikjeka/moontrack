@@ -316,13 +316,10 @@ func (h *WalletHandler) TriggerSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Trigger sync
-	if err := h.syncService.SyncWallet(r.Context(), walletID); err != nil {
-		respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to trigger sync: %v", err))
-		return
-	}
+	// Trigger sync in background (collect phase can take minutes for large wallets)
+	go h.syncService.SyncWallet(context.Background(), walletID)
 
-	respondWithJSON(w, http.StatusOK, map[string]string{"status": "sync triggered"})
+	respondWithJSON(w, http.StatusAccepted, map[string]string{"status": "sync started"})
 }
 
 // Helper function to convert domain wallet to response

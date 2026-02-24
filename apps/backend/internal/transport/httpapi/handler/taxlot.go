@@ -18,7 +18,7 @@ import (
 
 // TaxLotServiceInterface defines the interface for tax lot operations.
 type TaxLotServiceInterface interface {
-	GetLotsByWallet(ctx context.Context, userID, walletID uuid.UUID, asset string) ([]*ledger.TaxLot, error)
+	GetLotsByWallet(ctx context.Context, userID, walletID uuid.UUID, asset string, chainID string) ([]*ledger.TaxLot, error)
 	OverrideCostBasis(ctx context.Context, userID uuid.UUID, lotID uuid.UUID, costBasis *big.Int, reason string) error
 	GetWAC(ctx context.Context, userID uuid.UUID, walletID *uuid.UUID) ([]taxlot.WACPosition, error)
 	GetLotImpactByTransaction(ctx context.Context, userID, txID uuid.UUID) (*taxlot.TransactionLotImpact, error)
@@ -41,6 +41,7 @@ type TaxLotResponse struct {
 	ID                        string  `json:"id"`
 	TransactionID             string  `json:"transaction_id"`
 	AccountID                 string  `json:"account_id"`
+	ChainID                   string  `json:"chain_id,omitempty"`
 	Asset                     string  `json:"asset"`
 	QuantityAcquired          string  `json:"quantity_acquired"`
 	QuantityRemaining         string  `json:"quantity_remaining"`
@@ -97,6 +98,7 @@ type DisposalDetailResponse struct {
 	LotAcquiredAt    string `json:"lot_acquired_at"`
 	LotCostBasis     string `json:"lot_cost_basis_per_unit"`
 	LotAutoSource    string `json:"lot_auto_cost_basis_source"`
+	RealizedGainLoss string `json:"realized_gain_loss"`
 }
 
 // --- Request types ---
@@ -134,7 +136,9 @@ func (h *TaxLotHandler) GetLots(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lots, err := h.taxLotService.GetLotsByWallet(r.Context(), userID, walletID, asset)
+	chainID := r.URL.Query().Get("chain_id")
+
+	lots, err := h.taxLotService.GetLotsByWallet(r.Context(), userID, walletID, asset, chainID)
 	if err != nil {
 		if errors.Is(err, taxlot.ErrWalletNotOwned) {
 			respondWithError(w, http.StatusForbidden, "access denied")
@@ -305,6 +309,7 @@ func (h *TaxLotHandler) GetTransactionLots(w http.ResponseWriter, r *http.Reques
 			LotAcquiredAt:    d.LotAcquiredAt.Format("2006-01-02T15:04:05Z07:00"),
 			LotCostBasis:     money.FormatUSD(d.LotEffectiveCostBasisPerUnit),
 			LotAutoSource:    string(d.LotAutoSource),
+			RealizedGainLoss: money.FormatUSD(d.RealizedGainLoss),
 		})
 	}
 
@@ -324,6 +329,7 @@ func toTaxLotResponse(lot *ledger.TaxLot) TaxLotResponse {
 		ID:                        lot.ID.String(),
 		TransactionID:             lot.TransactionID.String(),
 		AccountID:                 lot.AccountID.String(),
+		ChainID:                   lot.ChainID,
 		Asset:                     lot.Asset,
 		QuantityAcquired:          money.FromBaseUnits(lot.QuantityAcquired, decimals),
 		QuantityRemaining:         money.FromBaseUnits(lot.QuantityRemaining, decimals),

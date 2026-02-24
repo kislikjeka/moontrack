@@ -194,6 +194,8 @@ func classifyCostBasisSource(tx *Transaction) CostBasisSource {
 		return CostBasisSwapPrice
 	case TxTypeInternalTransfer:
 		return CostBasisLinkedTransfer
+	case TxTypeGenesisBalance:
+		return CostBasisGenesisApproximation
 	default:
 		return CostBasisFMVAtTransfer
 	}

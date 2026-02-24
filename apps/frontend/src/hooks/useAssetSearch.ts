@@ -14,11 +14,3 @@ export function useAssetSearch(query: string) {
     staleTime: 1000 * 60 * 5, // 5 minutes
   })
 }
-
-export function useAsset(id: string) {
-  return useQuery<Asset>({
-    queryKey: ['assets', id],
-    queryFn: () => assetService.getAsset(id),
-    enabled: !!id,
-  })
-}

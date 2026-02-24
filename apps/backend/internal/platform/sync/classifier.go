@@ -11,8 +11,11 @@ func NewClassifier() *Classifier {
 }
 
 // Classify determines the ledger TransactionType for a decoded transaction.
-// Returns empty string for transactions that should be skipped (e.g. approve).
+// Returns empty string for transactions that should be skipped (e.g. approve, NFT-only).
 func (c *Classifier) Classify(tx DecodedTransaction) ledger.TransactionType {
+	if len(tx.Transfers) == 0 {
+		return "" // no fungible transfers to process (e.g., NFT-only transaction)
+	}
 	switch tx.OperationType {
 	case OpTrade:
 		return ledger.TxTypeSwap

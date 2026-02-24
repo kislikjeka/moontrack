@@ -96,6 +96,7 @@ db-clear-data:
         DELETE FROM entries; \
         DELETE FROM account_balances; \
         DELETE FROM accounts; \
+        DELETE FROM raw_transactions; \
         DELETE FROM transactions; \
         DELETE FROM wallets; \
     "

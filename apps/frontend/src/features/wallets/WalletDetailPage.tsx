@@ -51,7 +51,7 @@ export default function WalletDetailPage() {
   const totalValue = walletBalance
     ? parseFloat(walletBalance.total_usd)
     : 0
-  const assets = walletBalance?.assets || []
+  const holdings = walletBalance?.holdings || []
 
   const transactions = transactionsData?.transactions || []
   const txTotal = transactionsData?.total || 0
@@ -195,7 +195,7 @@ export default function WalletDetailPage() {
         </p>
         <div className="flex items-center gap-4 mt-1">
           <p className="text-sm text-muted-foreground">
-            {assets.length} {assets.length === 1 ? 'asset' : 'assets'}
+            {holdings.length} {holdings.length === 1 ? 'asset' : 'assets'}
           </p>
           {wallet.last_sync_at && (
             <p className="text-sm text-muted-foreground">
@@ -213,7 +213,7 @@ export default function WalletDetailPage() {
         </TabsList>
 
         <TabsContent value="assets">
-          <WalletHoldings walletId={id!} assets={assets} />
+          <WalletHoldings walletId={id!} holdings={holdings} />
         </TabsContent>
 
         <TabsContent value="transactions">

@@ -10,7 +10,8 @@ type Config struct {
 	// ConcurrentWallets is the max number of wallets to sync concurrently
 	ConcurrentWallets int
 
-	// InitialSyncLookback is how far back to look for the first sync (time-based)
+	// InitialSyncLookback is how far back to look for the first sync (time-based).
+	// 0 means fetch all history (no time bound).
 	InitialSyncLookback time.Duration
 
 	// Enabled determines if background sync is enabled
@@ -22,7 +23,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		PollInterval:        5 * time.Minute,
 		ConcurrentWallets:   3,
-		InitialSyncLookback: 2160 * time.Hour, // 90 days
+		InitialSyncLookback: 0, // fetch all history
 		Enabled:             true,
 	}
 }
@@ -35,8 +36,8 @@ func (c *Config) Validate() error {
 	if c.ConcurrentWallets <= 0 {
 		c.ConcurrentWallets = 3
 	}
-	if c.InitialSyncLookback <= 0 {
-		c.InitialSyncLookback = 2160 * time.Hour
+	if c.InitialSyncLookback < 0 {
+		c.InitialSyncLookback = 0
 	}
 	return nil
 }

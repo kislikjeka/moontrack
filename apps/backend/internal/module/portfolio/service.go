@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"sort"
 
 	"github.com/google/uuid"
 	"github.com/kislikjeka/moontrack/internal/ledger"
@@ -35,11 +36,46 @@ type PriceService interface {
 	GetPriceBySymbol(ctx context.Context, symbol string) (*big.Int, error)
 }
 
+// WACProvider supplies weighted-average-cost data for portfolio enrichment.
+type WACProvider interface {
+	GetWAC(ctx context.Context, userID uuid.UUID, walletID *uuid.UUID) ([]WACPosition, error)
+}
+
+// WACPosition represents a single WAC data point (per-chain or aggregated).
+type WACPosition struct {
+	WalletID        uuid.UUID
+	AccountID       uuid.UUID
+	ChainID         string
+	Asset           string
+	TotalQuantity   *big.Int
+	WeightedAvgCost *big.Int
+	IsAggregated    bool
+}
+
+// HoldingGroup represents a single asset across all chains in a wallet.
+type HoldingGroup struct {
+	AssetID       string          `json:"asset_id"`
+	TotalAmount   *big.Int        `json:"total_amount"`
+	TotalUSDValue *big.Int        `json:"total_usd_value"`
+	Price         *big.Int        `json:"price"`
+	AggregatedWAC *big.Int        `json:"aggregated_wac"` // nullable
+	Chains        []ChainHolding  `json:"chains"`
+}
+
+// ChainHolding represents one asset on one chain within a wallet.
+type ChainHolding struct {
+	ChainID  string   `json:"chain_id"`
+	Amount   *big.Int `json:"amount"`
+	USDValue *big.Int `json:"usd_value"`
+	WAC      *big.Int `json:"wac"` // nullable, per-chain WAC
+}
+
 // PortfolioService aggregates portfolio data from the ledger
 type PortfolioService struct {
 	ledgerRepo   LedgerRepository
 	walletRepo   WalletRepository
 	priceService PriceService
+	wacProvider  WACProvider // nilable — WAC enrichment is optional
 }
 
 // NewPortfolioService creates a new portfolio service
@@ -47,11 +83,13 @@ func NewPortfolioService(
 	ledgerRepo LedgerRepository,
 	walletRepo WalletRepository,
 	priceService PriceService,
+	wacProvider WACProvider,
 ) *PortfolioService {
 	return &PortfolioService{
 		ledgerRepo:   ledgerRepo,
 		walletRepo:   walletRepo,
 		priceService: priceService,
+		wacProvider:  wacProvider,
 	}
 }
 
@@ -68,7 +106,8 @@ type WalletBalance struct {
 	WalletID   uuid.UUID      `json:"wallet_id"`
 	WalletName string         `json:"wallet_name"`
 	Assets     []AssetBalance `json:"assets"`
-	TotalUSD   *big.Int       `json:"total_usd"` // Total USD value of all assets in this wallet
+	Holdings   []HoldingGroup `json:"holdings"` // Pre-grouped by asset with WAC
+	TotalUSD   *big.Int       `json:"total_usd"`
 }
 
 // AssetBalance represents balance for a single asset in a wallet
@@ -233,6 +272,12 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 		})
 	}
 
+	// Enrich walletBalances with pre-grouped Holdings + WAC
+	for i := range walletBalances {
+		wb := &walletBalances[i]
+		wb.Holdings = s.buildHoldings(ctx, userID, wb)
+	}
+
 	summary := &PortfolioSummary{
 		TotalUSDValue:  totalUSD,
 		TotalAssets:    len(assetHoldings),
@@ -242,6 +287,105 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 	}
 
 	return summary, nil
+}
+
+// buildHoldings groups a wallet's flat Assets into HoldingGroups by asset_id,
+// enriches with WAC data from the provider, and sorts by value descending.
+func (s *PortfolioService) buildHoldings(ctx context.Context, userID uuid.UUID, wb *WalletBalance) []HoldingGroup {
+	// Group assets by asset_id
+	type groupEntry struct {
+		assetID string
+		total   *big.Int
+		value   *big.Int
+		price   *big.Int
+		chains  []ChainHolding
+	}
+	groupMap := make(map[string]*groupEntry)
+	var order []string // preserve insertion order
+
+	for _, ab := range wb.Assets {
+		g, ok := groupMap[ab.AssetID]
+		if !ok {
+			g = &groupEntry{
+				assetID: ab.AssetID,
+				total:   new(big.Int),
+				value:   new(big.Int),
+				price:   new(big.Int).Set(ab.Price),
+			}
+			groupMap[ab.AssetID] = g
+			order = append(order, ab.AssetID)
+		}
+		g.total.Add(g.total, ab.Amount)
+		g.value.Add(g.value, ab.USDValue)
+
+		if ab.ChainID != "" {
+			g.chains = append(g.chains, ChainHolding{
+				ChainID:  ab.ChainID,
+				Amount:   new(big.Int).Set(ab.Amount),
+				USDValue: new(big.Int).Set(ab.USDValue),
+			})
+		}
+	}
+
+	// Fetch WAC data if provider is available
+	var wacPositions []WACPosition
+	if s.wacProvider != nil {
+		wID := wb.WalletID
+		positions, err := s.wacProvider.GetWAC(ctx, userID, &wID)
+		if err == nil {
+			wacPositions = positions
+		}
+	}
+
+	// Build WAC lookup maps
+	type wacKey struct {
+		asset   string
+		chainID string
+	}
+	aggWACMap := make(map[string]*big.Int)   // asset → aggregated WAC
+	chainWACMap := make(map[wacKey]*big.Int)  // (asset, chainID) → per-chain WAC
+
+	for _, p := range wacPositions {
+		if p.IsAggregated {
+			aggWACMap[p.Asset] = p.WeightedAvgCost
+		} else if p.ChainID != "" {
+			chainWACMap[wacKey{p.Asset, p.ChainID}] = p.WeightedAvgCost
+		}
+	}
+
+	// Build final HoldingGroups
+	holdings := make([]HoldingGroup, 0, len(order))
+	for _, assetID := range order {
+		g := groupMap[assetID]
+
+		// Enrich chains with WAC
+		for i := range g.chains {
+			if wac, ok := chainWACMap[wacKey{assetID, g.chains[i].ChainID}]; ok {
+				g.chains[i].WAC = wac
+			}
+		}
+
+		hg := HoldingGroup{
+			AssetID:       assetID,
+			TotalAmount:   g.total,
+			TotalUSDValue: g.value,
+			Price:         g.price,
+			Chains:        g.chains,
+		}
+
+		if wac, ok := aggWACMap[assetID]; ok {
+			hg.AggregatedWAC = wac
+		}
+
+		holdings = append(holdings, hg)
+	}
+
+	// Sort by total value descending
+	sort.Slice(holdings, func(i, j int) bool {
+		return holdings[i].TotalUSDValue.Cmp(holdings[j].TotalUSDValue) > 0
+	})
+
+	return holdings
 }
 
 // GetAssetBreakdown returns detailed breakdown of a specific asset across all wallets

@@ -237,7 +237,7 @@ func TestSyncAdapter_SkipsEmptyChain(t *testing.T) {
 // Nil Safety Tests
 // =============================================================================
 
-func TestSyncAdapter_NilFungibleInfo(t *testing.T) {
+func TestSyncAdapter_NilFungibleInfo_SkipsNFTTransfers(t *testing.T) {
 	txData := zerion.TransactionResponse{
 		Data: []zerion.TransactionData{
 			withChain(zerion.TransactionData{
@@ -249,9 +249,9 @@ func TestSyncAdapter_NilFungibleInfo(t *testing.T) {
 					Status:        "confirmed",
 					Transfers: []zerion.ZTransfer{
 						{
-							FungibleInfo: nil, // No fungible info
+							FungibleInfo: nil, // NFT transfer — no fungible info
 							Direction:    "in",
-							Quantity:     zerion.Quantity{Int: "1000"},
+							Quantity:     zerion.Quantity{Int: "1"},
 							Sender:       "0xA",
 							Recipient:    "0xB",
 						},
@@ -274,11 +274,8 @@ func TestSyncAdapter_NilFungibleInfo(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, txs, 1)
 
-	transfer := txs[0].Transfers[0]
-	assert.Equal(t, "", transfer.AssetSymbol)
-	assert.Equal(t, "", transfer.ContractAddress)
-	assert.Equal(t, 0, transfer.Decimals)
-	assert.Equal(t, 0, transfer.Amount.Cmp(big.NewInt(1000)))
+	// NFT transfers (nil FungibleInfo) are filtered out — only fungible transfers kept
+	assert.Len(t, txs[0].Transfers, 0)
 }
 
 func TestSyncAdapter_NilFee(t *testing.T) {
@@ -413,10 +410,11 @@ func TestSyncAdapter_DirectionMapping(t *testing.T) {
 							Status:        "confirmed",
 							Transfers: []zerion.ZTransfer{
 								{
-									Direction: tt.zerionDir,
-									Quantity:  zerion.Quantity{Int: "100"},
-									Sender:    "0xa",
-									Recipient: "0xb",
+									FungibleInfo: &zerion.FungibleInfo{Symbol: "ETH"},
+									Direction:    tt.zerionDir,
+									Quantity:     zerion.Quantity{Int: "100"},
+									Sender:       "0xa",
+									Recipient:    "0xb",
 								},
 							},
 						},

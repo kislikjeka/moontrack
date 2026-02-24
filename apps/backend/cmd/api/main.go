@@ -17,6 +17,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/module/adjustment"
 	"github.com/kislikjeka/moontrack/internal/module/defi"
+	"github.com/kislikjeka/moontrack/internal/module/genesis"
 	"github.com/kislikjeka/moontrack/internal/module/portfolio"
 	"github.com/kislikjeka/moontrack/internal/module/swap"
 	"github.com/kislikjeka/moontrack/internal/module/transactions"
@@ -156,10 +157,16 @@ func main() {
 	handlerRegistry.Register(defiClaimHandler)
 	log.Info("Registered defi claim handler")
 
+	// Genesis balance handler (auto-created by sync to cover missing prior history)
+	genesisHandler := genesis.NewHandler(log)
+	handlerRegistry.Register(genesisHandler)
+	log.Info("Registered genesis balance handler")
+
 	// Initialize portfolio service (using price adapter for symbol→CoinGecko resolution)
 	walletAdapter := portfolio.NewWalletRepositoryAdapter(walletRepo)
 	portfolioPriceAdapter := portfolio.NewPortfolioPriceAdapter(assetSvc)
-	portfolioSvc := portfolio.NewPortfolioService(ledgerRepo, walletAdapter, portfolioPriceAdapter)
+	wacAdapter := portfolio.NewWACAdapter(taxLotSvc)
+	portfolioSvc := portfolio.NewPortfolioService(ledgerRepo, walletAdapter, portfolioPriceAdapter, wacAdapter)
 	log.Info("Portfolio service initialized")
 
 	// Initialize transaction service (read-only, for enriched views)
@@ -181,7 +188,9 @@ func main() {
 		zerionProvider := zerion.NewSyncAdapter(zerionClient)
 		log.Info("Zerion sync provider initialized")
 
-		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, zerionProvider)
+		rawTxRepo := postgres.NewRawTransactionRepository(db.Pool)
+
+		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, zerionProvider, zerionProvider, rawTxRepo)
 		log.Info("Sync service initialized",
 			"poll_interval", cfg.SyncPollInterval,
 			"provider", "zerion")

@@ -13,10 +13,27 @@ export interface AssetBalance {
   price: string // Human-readable decimal, e.g. "82304.52"
 }
 
+export interface ChainHolding {
+  chain_id: string
+  amount: string
+  usd_value: string
+  wac?: string
+}
+
+export interface HoldingGroup {
+  asset_id: string
+  total_amount: string
+  total_usd_value: string
+  price: string
+  aggregated_wac?: string
+  chains: ChainHolding[]
+}
+
 export interface WalletBalance {
   wallet_id: string
   wallet_name: string
   assets: AssetBalance[]
+  holdings: HoldingGroup[]
   total_usd: string // Human-readable decimal, e.g. "41.15"
 }
 

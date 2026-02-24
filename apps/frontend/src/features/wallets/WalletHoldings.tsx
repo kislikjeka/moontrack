@@ -1,6 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { usePositionWAC } from '@/hooks/useTaxLots'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Table,
@@ -15,87 +14,16 @@ import { ChainIcon } from '@/components/domain/ChainIcon'
 import { LotDetailTable } from '@/components/domain/LotDetailTable'
 import { formatUSD, formatCrypto } from '@/lib/format'
 import { getChainName } from '@/types/wallet'
-import type { AssetBalance } from '@/types/portfolio'
+import type { HoldingGroup, ChainHolding } from '@/types/portfolio'
 
 interface WalletHoldingsProps {
   walletId: string
-  assets: AssetBalance[]
+  holdings: HoldingGroup[]
 }
 
-interface ChainBreakdown {
-  chainId: string
-  amount: number
-  value: number
-  wac: string | null
-}
-
-interface AssetGroup {
-  assetId: string
-  totalAmount: number
-  totalValue: number
-  price: number
-  aggregatedWAC: string | null
-  chains: ChainBreakdown[]
-}
-
-export function WalletHoldings({ walletId, assets }: WalletHoldingsProps) {
-  const { data: positions } = usePositionWAC(walletId)
+export function WalletHoldings({ walletId, holdings }: WalletHoldingsProps) {
   const [expandedAssets, setExpandedAssets] = useState<Set<string>>(new Set())
   const [expandedChains, setExpandedChains] = useState<Set<string>>(new Set())
-
-  const groups = useMemo<AssetGroup[]>(() => {
-    // Group assets by asset_id
-    const groupMap = new Map<string, { entries: AssetBalance[] }>()
-
-    for (const asset of assets) {
-      const existing = groupMap.get(asset.asset_id)
-      if (existing) {
-        existing.entries.push(asset)
-      } else {
-        groupMap.set(asset.asset_id, { entries: [asset] })
-      }
-    }
-
-    return Array.from(groupMap.entries()).map(([assetId, { entries }]) => {
-      const totalAmount = entries.reduce((sum, e) => sum + parseFloat(e.amount), 0)
-      const totalValue = entries.reduce((sum, e) => sum + parseFloat(e.usd_value), 0)
-      const price = parseFloat(entries[0].price)
-
-      // Find aggregated WAC position for this asset
-      const aggregatedPos = positions?.find(
-        (p) => p.asset === assetId && p.is_aggregated === true
-      )
-      const aggregatedWAC = aggregatedPos?.weighted_avg_cost ?? null
-
-      // Build per-chain breakdown
-      const chains: ChainBreakdown[] = entries
-        .filter((e) => e.chain_id)
-        .map((e) => {
-          const chainPos = positions?.find(
-            (p) =>
-              p.asset === assetId &&
-              p.chain_id === e.chain_id &&
-              !p.is_aggregated
-          )
-
-          return {
-            chainId: e.chain_id!,
-            amount: parseFloat(e.amount),
-            value: parseFloat(e.usd_value),
-            wac: chainPos?.weighted_avg_cost ?? null,
-          }
-        })
-
-      return {
-        assetId,
-        totalAmount,
-        totalValue,
-        price,
-        aggregatedWAC,
-        chains,
-      }
-    })
-  }, [assets, positions])
 
   const toggleAsset = (assetId: string) => {
     setExpandedAssets((prev) => {
@@ -121,10 +49,7 @@ export function WalletHoldings({ walletId, assets }: WalletHoldingsProps) {
     })
   }
 
-  // Unique asset count for the card title
-  const uniqueAssetCount = groups.length
-
-  if (!assets || assets.length === 0) {
+  if (!holdings || holdings.length === 0) {
     return (
       <Card>
         <CardHeader>
@@ -143,7 +68,7 @@ export function WalletHoldings({ walletId, assets }: WalletHoldingsProps) {
     <Card>
       <CardHeader>
         <CardTitle className="text-base font-medium">
-          Holdings ({uniqueAssetCount})
+          Holdings ({holdings.length})
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -158,17 +83,17 @@ export function WalletHoldings({ walletId, assets }: WalletHoldingsProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {groups.map((group) => {
-              const isAssetExpanded = expandedAssets.has(group.assetId)
+            {holdings.map((group) => {
+              const isAssetExpanded = expandedAssets.has(group.asset_id)
 
               return (
                 <AssetGroupRows
-                  key={group.assetId}
+                  key={group.asset_id}
                   group={group}
                   walletId={walletId}
                   isExpanded={isAssetExpanded}
                   expandedChains={expandedChains}
-                  onToggleAsset={() => toggleAsset(group.assetId)}
+                  onToggleAsset={() => toggleAsset(group.asset_id)}
                   onToggleChain={toggleChain}
                 />
               )
@@ -181,7 +106,7 @@ export function WalletHoldings({ walletId, assets }: WalletHoldingsProps) {
 }
 
 interface AssetGroupRowsProps {
-  group: AssetGroup
+  group: HoldingGroup
   walletId: string
   isExpanded: boolean
   expandedChains: Set<string>
@@ -209,22 +134,22 @@ function AssetGroupRows({
         <TableCell>
           <div className="flex items-center gap-2">
             <Chevron className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-            <AssetIcon symbol={group.assetId} size="sm" />
-            <span className="font-medium">{group.assetId}</span>
+            <AssetIcon symbol={group.asset_id} size="sm" />
+            <span className="font-medium">{group.asset_id}</span>
           </div>
         </TableCell>
         <TableCell className="text-right font-mono">
-          {formatCrypto(group.totalAmount)}
+          {formatCrypto(group.total_amount)}
         </TableCell>
         <TableCell className="text-right">
           {formatUSD(group.price)}
         </TableCell>
         <TableCell className="text-right font-medium">
-          {formatUSD(group.totalValue)}
+          {formatUSD(group.total_usd_value)}
         </TableCell>
         <TableCell className="text-right">
-          {group.aggregatedWAC ? (
-            <span className="font-mono">{formatUSD(group.aggregatedWAC)}</span>
+          {group.aggregated_wac ? (
+            <span className="font-mono">{formatUSD(group.aggregated_wac)}</span>
           ) : (
             <span className="text-muted-foreground">&mdash;</span>
           )}
@@ -234,7 +159,7 @@ function AssetGroupRows({
       {/* Level 2: Chain breakdowns */}
       {isExpanded &&
         group.chains.map((chain) => {
-          const chainKey = `${group.assetId}:${chain.chainId}`
+          const chainKey = `${group.asset_id}:${chain.chain_id}`
           const isChainExpanded = expandedChains.has(chainKey)
           const ChainChevron = isChainExpanded ? ChevronDown : ChevronRight
 
@@ -242,8 +167,7 @@ function AssetGroupRows({
             <ChainRows
               key={chainKey}
               chain={chain}
-              chainKey={chainKey}
-              assetId={group.assetId}
+              assetId={group.asset_id}
               walletId={walletId}
               isExpanded={isChainExpanded}
               ChevronIcon={ChainChevron}
@@ -256,8 +180,7 @@ function AssetGroupRows({
 }
 
 interface ChainRowsProps {
-  chain: ChainBreakdown
-  chainKey: string
+  chain: ChainHolding
   assetId: string
   walletId: string
   isExpanded: boolean
@@ -283,8 +206,8 @@ function ChainRows({
         <TableCell className="pl-8">
           <div className="flex items-center gap-2">
             <ChevronIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-            <ChainIcon chainId={chain.chainId} size="sm" showTooltip />
-            <span className="text-sm">{getChainName(chain.chainId)}</span>
+            <ChainIcon chainId={chain.chain_id} size="sm" showTooltip />
+            <span className="text-sm">{getChainName(chain.chain_id)}</span>
           </div>
         </TableCell>
         <TableCell className="text-right font-mono">
@@ -293,7 +216,7 @@ function ChainRows({
         {/* No Price column at chain level */}
         <TableCell />
         <TableCell className="text-right font-medium">
-          {formatUSD(chain.value)}
+          {formatUSD(chain.usd_value)}
         </TableCell>
         <TableCell className="text-right">
           {chain.wac ? (
@@ -309,7 +232,7 @@ function ChainRows({
         <TableRow>
           <TableCell colSpan={5} className="p-0">
             <div className="bg-muted/30 px-4 py-2">
-              <LotDetailTable walletId={walletId} asset={assetId} />
+              <LotDetailTable walletId={walletId} asset={assetId} chainId={chain.chain_id} />
             </div>
           </TableCell>
         </TableRow>

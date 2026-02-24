@@ -1,0 +1,1 @@
+-- No-op: we don't want to revert to broken zero-time dates.

@@ -35,9 +35,11 @@ type Wallet struct {
 	SyncStatus    SyncStatus `json:"sync_status" db:"sync_status"`   // Sync state
 	LastSyncAt    *time.Time `json:"last_sync_at" db:"last_sync_at"`
 	SyncError     *string    `json:"sync_error,omitempty" db:"sync_error"`
-	SyncStartedAt *time.Time `json:"sync_started_at,omitempty" db:"sync_started_at"`
-	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
+	SyncStartedAt   *time.Time `json:"sync_started_at,omitempty" db:"sync_started_at"`
+	SyncPhase       string     `json:"sync_phase" db:"sync_phase"`
+	CollectCursorAt *time.Time `json:"collect_cursor_at,omitempty" db:"collect_cursor_at"`
+	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 // ValidateCreate validates wallet fields for creation

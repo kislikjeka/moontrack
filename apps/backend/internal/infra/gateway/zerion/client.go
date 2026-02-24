@@ -131,8 +131,10 @@ func (c *Client) GetTransactions(ctx context.Context, address string, chainIDs [
 
 	params := url.Values{}
 	params.Set("filter[chain_ids]", strings.Join(chainIDs, ","))
-	params.Set("filter[min_mined_at]", strconv.FormatInt(since.UnixMilli(), 10))
-	params.Set("filter[asset_types]", "fungible")
+	if !since.IsZero() {
+		params.Set("filter[min_mined_at]", strconv.FormatInt(since.UnixMilli(), 10))
+	}
+	params.Set("filter[asset_types]", "fungible,nft")
 	params.Set("filter[trash]", "only_non_trash")
 
 	var allTxs []TransactionData
@@ -161,6 +163,44 @@ func (c *Client) GetTransactions(ctx context.Context, address string, chainIDs [
 
 	c.logger.Info("transactions fetched", "address", address, "count", len(allTxs), "duration_ms", time.Since(fetchStart).Milliseconds())
 	return allTxs, nil
+}
+
+// GetPositions fetches wallet positions (token balances) for an address on the given chains.
+// It handles pagination by following the absolute Links.Next URL.
+func (c *Client) GetPositions(ctx context.Context, address string, chainIDs []string) ([]PositionData, error) {
+	fetchStart := time.Now()
+	reqURL := fmt.Sprintf("%s/wallets/%s/positions/", c.baseURL, address)
+
+	params := url.Values{}
+	params.Set("filter[position_types]", "wallet")
+	params.Set("filter[chain_ids]", strings.Join(chainIDs, ","))
+	params.Set("filter[trash]", "only_non_trash")
+
+	var allPositions []PositionData
+
+	for {
+		body, err := c.doRequest(ctx, http.MethodGet, reqURL, params)
+		if err != nil {
+			return nil, fmt.Errorf("GetPositions failed: %w", err)
+		}
+
+		var resp PositionResponse
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return nil, fmt.Errorf("failed to decode Zerion positions response: %w", err)
+		}
+
+		allPositions = append(allPositions, resp.Data...)
+
+		if resp.Links.Next == "" {
+			break
+		}
+
+		reqURL = resp.Links.Next
+		params = nil
+	}
+
+	c.logger.Info("positions fetched", "address", address, "count", len(allPositions), "duration_ms", time.Since(fetchStart).Milliseconds())
+	return allPositions, nil
 }
 
 // RateLimitError represents a rate limit error from Zerion API

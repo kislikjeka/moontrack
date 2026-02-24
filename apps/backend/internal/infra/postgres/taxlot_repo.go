@@ -155,7 +155,7 @@ func (r *TaxLotRepository) GetOpenLotsFIFO(ctx context.Context, accountID uuid.U
 		       linked_source_lot_id, created_at
 		FROM tax_lots
 		WHERE account_id = $1 AND asset = $2 AND quantity_remaining > 0
-		ORDER BY acquired_at ASC
+		ORDER BY acquired_at ASC, created_at ASC, id ASC
 		FOR UPDATE
 	`
 
@@ -198,7 +198,7 @@ func (r *TaxLotRepository) GetLotsByAccount(ctx context.Context, accountID uuid.
 		       linked_source_lot_id, created_at
 		FROM tax_lots
 		WHERE account_id = $1 AND asset = $2
-		ORDER BY acquired_at ASC
+		ORDER BY acquired_at ASC, created_at ASC, id ASC
 	`
 
 	q := r.getQueryer(ctx)
@@ -221,7 +221,7 @@ func (r *TaxLotRepository) GetLotsByTransaction(ctx context.Context, txID uuid.U
 		       linked_source_lot_id, created_at
 		FROM tax_lots
 		WHERE transaction_id = $1
-		ORDER BY acquired_at ASC
+		ORDER BY acquired_at ASC, created_at ASC, id ASC
 	`
 
 	q := r.getQueryer(ctx)

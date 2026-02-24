@@ -1,6 +1,12 @@
 package ledger
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"math/big"
+
+	"github.com/google/uuid"
+)
 
 // Account errors
 var (
@@ -33,3 +39,25 @@ var (
 var (
 	ErrNegativeBalance = errors.New("balance cannot be negative")
 )
+
+// NegativeBalanceError is a structured error returned when a transaction would
+// result in a negative account balance. It carries enough info for callers
+// (e.g. sync service) to programmatically create genesis balances.
+type NegativeBalanceError struct {
+	AccountID uuid.UUID
+	AssetID   string
+	Current   *big.Int
+	Change    *big.Int
+	NewBal    *big.Int // the would-be negative balance
+}
+
+func (e *NegativeBalanceError) Error() string {
+	return fmt.Sprintf(
+		"account %s would have negative balance for %s: current=%s, change=%s, new=%s",
+		e.AccountID.String(),
+		e.AssetID,
+		e.Current.String(),
+		e.Change.String(),
+		e.NewBal.String(),
+	)
+}

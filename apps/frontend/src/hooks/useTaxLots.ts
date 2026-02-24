@@ -2,10 +2,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { taxlotService } from '@/services/taxlot'
 import type { TaxLot, PositionWAC, OverrideCostBasisRequest, TransactionLotImpact } from '@/types/taxlot'
 
-export function useTaxLots(walletId: string, asset: string) {
+export function useTaxLots(walletId: string, asset: string, chainId?: string) {
   return useQuery<TaxLot[]>({
-    queryKey: ['tax-lots', walletId, asset],
-    queryFn: () => taxlotService.getLots(walletId, asset),
+    queryKey: ['tax-lots', walletId, asset, chainId],
+    queryFn: () => taxlotService.getLots(walletId, asset, chainId),
     enabled: !!walletId && !!asset,
   })
 }

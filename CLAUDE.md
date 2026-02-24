@@ -8,11 +8,12 @@ Crypto portfolio tracker with double-entry accounting.
 
 ## Tech Stack
 
-- **Backend**: Go 1.21+ (Chi router, PostgreSQL 14+, Redis 7+)
-- **Frontend**: React 18+ (Vite, TanStack Query, React Router v6)
-- **Database**: PostgreSQL with NUMERIC(78,0) for financial precision
+- **Backend**: Go 1.24+ (Chi router, PostgreSQL 14+, Redis 7+)
+- **Frontend**: React 18+ (Vite, TanStack Query, React Router v6, Zustand, Radix UI + Tailwind)
+- **Database**: PostgreSQL (TimescaleDB) with NUMERIC(78,0) for financial precision
 - **Auth**: JWT + bcrypt
 - **Prices**: CoinGecko API with Redis caching
+- **Blockchain Sync**: Zerion API (decoded transactions)
 
 ## Backend Architecture
 
@@ -21,10 +22,10 @@ Layered architecture with strict dependency rules (outer layers depend on inner)
 ```
 apps/backend/internal/
 ├── ledger/           # Core: double-entry accounting engine
-├── platform/         # Services: user, wallet, asset (business logic)
-├── module/           # Handlers: manual income/outcome, adjustment
-├── transport/        # HTTP: handlers, middleware, router
-└── infra/            # Infrastructure: postgres, redis, coingecko
+├── platform/         # Services: user, wallet, asset, taxlot, sync
+├── module/           # Handlers & HTTP facades: manual, transfer, swap, defi, genesis, adjustment, portfolio, transactions
+├── transport/        # HTTP: router, middleware (JWT, rate-limit, CORS)
+└── infra/            # Infrastructure: postgres repos, redis cache, coingecko/zerion API clients
 ```
 
 **Layer dependencies**: `transport` → `module` → `platform` → `ledger` ← `infra`
@@ -38,7 +39,28 @@ New transaction types are added as modules without modifying ledger core:
 3. `GenerateEntries()` must produce balanced entries (SUM(debit) = SUM(credit))
 4. Register in `cmd/api/main.go`: `handlerRegistry.Register(myHandler)`
 
-See `internal/module/manual/handler_income.go` for reference implementation.
+See `internal/module/transfer/handler_transfer_in.go` for reference implementation.
+
+**Registered transaction types**: `transfer_in`, `transfer_out`, `internal_transfer`, `manual_income`, `manual_outcome`, `asset_adjustment`, `swap`, `defi_deposit`, `defi_withdraw`, `defi_claim`, `genesis_balance`
+
+### DI Wiring
+
+All dependency injection is manual in `cmd/api/main.go`. The wiring order:
+1. Infra (postgres pool, redis client, API clients)
+2. Repositories (postgres repos)
+3. Core services (ledger, handler registry)
+4. Platform services (user, wallet, asset, taxlot, sync)
+5. Post-balance hooks (TaxLotHook for cost basis tracking)
+6. Module handlers (registered into handler registry)
+7. HTTP handlers and router
+
+### Tax Lot System
+
+Built on top of the ledger via `TaxLotHook` (post-balance hook):
+- **TaxLot**: Created for every asset acquisition, tracks quantity remaining
+- **LotDisposal**: FIFO-ordered asset dispositions with PnL
+- **Effective Cost Basis Priority**: User override > linked source lot > auto-calculated
+- **WAC**: Materialized view with lazy refresh strategy
 
 ## Commands
 
@@ -49,54 +71,50 @@ just up / down / status / logs
 # Database
 just migrate-up / migrate-down / db-reset / db-connect
 just migrate-create name    # Create new migration
+just db-clear-data          # Clear portfolio data, keep user accounts
 
 # Development
-just dev                    # Run both backend and frontend
-just backend-run            # Backend only
-just frontend-run           # Frontend only
+just dev                    # Backend (Docker) + frontend (local Vite)
+just dev-logs               # Same + Grafana/Loki/Promtail stack
 
 # Build & Test
-just backend-build / backend-test
-just frontend-build / frontend-test
-just check                  # All checks (format, lint, test)
+just test                   # All tests (backend + frontend)
+just backend-test           # cd apps/backend && go test ./... -v -short
+just frontend-test          # cd apps/frontend && bun test
+just fmt                    # Format (go fmt)
+just lint                   # Lint (golangci-lint + eslint)
+just check                  # fmt + lint + test
 
 # Run specific tests
 cd apps/backend && go test -run TestName ./internal/path/...
-cd apps/backend && go test -v ./internal/ledger/...          # All ledger tests
+cd apps/backend && go test -v ./internal/ledger/...
 ```
 
-## API Endpoints
+## API Endpoints (all under `/api/v1`)
 
 **Public:**
-- `POST /auth/register` - Registration
-- `POST /auth/login` - Login
+- `POST /auth/register`, `POST /auth/login`
 
 **Protected (JWT):**
-- `GET /portfolio` - Portfolio summary
-- `GET/POST /wallets` - List/create wallets
-- `GET /wallets/{id}` - Wallet details
-- `GET/POST /transactions` - List/record transactions
+- `GET/POST /wallets`, `GET/PUT/DELETE /wallets/{id}`, `POST /wallets/{id}/sync`
+- `GET/POST /transactions`, `GET /transactions/{id}`, `GET /transactions/{id}/lots`
+- `GET /portfolio`, `GET /portfolio/assets`
+- `GET /lots`, `PUT /lots/{id}/override`, `GET /positions/wac`
+- `GET /assets`, `GET /assets/search`, `POST /assets/prices`, `GET /assets/{id}`, `GET /assets/{id}/price`, `GET /assets/{id}/history`
 
 **Health:**
-- `GET /health` - Basic health
-- `GET /health/ready` - Readiness probe
-- `GET /health/detailed` - Full health with dependencies
+- `GET /health`, `GET /health/live`, `GET /health/ready`, `GET /health/detailed`
 
-## Environment Variables
+## Environment
 
-`apps/backend/.env`:
-```
-DATABASE_URL=postgres://postgres:password@localhost:5432/moontrack_dev
-REDIS_URL=localhost:6379
-JWT_SECRET=your-secret-key-min-32-chars
-COINGECKO_API_KEY=your-api-key
-PORT=8080
-ENV=development
-```
+Root `.env` file (copy from `.env.example`). Key variables:
+- `DATABASE_URL`, `REDIS_URL` — infra connections
+- `JWT_SECRET` — min 32 chars
+- `COINGECKO_API_KEY` — price data (free tier)
+- `ZERION_API_KEY` — blockchain sync (omit to disable sync)
+- `VITE_API_BASE_URL` — frontend API target
 
-## Project Setup / Environment
-
-This project uses Go (backend) and TypeScript (frontend). Docker is used for the dev environment with TimescaleDB/Postgres. The backend uses DI wiring. Always use Docker-internal hostnames (e.g., `postgres` not `localhost`) in DATABASE_URL when running inside Docker containers.
+Docker uses internal hostnames (`postgres`, `redis`). Backend runs in Docker with hot-reload (air). Frontend runs locally with Vite.
 
 ## Key Principles
 
@@ -112,7 +130,7 @@ When committing changes, always commit ALL modified files unless explicitly told
 
 ## Architecture & Design
 
-Before proposing architectural changes, thoroughly read existing ADRs, PRDs, and architecture docs in the repo to ensure proposals don't contradict established patterns (e.g., lot-based accounting, existing DI wiring, entity hierarchy).
+Before proposing architectural changes, thoroughly read existing ADRs, PRDs, and architecture docs in `docs/` to ensure proposals don't contradict established patterns (e.g., lot-based accounting, existing DI wiring, entity hierarchy).
 
 ## Go Development
 

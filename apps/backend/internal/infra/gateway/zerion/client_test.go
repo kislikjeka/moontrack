@@ -92,6 +92,26 @@ func TestClient_QueryParams(t *testing.T) {
 	assert.Contains(t, receivedURL, "filter%5Btrash%5D=only_non_trash")
 }
 
+func TestClient_ZeroSinceOmitsMinMinedAt(t *testing.T) {
+	var receivedURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedURL = r.URL.String()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(zerion.TransactionResponse{})
+	}))
+	defer server.Close()
+
+	client := zerion.NewClient("key", testLogger())
+	client.SetBaseURL(server.URL)
+
+	_, err := client.GetTransactions(context.Background(), "0xwallet", []string{"ethereum"}, time.Time{})
+	require.NoError(t, err)
+
+	assert.NotContains(t, receivedURL, "filter%5Bmin_mined_at%5D", "zero since should omit min_mined_at filter")
+	assert.Contains(t, receivedURL, "filter%5Bchain_ids%5D=ethereum")
+	assert.Contains(t, receivedURL, "filter%5Basset_types%5D=fungible")
+}
+
 // =============================================================================
 // Pagination Tests
 // =============================================================================

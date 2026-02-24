@@ -26,6 +26,7 @@ func TestTransactionType_IsValid(t *testing.T) {
 		ledger.TxTypeDefiDeposit,
 		ledger.TxTypeDefiWithdraw,
 		ledger.TxTypeDefiClaim,
+		ledger.TxTypeGenesisBalance,
 	}
 
 	for _, tt := range validTypes {
@@ -54,6 +55,7 @@ func TestTransactionType_Label(t *testing.T) {
 		{ledger.TxTypeDefiDeposit, "DeFi Deposit"},
 		{ledger.TxTypeDefiWithdraw, "DeFi Withdraw"},
 		{ledger.TxTypeDefiClaim, "DeFi Claim"},
+		{ledger.TxTypeGenesisBalance, "Genesis Balance"},
 	}
 
 	for _, tt := range tests {
@@ -70,8 +72,8 @@ func TestTransactionType_Label(t *testing.T) {
 func TestAllTransactionTypes(t *testing.T) {
 	allTypes := ledger.AllTransactionTypes()
 
-	// Should contain all 10 types
-	require.Len(t, allTypes, 10)
+	// Should contain all 11 types
+	require.Len(t, allTypes, 11)
 
 	// Verify new DeFi types are included
 	typeSet := make(map[ledger.TransactionType]bool)
@@ -83,6 +85,7 @@ func TestAllTransactionTypes(t *testing.T) {
 	assert.True(t, typeSet[ledger.TxTypeDefiDeposit], "AllTransactionTypes should include defi_deposit")
 	assert.True(t, typeSet[ledger.TxTypeDefiWithdraw], "AllTransactionTypes should include defi_withdraw")
 	assert.True(t, typeSet[ledger.TxTypeDefiClaim], "AllTransactionTypes should include defi_claim")
+	assert.True(t, typeSet[ledger.TxTypeGenesisBalance], "AllTransactionTypes should include genesis_balance")
 }
 
 // =============================================================================

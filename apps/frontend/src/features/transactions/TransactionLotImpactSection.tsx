@@ -122,8 +122,7 @@ export function TransactionLotImpactSection({ transactionId }: TransactionLotImp
               </TableHeader>
               <TableBody>
                 {data.disposals.map((disposal) => {
-                  const gainLoss = parseFloat(disposal.proceeds_per_unit) - parseFloat(disposal.lot_cost_basis_per_unit)
-                  const isPositive = gainLoss >= 0
+                  const isPositive = !disposal.realized_gain_loss.startsWith('-')
 
                   return (
                     <TableRow key={disposal.id}>
@@ -133,7 +132,7 @@ export function TransactionLotImpactSection({ transactionId }: TransactionLotImp
                       <TableCell className="text-right font-mono">{formatUSD(disposal.lot_cost_basis_per_unit)}</TableCell>
                       <TableCell className="text-right font-mono">{formatUSD(disposal.proceeds_per_unit)}</TableCell>
                       <TableCell className={`text-right font-mono ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                        {isPositive ? '+' : ''}{formatUSD(gainLoss)}
+                        {isPositive ? '+' : ''}{formatUSD(disposal.realized_gain_loss)}
                       </TableCell>
                     </TableRow>
                   )

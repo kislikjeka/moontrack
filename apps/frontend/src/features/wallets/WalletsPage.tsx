@@ -20,7 +20,7 @@ export default function WalletsPage() {
       wb.wallet_id,
       {
         total: wb.total_usd,
-        assetCount: wb.assets.length,
+        assetCount: wb.holdings?.length || wb.assets.length,
       },
     ])
   )

@@ -485,14 +485,13 @@ func (v *transactionValidator) validateAccountBalances(ctx context.Context, tx *
 				"current", currentBalance.Balance.String(),
 				"change", info.change.String(),
 				"new", newBalance.String())
-			return fmt.Errorf(
-				"account %s would have negative balance for %s: current=%s, change=%s, new=%s",
-				accountID.String(),
-				info.assetID,
-				currentBalance.Balance.String(),
-				info.change.String(),
-				newBalance.String(),
-			)
+			return &NegativeBalanceError{
+				AccountID: accountID,
+				AssetID:   info.assetID,
+				Current:   new(big.Int).Set(currentBalance.Balance),
+				Change:    new(big.Int).Set(info.change),
+				NewBal:    new(big.Int).Set(newBalance),
+			}
 		}
 	}
 

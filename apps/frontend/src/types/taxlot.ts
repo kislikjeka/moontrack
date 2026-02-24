@@ -8,6 +8,7 @@ export interface TaxLot {
   id: string
   transaction_id: string
   account_id: string
+  chain_id?: string
   asset: string
   quantity_acquired: string
   quantity_remaining: string
@@ -48,6 +49,7 @@ export interface DisposalDetail {
   lot_acquired_at: string
   lot_cost_basis_per_unit: string
   lot_auto_cost_basis_source: CostBasisSource
+  realized_gain_loss: string
 }
 
 export interface TransactionLotImpact {
