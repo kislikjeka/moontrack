@@ -16,11 +16,13 @@ import (
 	infraRedis "github.com/kislikjeka/moontrack/internal/infra/redis"
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/module/adjustment"
+	"github.com/kislikjeka/moontrack/internal/module/liquidity"
 	"github.com/kislikjeka/moontrack/internal/module/portfolio"
 	"github.com/kislikjeka/moontrack/internal/module/swap"
 	"github.com/kislikjeka/moontrack/internal/module/transactions"
 	"github.com/kislikjeka/moontrack/internal/module/transfer"
 	"github.com/kislikjeka/moontrack/internal/platform/asset"
+	"github.com/kislikjeka/moontrack/internal/platform/lpposition"
 	"github.com/kislikjeka/moontrack/internal/platform/sync"
 	"github.com/kislikjeka/moontrack/internal/platform/user"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
@@ -132,6 +134,24 @@ func main() {
 	handlerRegistry.Register(swapHandler)
 	log.Info("Registered swap handler")
 
+	// LP handlers (Uniswap V3 liquidity pool operations)
+	lpDepositHandler := liquidity.NewLPDepositHandler(walletRepo, log)
+	handlerRegistry.Register(lpDepositHandler)
+	log.Info("Registered LP deposit handler")
+
+	lpWithdrawHandler := liquidity.NewLPWithdrawHandler(walletRepo, log)
+	handlerRegistry.Register(lpWithdrawHandler)
+	log.Info("Registered LP withdraw handler")
+
+	lpClaimFeesHandler := liquidity.NewLPClaimFeesHandler(walletRepo, log)
+	handlerRegistry.Register(lpClaimFeesHandler)
+	log.Info("Registered LP claim fees handler")
+
+	// LP Position tracking
+	lpPositionRepo := postgres.NewLPPositionRepo(db.Pool)
+	lpPositionSvc := lpposition.NewService(lpPositionRepo, log)
+	log.Info("LP Position service initialized")
+
 	// Initialize portfolio service (using AssetService for prices)
 	walletAdapter := portfolio.NewWalletRepositoryAdapter(walletRepo)
 	portfolioSvc := portfolio.NewPortfolioService(ledgerRepo, walletAdapter, assetSvc)
@@ -156,7 +176,7 @@ func main() {
 		zerionProvider := zerion.NewSyncAdapter(zerionClient)
 		log.Info("Zerion sync provider initialized")
 
-		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, zerionProvider, nil)
+		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, zerionProvider, lpPositionSvc)
 		log.Info("Sync service initialized",
 			"poll_interval", cfg.SyncPollInterval,
 			"provider", "zerion")
@@ -174,6 +194,7 @@ func main() {
 	transactionHandler := handler.NewTransactionHandler(ledgerSvc, transactionSvc, assetSvc)
 	portfolioHandler := handler.NewPortfolioHandler(portfolioSvc)
 	assetHandler := handler.NewAssetHandler(assetSvc)
+	lpPositionHTTPHandler := handler.NewLPPositionHandler(lpPositionSvc)
 	docsHandler := handler.NewDocsHandler(openAPISpec)
 
 	// Create JWT middleware
@@ -197,6 +218,7 @@ func main() {
 		TransactionHandler: transactionHandler,
 		PortfolioHandler:   portfolioHandler,
 		AssetHandler:       assetHandler,
+		LPPositionHandler:  lpPositionHTTPHandler,
 		DocsHandler:        docsHandler,
 		JWTMiddleware:      jwtMiddleware,
 	}
