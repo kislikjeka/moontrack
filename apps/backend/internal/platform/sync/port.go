@@ -102,21 +102,25 @@ type DecodedTransaction struct {
 // DecodedTransfer represents a single token movement within a decoded transaction
 type DecodedTransfer struct {
 	AssetSymbol     string
-	ContractAddress string // Lowercase, empty for native tokens
+	AssetName       string            // Human-readable name (e.g. "Ethereum"), empty if unknown
+	ContractAddress string            // Lowercase, empty for native tokens
 	Decimals        int
 	Amount          *big.Int          // Amount in base units (never nil)
 	Direction       TransferDirection // "in" or "out"
 	Sender          string            // Lowercase address
 	Recipient       string            // Lowercase address
 	USDPrice        *big.Int          // USD price scaled by 1e8, nil if unavailable
+	IconURL         string            // Token icon URL, empty if unavailable
 }
 
 // DecodedFee represents the gas fee for a decoded transaction
 type DecodedFee struct {
 	AssetSymbol string
+	AssetName   string   // Human-readable name, empty if unknown
 	Amount      *big.Int // Amount in base units (never nil)
 	Decimals    int
 	USDPrice    *big.Int // USD price scaled by 1e8, nil if unavailable
+	IconURL     string   // Token icon URL, empty if unavailable
 }
 
 // TransactionDataProvider fetches decoded transactions from an external API

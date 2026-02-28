@@ -23,17 +23,20 @@ type TransactionService struct {
 	ledgerService  *ledger.Service
 	walletRepo     WalletRepository
 	readerRegistry *ReaderRegistry
+	resolver       *money.DecimalResolver
 }
 
 // NewTransactionService creates a new transaction service
 func NewTransactionService(
 	ledgerService *ledger.Service,
 	walletRepo WalletRepository,
+	resolver *money.DecimalResolver,
 ) *TransactionService {
 	return &TransactionService{
 		ledgerService:  ledgerService,
 		walletRepo:     walletRepo,
 		readerRegistry: NewReaderRegistry(),
+		resolver:       resolver,
 	}
 }
 
@@ -71,7 +74,7 @@ func (s *TransactionService) ListTransactions(ctx context.Context, filters ledge
 	// Enrich transactions
 	result := make([]TransactionListItem, 0, len(transactions))
 	for _, tx := range transactions {
-		item, err := s.toListItem(tx, wallets)
+		item, err := s.toListItem(ctx, tx, wallets)
 		if err != nil {
 			continue // Skip transactions that can't be enriched
 		}
@@ -112,7 +115,7 @@ func (s *TransactionService) GetTransaction(ctx context.Context, id uuid.UUID, u
 
 	// Build response
 	walletName := w.Name
-	displayAmount := FormatDisplayAmount(fields.Amount, fields.AssetID)
+	displayAmount := s.formatDisplayAmountResolved(ctx, fields.Amount, fields.AssetID)
 
 	usdValue := ""
 	if fields.USDValue != nil && fields.USDValue.Sign() > 0 {
@@ -141,14 +144,14 @@ func (s *TransactionService) GetTransaction(ctx context.Context, id uuid.UUID, u
 		RecordedAt: tx.RecordedAt.Format(time.RFC3339),
 		Notes:      fields.Notes,
 		RawData:    tx.RawData,
-		Entries:    s.toEntryResponses(tx.Entries, walletName),
+		Entries:    s.toEntryResponses(ctx, tx.Entries, walletName),
 	}
 
 	return detail, nil
 }
 
 // toListItem converts a domain transaction to a list item DTO
-func (s *TransactionService) toListItem(tx *ledger.Transaction, wallets map[uuid.UUID]*wallet.Wallet) (*TransactionListItem, error) {
+func (s *TransactionService) toListItem(ctx context.Context, tx *ledger.Transaction, wallets map[uuid.UUID]*wallet.Wallet) (*TransactionListItem, error) {
 	reader, ok := s.readerRegistry.GetReader(tx.Type)
 	if !ok {
 		return nil, fmt.Errorf("unknown transaction type: %s", tx.Type)
@@ -164,7 +167,7 @@ func (s *TransactionService) toListItem(tx *ledger.Transaction, wallets map[uuid
 		walletName = w.Name
 	}
 
-	displayAmount := FormatDisplayAmount(fields.Amount, fields.AssetID)
+	displayAmount := s.formatDisplayAmountResolved(ctx, fields.Amount, fields.AssetID)
 
 	usdValue := ""
 	if fields.USDValue != nil && fields.USDValue.Sign() > 0 {
@@ -190,7 +193,7 @@ func (s *TransactionService) toListItem(tx *ledger.Transaction, wallets map[uuid
 }
 
 // toEntryResponses converts domain entries to entry response DTOs
-func (s *TransactionService) toEntryResponses(entries []*ledger.Entry, walletName string) []EntryResponse {
+func (s *TransactionService) toEntryResponses(ctx context.Context, entries []*ledger.Entry, walletName string) []EntryResponse {
 	result := make([]EntryResponse, len(entries))
 	for i, entry := range entries {
 		accountCode := ""
@@ -213,7 +216,7 @@ func (s *TransactionService) toEntryResponses(entries []*ledger.Entry, walletNam
 			accountLabel = accountCode
 		}
 
-		displayAmount := FormatDisplayAmount(entry.Amount, entry.AssetID)
+		displayAmount := s.formatDisplayAmountResolved(ctx, entry.Amount, entry.AssetID)
 
 		result[i] = EntryResponse{
 			ID:            entry.ID.String(),
@@ -231,14 +234,19 @@ func (s *TransactionService) toEntryResponses(entries []*ledger.Entry, walletNam
 	return result
 }
 
-// FormatDisplayAmount converts base units to display format
-// e.g., "50000000" satoshi → "0.5 BTC"
-func FormatDisplayAmount(amount *big.Int, assetID string) string {
+// formatDisplayAmountResolved formats an amount using the resolver for decimal lookup.
+func (s *TransactionService) formatDisplayAmountResolved(ctx context.Context, amount *big.Int, assetID string) string {
 	if amount == nil {
 		return "0"
 	}
 
-	decimals := money.GetDecimals(assetID)
+	var decimals int
+	if s.resolver != nil {
+		decimals = s.resolver.ResolveSymbolOnly(ctx, assetID)
+	} else {
+		decimals = money.GetDecimals(assetID)
+	}
+
 	if decimals == 0 {
 		return fmt.Sprintf("%s %s", amount.String(), strings.ToUpper(assetID))
 	}

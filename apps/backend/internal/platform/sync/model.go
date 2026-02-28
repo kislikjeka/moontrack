@@ -66,8 +66,10 @@ func (f *AssetFlow) NetFlow() *big.Int {
 type OnChainPosition struct {
 	ChainID         string
 	AssetSymbol     string
+	AssetName       string // Human-readable name, empty if unknown
 	ContractAddress string
 	Decimals        int
 	Quantity        *big.Int
 	USDPrice        *big.Int
+	IconURL         string // Token icon URL, empty if unavailable
 }

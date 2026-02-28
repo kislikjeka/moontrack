@@ -209,8 +209,38 @@ func newTestWallet(userID uuid.UUID, address string) *wallet.Wallet {
 	}
 }
 
+// =============================================================================
+// Mock ZerionAssetRepository
+// =============================================================================
+
+type MockZerionAssetRepository struct {
+	mock.Mock
+}
+
+func (m *MockZerionAssetRepository) Upsert(ctx context.Context, asset *sync.ZerionAsset) error {
+	args := m.Called(ctx, asset)
+	return args.Error(0)
+}
+
+func (m *MockZerionAssetRepository) GetBySymbol(ctx context.Context, symbol, chainID string) (*sync.ZerionAsset, error) {
+	args := m.Called(ctx, symbol, chainID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*sync.ZerionAsset), args.Error(1)
+}
+
+func (m *MockZerionAssetRepository) GetAllBySymbol(ctx context.Context, symbol string) ([]sync.ZerionAsset, error) {
+	args := m.Called(ctx, symbol)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]sync.ZerionAsset), args.Error(1)
+}
+
 // Ensure mocks implement the interfaces
 var _ sync.WalletRepository = (*MockWalletRepository)(nil)
 var _ sync.LedgerService = (*MockLedgerService)(nil)
 var _ sync.RawTransactionRepository = (*MockRawTransactionRepository)(nil)
 var _ sync.PositionDataProvider = (*MockPositionDataProvider)(nil)
+var _ sync.ZerionAssetRepository = (*MockZerionAssetRepository)(nil)

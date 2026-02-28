@@ -15,10 +15,11 @@ import (
 
 // Reconciler handles Phase 2: comparing transaction flows with on-chain balances
 type Reconciler struct {
-	rawTxRepo   RawTransactionRepository
-	posProvider PositionDataProvider
-	walletRepo  WalletRepository
-	logger      *logger.Logger
+	rawTxRepo       RawTransactionRepository
+	posProvider     PositionDataProvider
+	walletRepo      WalletRepository
+	zerionAssetRepo ZerionAssetRepository
+	logger          *logger.Logger
 }
 
 // NewReconciler creates a new Reconciler
@@ -26,13 +27,15 @@ func NewReconciler(
 	rawTxRepo RawTransactionRepository,
 	posProvider PositionDataProvider,
 	walletRepo WalletRepository,
+	zerionAssetRepo ZerionAssetRepository,
 	log *logger.Logger,
 ) *Reconciler {
 	return &Reconciler{
-		rawTxRepo:   rawTxRepo,
-		posProvider: posProvider,
-		walletRepo:  walletRepo,
-		logger:      log.WithField("component", "reconciler"),
+		rawTxRepo:       rawTxRepo,
+		posProvider:     posProvider,
+		walletRepo:      walletRepo,
+		zerionAssetRepo: zerionAssetRepo,
+		logger:          log.WithField("component", "reconciler"),
 	}
 }
 
@@ -73,6 +76,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, erro
 	r.logger.Info("fetched on-chain positions",
 		"wallet_id", w.ID,
 		"positions", len(positions))
+
+	// Extract and upsert asset metadata from positions
+	r.extractAssetsFromPositions(ctx, positions)
 
 	// Get earliest mined_at for genesis timestamp
 	earliestMinedAt, err := r.rawTxRepo.GetEarliestMinedAt(ctx, w.ID)
@@ -201,6 +207,32 @@ func calculateNetFlows(raws []*RawTransaction) (map[string]*AssetFlow, error) {
 	}
 
 	return flows, nil
+}
+
+// extractAssetsFromPositions upserts asset metadata from on-chain positions
+func (r *Reconciler) extractAssetsFromPositions(ctx context.Context, positions []OnChainPosition) {
+	if r.zerionAssetRepo == nil {
+		return
+	}
+
+	for _, pos := range positions {
+		if pos.AssetSymbol == "" {
+			continue
+		}
+		if err := r.zerionAssetRepo.Upsert(ctx, &ZerionAsset{
+			Symbol:          pos.AssetSymbol,
+			Name:            pos.AssetName,
+			ChainID:         pos.ChainID,
+			ContractAddress: pos.ContractAddress,
+			Decimals:        pos.Decimals,
+			IconURL:         pos.IconURL,
+		}); err != nil {
+			r.logger.Warn("failed to upsert zerion asset from position",
+				"symbol", pos.AssetSymbol,
+				"chain_id", pos.ChainID,
+				"error", err)
+		}
+	}
 }
 
 // buildGenesisRaw creates a synthetic genesis RawTransaction for a missing balance delta

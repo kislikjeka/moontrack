@@ -27,11 +27,12 @@ type TaxLotServiceInterface interface {
 // TaxLotHandler handles tax lot HTTP requests.
 type TaxLotHandler struct {
 	taxLotService TaxLotServiceInterface
+	resolver      *money.DecimalResolver
 }
 
 // NewTaxLotHandler creates a new TaxLotHandler.
-func NewTaxLotHandler(taxLotService TaxLotServiceInterface) *TaxLotHandler {
-	return &TaxLotHandler{taxLotService: taxLotService}
+func NewTaxLotHandler(taxLotService TaxLotServiceInterface, resolver *money.DecimalResolver) *TaxLotHandler {
+	return &TaxLotHandler{taxLotService: taxLotService, resolver: resolver}
 }
 
 // --- Response types ---
@@ -150,7 +151,8 @@ func (h *TaxLotHandler) GetLots(w http.ResponseWriter, r *http.Request) {
 
 	response := make([]TaxLotResponse, 0, len(lots))
 	for _, lot := range lots {
-		response = append(response, toTaxLotResponse(lot))
+		decimals := h.resolveDecimals(r.Context(), lot.Asset)
+		response = append(response, toTaxLotResponse(lot, decimals))
 	}
 
 	respondWithJSON(w, http.StatusOK, TaxLotsListResponse{Lots: response})
@@ -249,7 +251,7 @@ func (h *TaxLotHandler) GetWAC(w http.ResponseWriter, r *http.Request) {
 
 	response := make([]PositionWACResponse, 0, len(positions))
 	for _, p := range positions {
-		decimals := money.GetDecimals(p.Asset)
+		decimals := h.resolveDecimals(r.Context(), p.Asset)
 		response = append(response, PositionWACResponse{
 			WalletID:        p.WalletID.String(),
 			WalletName:      p.WalletName,
@@ -292,12 +294,13 @@ func (h *TaxLotHandler) GetTransactionLots(w http.ResponseWriter, r *http.Reques
 
 	acquiredLots := make([]TaxLotResponse, 0, len(impact.AcquiredLots))
 	for _, lot := range impact.AcquiredLots {
-		acquiredLots = append(acquiredLots, toTaxLotResponse(lot))
+		decimals := h.resolveDecimals(r.Context(), lot.Asset)
+		acquiredLots = append(acquiredLots, toTaxLotResponse(lot, decimals))
 	}
 
 	disposals := make([]DisposalDetailResponse, 0, len(impact.Disposals))
 	for _, d := range impact.Disposals {
-		decimals := money.GetDecimals(d.LotAsset)
+		decimals := h.resolveDecimals(r.Context(), d.LotAsset)
 		disposals = append(disposals, DisposalDetailResponse{
 			ID:               d.ID.String(),
 			LotID:            d.LotID.String(),
@@ -320,10 +323,17 @@ func (h *TaxLotHandler) GetTransactionLots(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+// resolveDecimals uses the resolver if available, otherwise falls back to the hardcoded map.
+func (h *TaxLotHandler) resolveDecimals(ctx context.Context, symbol string) int {
+	if h.resolver != nil {
+		return h.resolver.ResolveSymbolOnly(ctx, symbol)
+	}
+	return money.GetDecimals(symbol)
+}
+
 // --- Helpers ---
 
-func toTaxLotResponse(lot *ledger.TaxLot) TaxLotResponse {
-	decimals := money.GetDecimals(lot.Asset)
+func toTaxLotResponse(lot *ledger.TaxLot, decimals int) TaxLotResponse {
 
 	resp := TaxLotResponse{
 		ID:                        lot.ID.String(),

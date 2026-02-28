@@ -41,6 +41,7 @@ func NewService(
 	zerionProvider TransactionDataProvider,
 	posProvider PositionDataProvider,
 	rawTxRepo RawTransactionRepository,
+	zerionAssetRepo ZerionAssetRepository,
 ) *Service {
 	if config == nil {
 		config = DefaultConfig()
@@ -66,11 +67,11 @@ func NewService(
 
 	// Create sub-services for the 3-phase sync pipeline
 	if zerionProvider != nil && rawTxRepo != nil {
-		svc.collector = NewCollector(zerionProvider, rawTxRepo, walletRepo, config, logger)
+		svc.collector = NewCollector(zerionProvider, rawTxRepo, walletRepo, zerionAssetRepo, config, logger)
 		svc.processor = NewProcessor(rawTxRepo, walletRepo, zerionProc, ledgerSvc, logger)
 	}
 	if posProvider != nil && rawTxRepo != nil {
-		svc.reconciler = NewReconciler(rawTxRepo, posProvider, walletRepo, logger)
+		svc.reconciler = NewReconciler(rawTxRepo, posProvider, walletRepo, zerionAssetRepo, logger)
 	}
 
 	return svc

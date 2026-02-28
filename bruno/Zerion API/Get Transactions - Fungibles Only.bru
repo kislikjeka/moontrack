@@ -5,16 +5,22 @@ meta {
 }
 
 get {
-  url: {{ZERION_BASE_URL}}/wallets/{{WALLET_ADDRESS}}/transactions/?filter[chain_ids]=base&filter[asset_types]=fungible&filter[trash]=only_non_trash
+  url: {{ZERION_BASE_URL}}/wallets/{{WALLET_ADDRESS}}/transactions/?filter[chain_ids]=base&filter[asset_types]=fungible,nft&filter[trash]=only_non_trash
   body: none
   auth: basic
 }
 
-auth:basic {
-  username: {{ZERION_API_KEY}}
-  password:
+params:query {
+  filter[chain_ids]: base
+  filter[asset_types]: fungible,nft
+  filter[trash]: only_non_trash
 }
 
 headers {
   Accept: application/json
+}
+
+auth:basic {
+  username: {{ZERION_API_KEY}}
+  password: 
 }

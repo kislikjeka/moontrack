@@ -101,10 +101,9 @@ func (h *PortfolioHandler) GetPortfolioSummary(w http.ResponseWriter, r *http.Re
 	// Convert to response format (convert big.Int to strings, amounts to human-readable)
 	assetHoldings := make([]AssetHoldingResponse, len(summary.AssetHoldings))
 	for i, holding := range summary.AssetHoldings {
-		decimals := money.GetDecimals(holding.AssetID)
 		assetHoldings[i] = AssetHoldingResponse{
 			AssetID:      holding.AssetID,
-			TotalAmount:  money.FromBaseUnits(holding.TotalAmount, decimals),
+			TotalAmount:  money.FromBaseUnits(holding.TotalAmount, holding.Decimals),
 			USDValue:     money.FormatUSD(holding.USDValue),
 			CurrentPrice: money.FormatUSD(holding.CurrentPrice),
 		}
@@ -126,7 +125,7 @@ func (h *PortfolioHandler) GetPortfolioSummary(w http.ResponseWriter, r *http.Re
 		// Serialize holdings
 		holdings := make([]HoldingGroupResponse, len(w.Holdings))
 		for k, hg := range w.Holdings {
-			decimals := money.GetDecimals(hg.AssetID)
+			decimals := hg.Decimals
 			chains := make([]ChainHoldingResponse, len(hg.Chains))
 			for l, ch := range hg.Chains {
 				chains[l] = ChainHoldingResponse{

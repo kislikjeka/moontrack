@@ -59,6 +59,7 @@ type HoldingGroup struct {
 	TotalUSDValue *big.Int        `json:"total_usd_value"`
 	Price         *big.Int        `json:"price"`
 	AggregatedWAC *big.Int        `json:"aggregated_wac"` // nullable
+	Decimals      int             `json:"decimals"`
 	Chains        []ChainHolding  `json:"chains"`
 }
 
@@ -75,7 +76,8 @@ type PortfolioService struct {
 	ledgerRepo   LedgerRepository
 	walletRepo   WalletRepository
 	priceService PriceService
-	wacProvider  WACProvider // nilable — WAC enrichment is optional
+	wacProvider  WACProvider              // nilable — WAC enrichment is optional
+	resolver     *money.DecimalResolver  // nilable — falls back to money.GetDecimals
 }
 
 // NewPortfolioService creates a new portfolio service
@@ -84,12 +86,14 @@ func NewPortfolioService(
 	walletRepo WalletRepository,
 	priceService PriceService,
 	wacProvider WACProvider,
+	resolver *money.DecimalResolver,
 ) *PortfolioService {
 	return &PortfolioService{
 		ledgerRepo:   ledgerRepo,
 		walletRepo:   walletRepo,
 		priceService: priceService,
 		wacProvider:  wacProvider,
+		resolver:     resolver,
 	}
 }
 
@@ -99,6 +103,7 @@ type AssetHolding struct {
 	TotalAmount  *big.Int `json:"total_amount"`  // Total amount in base units
 	USDValue     *big.Int `json:"usd_value"`     // Current USD value (scaled by 10^8)
 	CurrentPrice *big.Int `json:"current_price"` // Current price per unit (scaled by 10^8)
+	Decimals     int      `json:"decimals"`      // Asset decimal places for display conversion
 }
 
 // WalletBalance represents balance for a single wallet
@@ -219,7 +224,7 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 		prices[assetID] = price
 
 		// Calculate USD value: (amount * price) / 10^decimals
-		decimals := money.GetDecimals(assetID)
+		decimals := s.resolveDecimals(ctx, assetID, "")
 		usdValue := money.CalcUSDValue(amount, price, decimals)
 
 		assetHoldings = append(assetHoldings, AssetHolding{
@@ -227,6 +232,7 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 			TotalAmount:  new(big.Int).Set(amount),
 			USDValue:     usdValue,
 			CurrentPrice: price,
+			Decimals:     decimals,
 		})
 
 		totalUSD.Add(totalUSD, usdValue)
@@ -249,7 +255,7 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 			if price == nil {
 				price = big.NewInt(0)
 			}
-			decimals := money.GetDecimals(entry.AssetID)
+			decimals := s.resolveDecimals(ctx, entry.AssetID, entry.ChainID)
 			usdValue := money.CalcUSDValue(entry.Amount, price, decimals)
 			walletTotalUSD.Add(walletTotalUSD, usdValue)
 			assetBalances = append(assetBalances, AssetBalance{
@@ -294,11 +300,12 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 func (s *PortfolioService) buildHoldings(ctx context.Context, userID uuid.UUID, wb *WalletBalance) []HoldingGroup {
 	// Group assets by asset_id
 	type groupEntry struct {
-		assetID string
-		total   *big.Int
-		value   *big.Int
-		price   *big.Int
-		chains  []ChainHolding
+		assetID  string
+		total    *big.Int
+		value    *big.Int
+		price    *big.Int
+		decimals int
+		chains   []ChainHolding
 	}
 	groupMap := make(map[string]*groupEntry)
 	var order []string // preserve insertion order
@@ -307,10 +314,11 @@ func (s *PortfolioService) buildHoldings(ctx context.Context, userID uuid.UUID, 
 		g, ok := groupMap[ab.AssetID]
 		if !ok {
 			g = &groupEntry{
-				assetID: ab.AssetID,
-				total:   new(big.Int),
-				value:   new(big.Int),
-				price:   new(big.Int).Set(ab.Price),
+				assetID:  ab.AssetID,
+				total:    new(big.Int),
+				value:    new(big.Int),
+				price:    new(big.Int).Set(ab.Price),
+				decimals: ab.Decimals,
 			}
 			groupMap[ab.AssetID] = g
 			order = append(order, ab.AssetID)
@@ -370,6 +378,7 @@ func (s *PortfolioService) buildHoldings(ctx context.Context, userID uuid.UUID, 
 			TotalAmount:   g.total,
 			TotalUSDValue: g.value,
 			Price:         g.price,
+			Decimals:      g.decimals,
 			Chains:        g.chains,
 		}
 
@@ -431,7 +440,7 @@ func (s *PortfolioService) GetAssetBreakdown(ctx context.Context, userID uuid.UU
 			}
 
 			// Calculate USD value with proper decimals
-			decimals := money.GetDecimals(assetID)
+			decimals := s.resolveDecimals(ctx, assetID, "")
 			usdValue := money.CalcUSDValue(balance.Balance, price, decimals)
 
 			chainID := ""
@@ -460,4 +469,12 @@ func (s *PortfolioService) GetAssetBreakdown(ctx context.Context, userID uuid.UU
 	}
 
 	return walletBalances, nil
+}
+
+// resolveDecimals uses the resolver if available, otherwise falls back to hardcoded map.
+func (s *PortfolioService) resolveDecimals(ctx context.Context, symbol, chainID string) int {
+	if s.resolver != nil {
+		return s.resolver.Resolve(ctx, symbol, chainID)
+	}
+	return money.GetDecimals(symbol)
 }

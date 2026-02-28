@@ -25,6 +25,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/platform/asset"
 	"github.com/kislikjeka/moontrack/internal/platform/sync"
 	"github.com/kislikjeka/moontrack/internal/platform/taxlot"
+	"github.com/kislikjeka/moontrack/pkg/money"
 	"github.com/kislikjeka/moontrack/internal/platform/user"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi"
@@ -162,15 +163,22 @@ func main() {
 	handlerRegistry.Register(genesisHandler)
 	log.Info("Registered genesis balance handler")
 
+	// Initialize decimal resolver (cascading: assets table → zerion_assets table → hardcoded)
+	zerionAssetRepo := postgres.NewZerionAssetRepository(db.Pool)
+	assetDecimalSrc := asset.NewDecimalSource(assetRepo)
+	zerionDecimalSrc := sync.NewDecimalSource(zerionAssetRepo)
+	decimalResolver := money.NewDecimalResolver(assetDecimalSrc, zerionDecimalSrc)
+	log.Info("Decimal resolver initialized")
+
 	// Initialize portfolio service (using price adapter for symbol→CoinGecko resolution)
 	walletAdapter := portfolio.NewWalletRepositoryAdapter(walletRepo)
 	portfolioPriceAdapter := portfolio.NewPortfolioPriceAdapter(assetSvc)
 	wacAdapter := portfolio.NewWACAdapter(taxLotSvc)
-	portfolioSvc := portfolio.NewPortfolioService(ledgerRepo, walletAdapter, portfolioPriceAdapter, wacAdapter)
+	portfolioSvc := portfolio.NewPortfolioService(ledgerRepo, walletAdapter, portfolioPriceAdapter, wacAdapter, decimalResolver)
 	log.Info("Portfolio service initialized")
 
 	// Initialize transaction service (read-only, for enriched views)
-	transactionSvc := transactions.NewTransactionService(ledgerSvc, walletRepo)
+	transactionSvc := transactions.NewTransactionService(ledgerSvc, walletRepo, decimalResolver)
 	log.Info("Transaction service initialized")
 
 	// Initialize blockchain sync service
@@ -190,7 +198,7 @@ func main() {
 
 		rawTxRepo := postgres.NewRawTransactionRepository(db.Pool)
 
-		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, zerionProvider, zerionProvider, rawTxRepo)
+		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, zerionProvider, zerionProvider, rawTxRepo, zerionAssetRepo)
 		log.Info("Sync service initialized",
 			"poll_interval", cfg.SyncPollInterval,
 			"provider", "zerion")
@@ -208,7 +216,7 @@ func main() {
 	transactionHandler := handler.NewTransactionHandler(ledgerSvc, transactionSvc, assetSvc)
 	portfolioHandler := handler.NewPortfolioHandler(portfolioSvc)
 	assetHandler := handler.NewAssetHandler(assetSvc)
-	taxLotHandler := handler.NewTaxLotHandler(taxLotSvc)
+	taxLotHandler := handler.NewTaxLotHandler(taxLotSvc, decimalResolver)
 	docsHandler := handler.NewDocsHandler(openAPISpec)
 
 	// Create JWT middleware

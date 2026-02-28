@@ -107,8 +107,15 @@ func convertTransfer(zt ZTransfer, zerionChain string) sync.DecodedTransfer {
 	var contractAddr string
 	var decimals int
 
+	var assetName string
+	var iconURL string
+
 	if zt.FungibleInfo != nil {
 		symbol = zt.FungibleInfo.Symbol
+		assetName = zt.FungibleInfo.Name
+		if zt.FungibleInfo.Icon != nil {
+			iconURL = zt.FungibleInfo.Icon.URL
+		}
 		if impl := zt.FungibleInfo.ImplementationByChain(zerionChain); impl != nil {
 			contractAddr = strings.ToLower(impl.Address)
 			decimals = impl.Decimals
@@ -126,6 +133,7 @@ func convertTransfer(zt ZTransfer, zerionChain string) sync.DecodedTransfer {
 
 	return sync.DecodedTransfer{
 		AssetSymbol:     symbol,
+		AssetName:       assetName,
 		ContractAddress: contractAddr,
 		Decimals:        decimals,
 		Amount:          amount,
@@ -133,6 +141,7 @@ func convertTransfer(zt ZTransfer, zerionChain string) sync.DecodedTransfer {
 		Sender:          strings.ToLower(zt.Sender),
 		Recipient:       strings.ToLower(zt.Recipient),
 		USDPrice:        usdPrice,
+		IconURL:         iconURL,
 	}
 }
 
@@ -145,9 +154,15 @@ func convertFee(fee *Fee, zerionChain string) *sync.DecodedFee {
 	amount := parseIntString(fee.Quantity.Int)
 
 	var symbol string
+	var assetName string
+	var iconURL string
 	var decimals int
 	if fee.FungibleInfo != nil {
 		symbol = fee.FungibleInfo.Symbol
+		assetName = fee.FungibleInfo.Name
+		if fee.FungibleInfo.Icon != nil {
+			iconURL = fee.FungibleInfo.Icon.URL
+		}
 		if impl := fee.FungibleInfo.ImplementationByChain(zerionChain); impl != nil {
 			decimals = impl.Decimals
 		}
@@ -163,9 +178,11 @@ func convertFee(fee *Fee, zerionChain string) *sync.DecodedFee {
 
 	return &sync.DecodedFee{
 		AssetSymbol: symbol,
+		AssetName:   assetName,
 		Amount:      amount,
 		Decimals:    decimals,
 		USDPrice:    usdPrice,
+		IconURL:     iconURL,
 	}
 }
 
@@ -207,10 +224,16 @@ func (a *SyncAdapter) GetPositions(ctx context.Context, address string) ([]sync.
 		}
 
 		var symbol string
+		var assetName string
+		var iconURL string
 		var contractAddr string
 		var decimals int
 		if pd.Attributes.FungibleInfo != nil {
 			symbol = pd.Attributes.FungibleInfo.Symbol
+			assetName = pd.Attributes.FungibleInfo.Name
+			if pd.Attributes.FungibleInfo.Icon != nil {
+				iconURL = pd.Attributes.FungibleInfo.Icon.URL
+			}
 			if impl := pd.Attributes.FungibleInfo.ImplementationByChain(chain); impl != nil {
 				contractAddr = strings.ToLower(impl.Address)
 				decimals = impl.Decimals
@@ -230,10 +253,12 @@ func (a *SyncAdapter) GetPositions(ctx context.Context, address string) ([]sync.
 		result = append(result, sync.OnChainPosition{
 			ChainID:         chain,
 			AssetSymbol:     symbol,
+			AssetName:       assetName,
 			ContractAddress: contractAddr,
 			Decimals:        decimals,
 			Quantity:        quantity,
 			USDPrice:        usdPrice,
+			IconURL:         iconURL,
 		})
 	}
 

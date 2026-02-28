@@ -21,7 +21,7 @@ func TestPortfolioService_CalculatesTotalBalanceCorrectly(t *testing.T) {
 	ledgerRepo := setupMockLedgerRepository()
 	walletRepo := setupMockWalletRepository()
 	priceService := setupMockPriceService()
-	portfolioService := NewPortfolioService(ledgerRepo, walletRepo, priceService, nil)
+	portfolioService := NewPortfolioService(ledgerRepo, walletRepo, priceService, nil, nil)
 
 	userID := uuid.New()
 	wallet1 := uuid.New()
@@ -86,7 +86,7 @@ func TestPortfolioService_HandlesEmptyPortfolio(t *testing.T) {
 	ledgerRepo := setupMockLedgerRepository()
 	walletRepo := setupMockWalletRepository()
 	priceService := setupMockPriceService()
-	portfolioService := NewPortfolioService(ledgerRepo, walletRepo, priceService, nil)
+	portfolioService := NewPortfolioService(ledgerRepo, walletRepo, priceService, nil, nil)
 
 	userID := uuid.New()
 
@@ -110,7 +110,7 @@ func TestPortfolioService_HandlesPriceAPIFailure(t *testing.T) {
 	ledgerRepo := setupMockLedgerRepository()
 	walletRepo := setupMockWalletRepository()
 	priceService := setupMockPriceService()
-	portfolioService := NewPortfolioService(ledgerRepo, walletRepo, priceService, nil)
+	portfolioService := NewPortfolioService(ledgerRepo, walletRepo, priceService, nil, nil)
 
 	userID := uuid.New()
 	walletID := uuid.New()

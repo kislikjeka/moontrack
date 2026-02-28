@@ -14,11 +14,12 @@ import (
 
 // Collector handles Phase 1: collecting raw transactions from Zerion API
 type Collector struct {
-	zerionProvider TransactionDataProvider
-	rawTxRepo      RawTransactionRepository
-	walletRepo     WalletRepository
-	config         *Config
-	logger         *logger.Logger
+	zerionProvider   TransactionDataProvider
+	rawTxRepo        RawTransactionRepository
+	walletRepo       WalletRepository
+	zerionAssetRepo  ZerionAssetRepository
+	config           *Config
+	logger           *logger.Logger
 }
 
 // NewCollector creates a new Collector
@@ -26,15 +27,17 @@ func NewCollector(
 	zerionProvider TransactionDataProvider,
 	rawTxRepo RawTransactionRepository,
 	walletRepo WalletRepository,
+	zerionAssetRepo ZerionAssetRepository,
 	config *Config,
 	log *logger.Logger,
 ) *Collector {
 	return &Collector{
-		zerionProvider: zerionProvider,
-		rawTxRepo:      rawTxRepo,
-		walletRepo:     walletRepo,
-		config:         config,
-		logger:         log.WithField("component", "collector"),
+		zerionProvider:  zerionProvider,
+		rawTxRepo:       rawTxRepo,
+		walletRepo:      walletRepo,
+		zerionAssetRepo: zerionAssetRepo,
+		config:          config,
+		logger:          log.WithField("component", "collector"),
 	}
 }
 
@@ -89,6 +92,9 @@ func (c *Collector) collect(ctx context.Context, w *wallet.Wallet, since time.Ti
 		"wallet_id", w.ID,
 		"count", len(txs))
 
+	// Extract and upsert asset metadata before storing raw txs
+	c.extractAssets(ctx, txs)
+
 	var maxMinedAt *time.Time
 	count := 0
 
@@ -130,6 +136,66 @@ func (c *Collector) collect(ctx context.Context, w *wallet.Wallet, since time.Ti
 		"total_fetched", len(txs))
 
 	return count, nil
+}
+
+// extractAssets iterates over decoded transactions and upserts asset metadata
+// into the zerion_assets table. Deduplicates by symbol:chain within the batch.
+func (c *Collector) extractAssets(ctx context.Context, txs []DecodedTransaction) {
+	if c.zerionAssetRepo == nil {
+		return
+	}
+
+	type assetKey struct {
+		symbol  string
+		chainID string
+	}
+	seen := make(map[assetKey]bool)
+
+	for _, dt := range txs {
+		for _, t := range dt.Transfers {
+			if t.AssetSymbol == "" {
+				continue
+			}
+			key := assetKey{t.AssetSymbol, dt.ChainID}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+
+			if err := c.zerionAssetRepo.Upsert(ctx, &ZerionAsset{
+				Symbol:          t.AssetSymbol,
+				Name:            t.AssetName,
+				ChainID:         dt.ChainID,
+				ContractAddress: t.ContractAddress,
+				Decimals:        t.Decimals,
+				IconURL:         t.IconURL,
+			}); err != nil {
+				c.logger.Warn("failed to upsert zerion asset",
+					"symbol", t.AssetSymbol,
+					"chain_id", dt.ChainID,
+					"error", err)
+			}
+		}
+
+		if dt.Fee != nil && dt.Fee.AssetSymbol != "" {
+			key := assetKey{dt.Fee.AssetSymbol, dt.ChainID}
+			if !seen[key] {
+				seen[key] = true
+				if err := c.zerionAssetRepo.Upsert(ctx, &ZerionAsset{
+					Symbol:   dt.Fee.AssetSymbol,
+					Name:     dt.Fee.AssetName,
+					ChainID:  dt.ChainID,
+					Decimals: dt.Fee.Decimals,
+					IconURL:  dt.Fee.IconURL,
+				}); err != nil {
+					c.logger.Warn("failed to upsert zerion asset (fee)",
+						"symbol", dt.Fee.AssetSymbol,
+						"chain_id", dt.ChainID,
+						"error", err)
+				}
+			}
+		}
+	}
 }
 
 // decodedTxToRawTx converts a DecodedTransaction to a RawTransaction for storage
