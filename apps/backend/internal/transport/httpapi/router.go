@@ -21,6 +21,7 @@ type Config struct {
 	HealthHandler      *handler.HealthHandler
 	DocsHandler        *handler.DocsHandler
 	AssetHandler       *handler.AssetHandler
+	LPPositionHandler  *handler.LPPositionHandler
 	JWTMiddleware      func(http.Handler) http.Handler
 }
 
@@ -84,6 +85,12 @@ func NewRouter(cfg Config) *chi.Mux {
 				if cfg.PortfolioHandler != nil {
 					r.Get("/portfolio", cfg.PortfolioHandler.GetPortfolioSummary)
 					r.Get("/portfolio/assets", cfg.PortfolioHandler.GetAssetBreakdown)
+				}
+
+				// LP Position routes
+				if cfg.LPPositionHandler != nil {
+					r.Get("/lp/positions", cfg.LPPositionHandler.ListPositions)
+					r.Get("/lp/positions/{id}", cfg.LPPositionHandler.GetPosition)
 				}
 
 				// Asset routes (unified)
