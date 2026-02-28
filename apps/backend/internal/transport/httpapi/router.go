@@ -22,6 +22,7 @@ type Config struct {
 	DocsHandler        *handler.DocsHandler
 	AssetHandler       *handler.AssetHandler
 	TaxLotHandler      *handler.TaxLotHandler
+	LPPositionHandler  *handler.LPPositionHandler
 	JWTMiddleware      func(http.Handler) http.Handler
 }
 
@@ -93,6 +94,12 @@ func NewRouter(cfg Config) *chi.Mux {
 					r.Put("/lots/{id}/override", cfg.TaxLotHandler.OverrideCostBasis)
 					r.Get("/positions/wac", cfg.TaxLotHandler.GetWAC)
 					r.Get("/transactions/{id}/lots", cfg.TaxLotHandler.GetTransactionLots)
+				}
+
+				// LP Position routes
+				if cfg.LPPositionHandler != nil {
+					r.Get("/lp/positions", cfg.LPPositionHandler.ListPositions)
+					r.Get("/lp/positions/{id}", cfg.LPPositionHandler.GetPosition)
 				}
 
 				// Asset routes (unified)

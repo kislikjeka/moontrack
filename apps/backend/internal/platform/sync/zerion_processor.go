@@ -3,11 +3,13 @@ package sync
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"strings"
 
 	"github.com/google/uuid"
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/internal/platform/lpposition"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/kislikjeka/moontrack/pkg/money"
@@ -16,21 +18,23 @@ import (
 // ZerionProcessor handles decoded transaction classification and ledger recording
 // for transactions fetched via the Zerion API.
 type ZerionProcessor struct {
-	walletRepo   WalletRepository
-	ledgerSvc    LedgerService
-	classifier   *Classifier
-	logger       *logger.Logger
-	addressCache map[string][]uuid.UUID
+	walletRepo    WalletRepository
+	ledgerSvc     LedgerService
+	lpPositionSvc LPPositionService
+	classifier    *Classifier
+	logger        *logger.Logger
+	addressCache  map[string][]uuid.UUID
 }
 
 // NewZerionProcessor creates a new ZerionProcessor.
-func NewZerionProcessor(walletRepo WalletRepository, ledgerSvc LedgerService, logger *logger.Logger) *ZerionProcessor {
+func NewZerionProcessor(walletRepo WalletRepository, ledgerSvc LedgerService, lpPositionSvc LPPositionService, logger *logger.Logger) *ZerionProcessor {
 	return &ZerionProcessor{
-		walletRepo:   walletRepo,
-		ledgerSvc:    ledgerSvc,
-		classifier:   NewClassifier(),
-		logger:       logger,
-		addressCache: make(map[string][]uuid.UUID),
+		walletRepo:    walletRepo,
+		ledgerSvc:     ledgerSvc,
+		lpPositionSvc: lpPositionSvc,
+		classifier:    NewClassifier(),
+		logger:        logger,
+		addressCache:  make(map[string][]uuid.UUID),
 	}
 }
 
@@ -76,6 +80,12 @@ func (p *ZerionProcessor) ProcessTransaction(ctx context.Context, w *wallet.Wall
 		data = p.buildDeFiWithdrawData(w, tx)
 	case ledger.TxTypeDefiClaim:
 		data = p.buildDeFiClaimData(w, tx)
+	case ledger.TxTypeLPDeposit:
+		data = p.buildLPDepositData(w, tx)
+	case ledger.TxTypeLPWithdraw:
+		data = p.buildLPWithdrawData(w, tx)
+	case ledger.TxTypeLPClaimFees:
+		data = p.buildLPClaimFeesData(w, tx)
 	default:
 		p.logger.Warn("unhandled transaction type", "type", txType, "tx_hash", tx.TxHash)
 		return nil
@@ -91,6 +101,18 @@ func (p *ZerionProcessor) ProcessTransaction(ctx context.Context, w *wallet.Wall
 	}
 
 	p.logger.Debug("transaction recorded to ledger", "tx_hash", tx.TxHash, "tx_type", string(txType), "external_id", externalID)
+
+	// Post-process LP transactions: update LP position aggregates
+	if p.lpPositionSvc != nil {
+		switch txType {
+		case ledger.TxTypeLPDeposit:
+			p.handleLPDeposit(ctx, w, tx)
+		case ledger.TxTypeLPWithdraw:
+			p.handleLPWithdraw(ctx, w, tx)
+		case ledger.TxTypeLPClaimFees:
+			p.handleLPClaimFees(ctx, w, tx)
+		}
+	}
 
 	return nil
 }
@@ -174,6 +196,153 @@ func (p *ZerionProcessor) getWalletByAddress(ctx context.Context, address string
 // ClearCache clears the address cache.
 func (p *ZerionProcessor) ClearCache() {
 	p.addressCache = make(map[string][]uuid.UUID)
+}
+
+// --- LP position post-processing ---
+
+func (p *ZerionProcessor) handleLPDeposit(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
+	token0, token1 := p.extractTokenPair(tx.Transfers, DirectionOut)
+	if token0.AssetSymbol == "" {
+		p.logger.Warn("LP deposit: no outgoing transfers for token pair extraction", "tx_hash", tx.TxHash)
+		return
+	}
+
+	chainID := tx.ChainID
+	pos, err := p.lpPositionSvc.FindOrCreate(ctx, w.UserID, w.ID, chainID, tx.Protocol, tx.NFTTokenID, "",
+		lpposition.TokenInfo{Symbol: token0.AssetSymbol, Contract: token0.ContractAddress, Decimals: token0.Decimals},
+		lpposition.TokenInfo{Symbol: token1.AssetSymbol, Contract: token1.ContractAddress, Decimals: token1.Decimals},
+		tx.MinedAt,
+	)
+	if err != nil {
+		p.logger.Error("LP deposit: failed to find or create position", "tx_hash", tx.TxHash, "error", err)
+		return
+	}
+
+	token0Amt, token1Amt, usdValue := p.calcLPAmounts(tx.Transfers, DirectionOut, pos)
+	if err := p.lpPositionSvc.RecordDeposit(ctx, pos.ID, token0Amt, token1Amt, usdValue); err != nil {
+		p.logger.Error("LP deposit: failed to record deposit", "tx_hash", tx.TxHash, "position_id", pos.ID, "error", err)
+	}
+}
+
+func (p *ZerionProcessor) handleLPWithdraw(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
+	token0, token1 := p.extractTokenPair(tx.Transfers, DirectionIn)
+	if token0.AssetSymbol == "" {
+		p.logger.Warn("LP withdraw: no incoming transfers for token pair extraction", "tx_hash", tx.TxHash)
+		return
+	}
+
+	chainID := tx.ChainID
+
+	// Try to find position by NFT token ID first, then by token pair
+	var pos *lpposition.LPPosition
+	var err error
+	if tx.NFTTokenID != "" {
+		pos, err = p.lpPositionSvc.FindOrCreate(ctx, w.UserID, w.ID, chainID, tx.Protocol, tx.NFTTokenID, "",
+			lpposition.TokenInfo{Symbol: token0.AssetSymbol, Contract: token0.ContractAddress, Decimals: token0.Decimals},
+			lpposition.TokenInfo{Symbol: token1.AssetSymbol, Contract: token1.ContractAddress, Decimals: token1.Decimals},
+			tx.MinedAt,
+		)
+	} else {
+		pos, err = p.lpPositionSvc.FindOpenByTokenPair(ctx, w.ID, chainID, tx.Protocol, token0.AssetSymbol, token1.AssetSymbol)
+	}
+	if err != nil {
+		p.logger.Error("LP withdraw: failed to find position", "tx_hash", tx.TxHash, "error", err)
+		return
+	}
+	if pos == nil {
+		p.logger.Warn("LP withdraw: no open position found", "tx_hash", tx.TxHash, "token0", token0.AssetSymbol, "token1", token1.AssetSymbol)
+		return
+	}
+
+	token0Amt, token1Amt, usdValue := p.calcLPAmounts(tx.Transfers, DirectionIn, pos)
+	if err := p.lpPositionSvc.RecordWithdraw(ctx, pos.ID, token0Amt, token1Amt, usdValue); err != nil {
+		p.logger.Error("LP withdraw: failed to record withdraw", "tx_hash", tx.TxHash, "position_id", pos.ID, "error", err)
+	}
+}
+
+func (p *ZerionProcessor) handleLPClaimFees(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
+	token0, token1 := p.extractTokenPair(tx.Transfers, DirectionIn)
+	if token0.AssetSymbol == "" {
+		p.logger.Warn("LP claim fees: no incoming transfers for token pair extraction", "tx_hash", tx.TxHash)
+		return
+	}
+
+	chainID := tx.ChainID
+
+	var pos *lpposition.LPPosition
+	var err error
+	if tx.NFTTokenID != "" {
+		pos, err = p.lpPositionSvc.FindOrCreate(ctx, w.UserID, w.ID, chainID, tx.Protocol, tx.NFTTokenID, "",
+			lpposition.TokenInfo{Symbol: token0.AssetSymbol, Contract: token0.ContractAddress, Decimals: token0.Decimals},
+			lpposition.TokenInfo{Symbol: token1.AssetSymbol, Contract: token1.ContractAddress, Decimals: token1.Decimals},
+			tx.MinedAt,
+		)
+	} else {
+		pos, err = p.lpPositionSvc.FindOpenByTokenPair(ctx, w.ID, chainID, tx.Protocol, token0.AssetSymbol, token1.AssetSymbol)
+	}
+	if err != nil {
+		p.logger.Error("LP claim fees: failed to find position", "tx_hash", tx.TxHash, "error", err)
+		return
+	}
+	if pos == nil {
+		p.logger.Warn("LP claim fees: no open position found", "tx_hash", tx.TxHash, "token0", token0.AssetSymbol, "token1", token1.AssetSymbol)
+		return
+	}
+
+	token0Amt, token1Amt, usdValue := p.calcLPAmounts(tx.Transfers, DirectionIn, pos)
+	if err := p.lpPositionSvc.RecordClaimFees(ctx, pos.ID, token0Amt, token1Amt, usdValue); err != nil {
+		p.logger.Error("LP claim fees: failed to record claim", "tx_hash", tx.TxHash, "position_id", pos.ID, "error", err)
+	}
+}
+
+// extractTokenPair extracts token0 and token1 from transfers matching the given direction.
+// Returns up to two unique tokens. If only one token, token1 is returned with empty symbol.
+func (p *ZerionProcessor) extractTokenPair(transfers []DecodedTransfer, dir TransferDirection) (DecodedTransfer, DecodedTransfer) {
+	var token0, token1 DecodedTransfer
+	seen := make(map[string]bool)
+	for _, t := range transfers {
+		if t.Direction != dir {
+			continue
+		}
+		if !seen[t.AssetSymbol] {
+			seen[t.AssetSymbol] = true
+			if token0.AssetSymbol == "" {
+				token0 = t
+			} else {
+				token1 = t
+				break
+			}
+		}
+	}
+	return token0, token1
+}
+
+// calcLPAmounts calculates token0/token1 amounts and total USD value from transfers
+// matching a given direction, mapped to the position's token pair.
+func (p *ZerionProcessor) calcLPAmounts(transfers []DecodedTransfer, dir TransferDirection, pos *lpposition.LPPosition) (*big.Int, *big.Int, *big.Int) {
+	token0Amt := big.NewInt(0)
+	token1Amt := big.NewInt(0)
+	usdValue := big.NewInt(0)
+
+	for _, t := range transfers {
+		if t.Direction != dir {
+			continue
+		}
+		switch t.AssetSymbol {
+		case pos.Token0Symbol:
+			token0Amt.Add(token0Amt, t.Amount)
+		case pos.Token1Symbol:
+			token1Amt.Add(token1Amt, t.Amount)
+		}
+		if t.USDPrice != nil && t.Amount != nil {
+			// USDPrice is per-unit scaled by 1e8, Amount is in base units
+			// USD value = amount * price / 1e8 (to keep in same scale)
+			v := new(big.Int).Mul(t.Amount, t.USDPrice)
+			usdValue.Add(usdValue, v)
+		}
+	}
+
+	return token0Amt, token1Amt, usdValue
 }
 
 // --- Raw data builders ---
@@ -317,6 +486,30 @@ func (p *ZerionProcessor) buildDeFiWithdrawData(w *wallet.Wallet, tx DecodedTran
 }
 
 func (p *ZerionProcessor) buildDeFiClaimData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+	data := p.buildBaseData(w, tx)
+	data["transfers"] = p.buildTransferArray(tx.Transfers)
+	data["operation_type"] = string(tx.OperationType)
+	return data
+}
+
+func (p *ZerionProcessor) buildLPDepositData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+	data := p.buildBaseData(w, tx)
+	data["transfers"] = p.buildTransferArray(tx.Transfers)
+	data["operation_type"] = string(tx.OperationType)
+	if tx.NFTTokenID != "" {
+		data["nft_token_id"] = tx.NFTTokenID
+	}
+	return data
+}
+
+func (p *ZerionProcessor) buildLPWithdrawData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+	data := p.buildBaseData(w, tx)
+	data["transfers"] = p.buildTransferArray(tx.Transfers)
+	data["operation_type"] = string(tx.OperationType)
+	return data
+}
+
+func (p *ZerionProcessor) buildLPClaimFeesData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 	data["transfers"] = p.buildTransferArray(tx.Transfers)
 	data["operation_type"] = string(tx.OperationType)

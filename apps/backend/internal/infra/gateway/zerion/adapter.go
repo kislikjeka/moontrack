@@ -79,6 +79,21 @@ func convertTransaction(td TransactionData, chain string) (sync.DecodedTransacti
 		protocol = td.Attributes.ApplicationMD.Name
 	}
 
+	// Extract NFT token ID from NFT transfers (e.g., Uniswap V3 position NFT)
+	var nftTokenID string
+	for _, zt := range td.Attributes.Transfers {
+		if zt.NftInfo != nil && zt.NftInfo.TokenID != "" {
+			nftTokenID = zt.NftInfo.TokenID
+			break
+		}
+	}
+
+	// Extract act types
+	acts := make([]string, 0, len(td.Attributes.Acts))
+	for _, act := range td.Attributes.Acts {
+		acts = append(acts, act.Type)
+	}
+
 	return sync.DecodedTransaction{
 		ID:            td.ID,
 		TxHash:        td.Attributes.Hash,
@@ -89,6 +104,8 @@ func convertTransaction(td TransactionData, chain string) (sync.DecodedTransacti
 		Fee:           fee,
 		MinedAt:       minedAt,
 		Status:        td.Attributes.Status,
+		NFTTokenID:    nftTokenID,
+		Acts:          acts,
 	}, nil
 }
 

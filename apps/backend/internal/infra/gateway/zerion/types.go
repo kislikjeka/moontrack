@@ -54,6 +54,13 @@ type TransactionAttributes struct {
 	Transfers     []ZTransfer      `json:"transfers"`
 	Approvals     []Approval       `json:"approvals"`
 	ApplicationMD *ApplicationMeta `json:"application_metadata"`
+	Acts          []Act            `json:"acts"`
+}
+
+// Act represents a single action within a Zerion transaction
+type Act struct {
+	ID   string `json:"id"`
+	Type string `json:"type"` // "deposit", "withdraw", "claim", "execute", etc.
 }
 
 // Fee contains the transaction gas fee

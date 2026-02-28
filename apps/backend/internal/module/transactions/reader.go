@@ -1,6 +1,7 @@
 package transactions
 
 import (
+	"fmt"
 	"math/big"
 
 	"github.com/google/uuid"
@@ -54,6 +55,9 @@ func NewReaderRegistry() *ReaderRegistry {
 	r.register(&TransferOutReader{})
 	r.register(&InternalTransferReader{})
 	r.register(&AdjustmentReader{})
+	r.register(&LPReader{txType: ledger.TxTypeLPDeposit, direction: "out"})
+	r.register(&LPReader{txType: ledger.TxTypeLPWithdraw, direction: "in"})
+	r.register(&LPReader{txType: ledger.TxTypeLPClaimFees, direction: "in"})
 
 	return r
 }
@@ -269,4 +273,121 @@ func (r *AdjustmentReader) ReadForDetail(raw map[string]interface{}) (*DetailFie
 			"occurred_at":  adj.OccurredAt,
 		},
 	}, nil
+}
+
+// LPReader parses LP deposit/withdraw/claim_fees transactions.
+// LP raw data has a "transfers" array; the reader picks the primary transfer
+// based on direction (out for deposits, in for withdraws/claims).
+type LPReader struct {
+	txType    ledger.TransactionType
+	direction string // primary direction to display: "in" or "out"
+}
+
+func (r *LPReader) Type() ledger.TransactionType {
+	return r.txType
+}
+
+func (r *LPReader) ReadForList(raw map[string]interface{}) (*ListFields, error) {
+	walletIDStr, _ := raw["wallet_id"].(string)
+	walletID, err := uuid.Parse(walletIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid wallet_id in LP transaction: %w", err)
+	}
+
+	assetSymbol, amount, usdValue := r.primaryTransfer(raw)
+
+	return &ListFields{
+		WalletID:  walletID,
+		AssetID:   assetSymbol,
+		Amount:    amount,
+		USDValue:  usdValue,
+		Direction: r.direction,
+	}, nil
+}
+
+func (r *LPReader) ReadForDetail(raw map[string]interface{}) (*DetailFields, error) {
+	fields, err := r.ReadForList(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	extras := map[string]interface{}{}
+	if v, ok := raw["tx_hash"]; ok {
+		extras["tx_hash"] = v
+	}
+	if v, ok := raw["chain_id"]; ok {
+		extras["chain_id"] = v
+	}
+	if v, ok := raw["protocol"]; ok {
+		extras["protocol"] = v
+	}
+	if v, ok := raw["nft_token_id"]; ok {
+		extras["nft_token_id"] = v
+	}
+	if v, ok := raw["occurred_at"]; ok {
+		extras["occurred_at"] = v
+	}
+
+	return &DetailFields{
+		ListFields:  *fields,
+		ExtraFields: extras,
+	}, nil
+}
+
+// primaryTransfer finds the first transfer matching the reader's direction
+// and returns its symbol, amount, and USD value.
+func (r *LPReader) primaryTransfer(raw map[string]interface{}) (string, *big.Int, *big.Int) {
+	transfers, ok := raw["transfers"].([]map[string]interface{})
+	if !ok {
+		// Try type assertion for []interface{} (JSON roundtrip)
+		if arr, ok2 := raw["transfers"].([]interface{}); ok2 {
+			for _, item := range arr {
+				if m, ok3 := item.(map[string]interface{}); ok3 {
+					dir, _ := m["direction"].(string)
+					if dir == r.direction {
+						return r.extractTransferFields(m)
+					}
+				}
+			}
+		}
+		return "", big.NewInt(0), nil
+	}
+
+	for _, t := range transfers {
+		dir, _ := t["direction"].(string)
+		if dir == r.direction {
+			return r.extractTransferFields(t)
+		}
+	}
+
+	// Fallback: first transfer regardless of direction
+	if len(transfers) > 0 {
+		return r.extractTransferFields(transfers[0])
+	}
+	return "", big.NewInt(0), nil
+}
+
+func (r *LPReader) extractTransferFields(t map[string]interface{}) (string, *big.Int, *big.Int) {
+	symbol, _ := t["asset_symbol"].(string)
+	amount := big.NewInt(0)
+	if amtStr, ok := t["amount"].(string); ok {
+		amount, _ = new(big.Int).SetString(amtStr, 10)
+		if amount == nil {
+			amount = big.NewInt(0)
+		}
+	}
+
+	var usdValue *big.Int
+	decimals := 0
+	if d, ok := t["decimals"].(float64); ok {
+		decimals = int(d)
+	}
+	if priceStr, ok := t["usd_price"].(string); ok && priceStr != "0" {
+		price, ok := new(big.Int).SetString(priceStr, 10)
+		if ok {
+			usdValue = money.CalcUSDValue(amount, price, decimals)
+		}
+	}
+
+	return symbol, amount, usdValue
 }

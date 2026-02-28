@@ -18,11 +18,13 @@ import (
 	"github.com/kislikjeka/moontrack/internal/module/adjustment"
 	"github.com/kislikjeka/moontrack/internal/module/defi"
 	"github.com/kislikjeka/moontrack/internal/module/genesis"
+	"github.com/kislikjeka/moontrack/internal/module/liquidity"
 	"github.com/kislikjeka/moontrack/internal/module/portfolio"
 	"github.com/kislikjeka/moontrack/internal/module/swap"
 	"github.com/kislikjeka/moontrack/internal/module/transactions"
 	"github.com/kislikjeka/moontrack/internal/module/transfer"
 	"github.com/kislikjeka/moontrack/internal/platform/asset"
+	"github.com/kislikjeka/moontrack/internal/platform/lpposition"
 	"github.com/kislikjeka/moontrack/internal/platform/sync"
 	"github.com/kislikjeka/moontrack/internal/platform/taxlot"
 	"github.com/kislikjeka/moontrack/pkg/money"
@@ -163,6 +165,24 @@ func main() {
 	handlerRegistry.Register(genesisHandler)
 	log.Info("Registered genesis balance handler")
 
+	// LP handlers (Uniswap V3 liquidity pool operations)
+	lpDepositHandler := liquidity.NewLPDepositHandler(walletRepo, log)
+	handlerRegistry.Register(lpDepositHandler)
+	log.Info("Registered LP deposit handler")
+
+	lpWithdrawHandler := liquidity.NewLPWithdrawHandler(walletRepo, log)
+	handlerRegistry.Register(lpWithdrawHandler)
+	log.Info("Registered LP withdraw handler")
+
+	lpClaimFeesHandler := liquidity.NewLPClaimFeesHandler(walletRepo, log)
+	handlerRegistry.Register(lpClaimFeesHandler)
+	log.Info("Registered LP claim fees handler")
+
+	// LP Position tracking
+	lpPositionRepo := postgres.NewLPPositionRepo(db.Pool)
+	lpPositionSvc := lpposition.NewService(lpPositionRepo, log)
+	log.Info("LP Position service initialized")
+
 	// Initialize decimal resolver (cascading: assets table → zerion_assets table → hardcoded)
 	zerionAssetRepo := postgres.NewZerionAssetRepository(db.Pool)
 	assetDecimalSrc := asset.NewDecimalSource(assetRepo)
@@ -198,7 +218,7 @@ func main() {
 
 		rawTxRepo := postgres.NewRawTransactionRepository(db.Pool)
 
-		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, zerionProvider, zerionProvider, rawTxRepo, zerionAssetRepo)
+		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, zerionProvider, zerionProvider, rawTxRepo, zerionAssetRepo, lpPositionSvc)
 		log.Info("Sync service initialized",
 			"poll_interval", cfg.SyncPollInterval,
 			"provider", "zerion")
@@ -217,6 +237,7 @@ func main() {
 	portfolioHandler := handler.NewPortfolioHandler(portfolioSvc)
 	assetHandler := handler.NewAssetHandler(assetSvc)
 	taxLotHandler := handler.NewTaxLotHandler(taxLotSvc, decimalResolver)
+	lpPositionHTTPHandler := handler.NewLPPositionHandler(lpPositionSvc)
 	docsHandler := handler.NewDocsHandler(openAPISpec)
 
 	// Create JWT middleware
@@ -241,6 +262,7 @@ func main() {
 		PortfolioHandler:   portfolioHandler,
 		AssetHandler:       assetHandler,
 		TaxLotHandler:      taxLotHandler,
+		LPPositionHandler:  lpPositionHTTPHandler,
 		DocsHandler:        docsHandler,
 		JWTMiddleware:      jwtMiddleware,
 	}

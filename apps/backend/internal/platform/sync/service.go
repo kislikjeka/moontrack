@@ -42,6 +42,7 @@ func NewService(
 	posProvider PositionDataProvider,
 	rawTxRepo RawTransactionRepository,
 	zerionAssetRepo ZerionAssetRepository,
+	lpPositionSvc LPPositionService,
 ) *Service {
 	if config == nil {
 		config = DefaultConfig()
@@ -50,7 +51,7 @@ func NewService(
 
 	var zerionProc *ZerionProcessor
 	if zerionProvider != nil {
-		zerionProc = NewZerionProcessor(walletRepo, ledgerSvc, logger)
+		zerionProc = NewZerionProcessor(walletRepo, ledgerSvc, lpPositionSvc, logger)
 	}
 
 	svc := &Service{

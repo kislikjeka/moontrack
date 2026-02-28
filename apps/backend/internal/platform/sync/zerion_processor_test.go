@@ -25,7 +25,7 @@ import (
 
 func newZerionProcessor(walletRepo sync.WalletRepository, ledgerSvc sync.LedgerService) *sync.ZerionProcessor {
 	log := logger.New("test", os.Stdout)
-	return sync.NewZerionProcessor(walletRepo, ledgerSvc, log)
+	return sync.NewZerionProcessor(walletRepo, ledgerSvc, nil, log)
 }
 
 func newDecodedTransaction(opType sync.OperationType, transfers []sync.DecodedTransfer) sync.DecodedTransaction {
