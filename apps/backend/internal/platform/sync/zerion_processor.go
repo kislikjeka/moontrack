@@ -76,6 +76,12 @@ func (p *ZerionProcessor) ProcessTransaction(ctx context.Context, w *wallet.Wall
 		data = p.buildDeFiWithdrawData(w, tx)
 	case ledger.TxTypeDefiClaim:
 		data = p.buildDeFiClaimData(w, tx)
+	case ledger.TxTypeLPDeposit:
+		data = p.buildLPDepositData(w, tx)
+	case ledger.TxTypeLPWithdraw:
+		data = p.buildLPWithdrawData(w, tx)
+	case ledger.TxTypeLPClaimFees:
+		data = p.buildLPClaimFeesData(w, tx)
 	default:
 		p.logger.Warn("unhandled transaction type", "type", txType, "tx_hash", tx.TxHash)
 		return nil
@@ -311,6 +317,30 @@ func (p *ZerionProcessor) buildDeFiWithdrawData(w *wallet.Wallet, tx DecodedTran
 func (p *ZerionProcessor) buildDeFiClaimData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 	data["transfers"] = p.buildTransferArray(tx.Transfers)
+	return data
+}
+
+func (p *ZerionProcessor) buildLPDepositData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+	data := p.buildBaseData(w, tx)
+	data["transfers"] = p.buildTransferArray(tx.Transfers)
+	data["operation_type"] = string(tx.OperationType)
+	if tx.NFTTokenID != "" {
+		data["nft_token_id"] = tx.NFTTokenID
+	}
+	return data
+}
+
+func (p *ZerionProcessor) buildLPWithdrawData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+	data := p.buildBaseData(w, tx)
+	data["transfers"] = p.buildTransferArray(tx.Transfers)
+	data["operation_type"] = string(tx.OperationType)
+	return data
+}
+
+func (p *ZerionProcessor) buildLPClaimFeesData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+	data := p.buildBaseData(w, tx)
+	data["transfers"] = p.buildTransferArray(tx.Transfers)
+	data["operation_type"] = string(tx.OperationType)
 	return data
 }
 
