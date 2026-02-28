@@ -45,7 +45,7 @@ func newTestService(
 ) *pkgsync.Service {
 	log := logger.New("test", os.Stdout)
 	config := pkgsync.DefaultConfig()
-	return pkgsync.NewService(config, walletRepo, ledgerSvc, nil, log, provider)
+	return pkgsync.NewService(config, walletRepo, ledgerSvc, nil, log, provider, nil)
 }
 
 // =============================================================================

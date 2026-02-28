@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/internal/platform/lpposition"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 )
 
@@ -121,6 +122,15 @@ type DecodedFee struct {
 // TransactionDataProvider fetches decoded transactions from an external API
 type TransactionDataProvider interface {
 	GetTransactions(ctx context.Context, address string, chainID int64, since time.Time) ([]DecodedTransaction, error)
+}
+
+// LPPositionService manages LP position lifecycle
+type LPPositionService interface {
+	FindOrCreate(ctx context.Context, userID, walletID uuid.UUID, chainID, protocol, nftTokenID, contractAddress string, token0, token1 lpposition.TokenInfo, openedAt time.Time) (*lpposition.LPPosition, error)
+	FindOpenByTokenPair(ctx context.Context, walletID uuid.UUID, chainID, protocol, token0, token1 string) (*lpposition.LPPosition, error)
+	RecordDeposit(ctx context.Context, positionID uuid.UUID, token0Amt, token1Amt, usdValue *big.Int) error
+	RecordWithdraw(ctx context.Context, positionID uuid.UUID, token0Amt, token1Amt, usdValue *big.Int) error
+	RecordClaimFees(ctx context.Context, positionID uuid.UUID, token0Amt, token1Amt, usdValue *big.Int) error
 }
 
 // AssetService defines asset operations for sync

@@ -156,7 +156,7 @@ func main() {
 		zerionProvider := zerion.NewSyncAdapter(zerionClient)
 		log.Info("Zerion sync provider initialized")
 
-		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, zerionProvider)
+		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, zerionProvider, nil)
 		log.Info("Sync service initialized",
 			"poll_interval", cfg.SyncPollInterval,
 			"provider", "zerion")
