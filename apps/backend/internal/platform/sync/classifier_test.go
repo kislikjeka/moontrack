@@ -111,3 +111,75 @@ func TestClassifier_Execute_MultipleTransfersSameDirection(t *testing.T) {
 	}
 	assert.Equal(t, ledger.TxTypeTransferIn, c.Classify(tx))
 }
+
+func TestClassify_UniV3Deposit(t *testing.T) {
+	c := sync.NewClassifier()
+	tx := sync.DecodedTransaction{
+		OperationType: sync.OpDeposit,
+		Protocol:      "Uniswap V3",
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionOut, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
+	}
+	assert.Equal(t, ledger.TxTypeLPDeposit, c.Classify(tx))
+}
+
+func TestClassify_UniV3Withdraw(t *testing.T) {
+	c := sync.NewClassifier()
+	tx := sync.DecodedTransaction{
+		OperationType: sync.OpWithdraw,
+		Protocol:      "Uniswap V3",
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
+	}
+	assert.Equal(t, ledger.TxTypeLPWithdraw, c.Classify(tx))
+}
+
+func TestClassify_UniV3Mint(t *testing.T) {
+	c := sync.NewClassifier()
+	tx := sync.DecodedTransaction{
+		OperationType: sync.OpMint,
+		Protocol:      "Uniswap V3",
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionOut, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
+	}
+	assert.Equal(t, ledger.TxTypeLPDeposit, c.Classify(tx))
+}
+
+func TestClassify_UniV3Burn(t *testing.T) {
+	c := sync.NewClassifier()
+	tx := sync.DecodedTransaction{
+		OperationType: sync.OpBurn,
+		Protocol:      "Uniswap V3",
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
+	}
+	assert.Equal(t, ledger.TxTypeLPWithdraw, c.Classify(tx))
+}
+
+func TestClassify_UniV3ClaimFees(t *testing.T) {
+	c := sync.NewClassifier()
+	tx := sync.DecodedTransaction{
+		OperationType: sync.OpReceive,
+		Protocol:      "Uniswap V3",
+		Acts:          []string{"claim"},
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "USDC", Amount: big.NewInt(1)}},
+	}
+	assert.Equal(t, ledger.TxTypeLPClaimFees, c.Classify(tx))
+}
+
+func TestClassify_NonUniDeposit_StaysDeFi(t *testing.T) {
+	c := sync.NewClassifier()
+	tx := sync.DecodedTransaction{
+		OperationType: sync.OpDeposit,
+		Protocol:      "Aave",
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionOut, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
+	}
+	assert.Equal(t, ledger.TxTypeDefiDeposit, c.Classify(tx))
+}
+
+func TestClassify_ReceiveNonClaim_StaysTransferIn(t *testing.T) {
+	c := sync.NewClassifier()
+	tx := sync.DecodedTransaction{
+		OperationType: sync.OpReceive,
+		Protocol:      "Uniswap V3",
+		Acts:          []string{"execute"},
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
+	}
+	assert.Equal(t, ledger.TxTypeTransferIn, c.Classify(tx))
+}

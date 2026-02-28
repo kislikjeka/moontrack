@@ -13,6 +13,17 @@ func NewClassifier() *Classifier {
 // Classify determines the ledger TransactionType for a decoded transaction.
 // Returns empty string for transactions that should be skipped (e.g. approve).
 func (c *Classifier) Classify(tx DecodedTransaction) ledger.TransactionType {
+	if len(tx.Transfers) == 0 && tx.OperationType != OpApprove {
+		return ""
+	}
+
+	// Uniswap V3 LP-specific classification
+	if c.isUniswapV3(tx.Protocol) {
+		if lpType := c.classifyLP(tx); lpType != "" {
+			return lpType
+		}
+	}
+
 	switch tx.OperationType {
 	case OpTrade:
 		return ledger.TxTypeSwap
@@ -37,6 +48,35 @@ func (c *Classifier) Classify(tx DecodedTransaction) ledger.TransactionType {
 	default:
 		return c.classifyExecute(tx) // fallback: infer from transfers
 	}
+}
+
+func (c *Classifier) isUniswapV3(protocol string) bool {
+	return protocol == "Uniswap V3"
+}
+
+func (c *Classifier) classifyLP(tx DecodedTransaction) ledger.TransactionType {
+	switch tx.OperationType {
+	case OpDeposit, OpMint:
+		return ledger.TxTypeLPDeposit
+	case OpWithdraw, OpBurn:
+		return ledger.TxTypeLPWithdraw
+	case OpReceive:
+		if c.hasClaimAct(tx.Acts) {
+			return ledger.TxTypeLPClaimFees
+		}
+		return "" // fall through to default classification
+	default:
+		return "" // fall through to default classification
+	}
+}
+
+func (c *Classifier) hasClaimAct(acts []string) bool {
+	for _, act := range acts {
+		if act == "claim" {
+			return true
+		}
+	}
+	return false
 }
 
 // classifyExecute infers transaction type from transfer directions when
