@@ -28,6 +28,11 @@ const (
 	TxTypeDefiDeposit TransactionType = "defi_deposit"  // Deposit into DeFi protocol
 	TxTypeDefiWithdraw TransactionType = "defi_withdraw" // Withdraw from DeFi protocol
 	TxTypeDefiClaim   TransactionType = "defi_claim"    // Claim DeFi rewards
+
+	// LP (Liquidity Pool) transaction types
+	TxTypeLPDeposit   TransactionType = "lp_deposit"    // Add liquidity to LP
+	TxTypeLPWithdraw  TransactionType = "lp_withdraw"   // Remove liquidity from LP
+	TxTypeLPClaimFees TransactionType = "lp_claim_fees" // Collect LP trading fees
 )
 
 // AllTransactionTypes returns all valid transaction types
@@ -43,6 +48,9 @@ func AllTransactionTypes() []TransactionType {
 		TxTypeDefiDeposit,
 		TxTypeDefiWithdraw,
 		TxTypeDefiClaim,
+		TxTypeLPDeposit,
+		TxTypeLPWithdraw,
+		TxTypeLPClaimFees,
 	}
 }
 
@@ -51,7 +59,8 @@ func (t TransactionType) IsValid() bool {
 	switch t {
 	case TxTypeTransferIn, TxTypeTransferOut, TxTypeInternalTransfer,
 		TxTypeManualIncome, TxTypeManualOutcome, TxTypeAssetAdjustment,
-		TxTypeSwap, TxTypeDefiDeposit, TxTypeDefiWithdraw, TxTypeDefiClaim:
+		TxTypeSwap, TxTypeDefiDeposit, TxTypeDefiWithdraw, TxTypeDefiClaim,
+		TxTypeLPDeposit, TxTypeLPWithdraw, TxTypeLPClaimFees:
 		return true
 	}
 	return false
@@ -85,6 +94,12 @@ func (t TransactionType) Label() string {
 		return "DeFi Withdraw"
 	case TxTypeDefiClaim:
 		return "DeFi Claim"
+	case TxTypeLPDeposit:
+		return "LP Deposit"
+	case TxTypeLPWithdraw:
+		return "LP Withdraw"
+	case TxTypeLPClaimFees:
+		return "LP Claim Fees"
 	default:
 		return "Unknown"
 	}
