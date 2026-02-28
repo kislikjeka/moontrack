@@ -59,6 +59,13 @@ type TransactionAttributes struct {
 	Transfers     []ZTransfer      `json:"transfers"`
 	Approvals     []Approval       `json:"approvals"`
 	ApplicationMD *ApplicationMeta `json:"application_metadata"`
+	Acts          []Act            `json:"acts"`
+}
+
+// Act represents a single action within a Zerion transaction
+type Act struct {
+	ID   string `json:"id"`
+	Type string `json:"type"` // "deposit", "withdraw", "claim", "execute", etc.
 }
 
 // Fee contains the transaction gas fee
@@ -71,11 +78,18 @@ type Fee struct {
 // ZTransfer represents a single token movement in a Zerion transaction
 type ZTransfer struct {
 	FungibleInfo *FungibleInfo `json:"fungible_info"`
+	NftInfo      *NftInfo      `json:"nft_info"`
 	Direction    string        `json:"direction"` // "in" or "out"
 	Quantity     Quantity      `json:"quantity"`
 	Sender       string        `json:"sender"`
 	Recipient    string        `json:"recipient"`
 	Price        *float64      `json:"price"` // USD price per unit, nil if unavailable
+}
+
+// NftInfo describes an NFT involved in a transfer
+type NftInfo struct {
+	Name    string `json:"name"`
+	TokenID string `json:"token_id"`
 }
 
 // FungibleInfo describes the token involved in a transfer or fee

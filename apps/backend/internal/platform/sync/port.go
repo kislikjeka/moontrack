@@ -93,7 +93,9 @@ type DecodedTransaction struct {
 	Transfers     []DecodedTransfer
 	Fee           *DecodedFee // nil if fee info unavailable
 	MinedAt       time.Time
-	Status        string // "confirmed", "pending", "failed"
+	Status        string   // "confirmed", "pending", "failed"
+	NFTTokenID    string   // Uniswap V3 NFT position ID, empty if not applicable
+	Acts          []string // Action types from Zerion acts array (e.g., ["claim", "execute"])
 }
 
 // DecodedTransfer represents a single token movement within a decoded transaction
