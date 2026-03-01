@@ -21,6 +21,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { WalletHoldings } from './WalletHoldings'
+import { LPPositionsSection } from './components/LPPositionsSection'
 import { TransactionFilters } from '@/features/transactions/TransactionFilters'
 import { TransactionListTable } from '@/features/transactions/TransactionListTable'
 import { toast } from 'sonner'
@@ -210,6 +211,7 @@ export default function WalletDetailPage() {
         <TabsList>
           <TabsTrigger value="assets">Holdings</TabsTrigger>
           <TabsTrigger value="transactions">Transactions</TabsTrigger>
+          <TabsTrigger value="lp">LP Positions</TabsTrigger>
         </TabsList>
 
         <TabsContent value="assets">
@@ -276,6 +278,10 @@ export default function WalletDetailPage() {
               </Card>
             )}
           </div>
+        </TabsContent>
+
+        <TabsContent value="lp">
+          <LPPositionsSection walletId={id!} />
         </TabsContent>
       </Tabs>
     </div>
