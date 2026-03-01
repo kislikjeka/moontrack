@@ -4,6 +4,9 @@ export type TransactionType =
   | 'transfer_out'
   | 'internal_transfer'
   | 'asset_adjustment'
+  | 'lp_deposit'
+  | 'lp_withdraw'
+  | 'lp_claim_fees'
 
 export type TransactionDirection = 'in' | 'out' | 'adjustment' | 'internal'
 export type TransactionStatus = 'COMPLETED' | 'FAILED'

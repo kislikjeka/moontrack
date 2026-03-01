@@ -1,4 +1,4 @@
-import { ArrowDownLeft, ArrowUpRight, ArrowLeftRight, RefreshCw } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, ArrowLeftRight, RefreshCw, Droplets, HandCoins } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import type { TransactionType } from '@/types/transaction'
@@ -37,6 +37,21 @@ const typeConfig: Record<
     label: 'Adjustment',
     icon: RefreshCw,
     variant: 'transfer',
+  },
+  lp_deposit: {
+    label: 'LP Deposit',
+    icon: Droplets,
+    variant: 'loss',
+  },
+  lp_withdraw: {
+    label: 'LP Withdraw',
+    icon: Droplets,
+    variant: 'profit',
+  },
+  lp_claim_fees: {
+    label: 'LP Fees',
+    icon: HandCoins,
+    variant: 'profit',
   },
 }
 
