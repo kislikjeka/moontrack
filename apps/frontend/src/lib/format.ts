@@ -136,3 +136,35 @@ export function getExplorerAddressUrl(chainId: string, address: string): string 
   if (!config) return ''
   return `${config.explorerUrl}/address/${address}`
 }
+
+/**
+ * Format a raw big number string to human-readable token amount
+ * by dividing by 10^decimals.
+ * Example: formatTokenAmount("2100000000", 6) → "2,100.00"
+ */
+export function formatTokenAmount(value: string, decimals: number): string {
+  if (!value || value === '0') return '0'
+
+  // Handle the division by padding/splitting the string
+  const isNegative = value.startsWith('-')
+  const abs = isNegative ? value.slice(1) : value
+  const padded = abs.padStart(decimals + 1, '0')
+  const intPart = padded.slice(0, padded.length - decimals) || '0'
+  const fracPart = decimals > 0 ? padded.slice(padded.length - decimals) : ''
+
+  // Trim trailing zeros but keep at least 2 decimal places for readability
+  const trimmed = fracPart.replace(/0+$/, '')
+  const displayFrac = trimmed.length < 2 ? fracPart.slice(0, 2) : trimmed
+  const displayFracClean = displayFrac.length < 2
+    ? displayFrac.padEnd(2, '0')
+    : displayFrac
+
+  // Format integer part with commas
+  const intFormatted = parseInt(intPart, 10).toLocaleString('en-US')
+
+  const result = displayFracClean
+    ? `${intFormatted}.${displayFracClean}`
+    : intFormatted
+
+  return isNegative ? `-${result}` : result
+}
