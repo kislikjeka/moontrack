@@ -1,4 +1,4 @@
-import { ArrowDownLeft, ArrowUpRight, ArrowLeftRight, RefreshCw, Droplets, HandCoins } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, ArrowLeftRight, RefreshCw, ArrowDownToLine, ArrowUpFromLine, Coins } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import type { TransactionType } from '@/types/transaction'
@@ -15,7 +15,7 @@ const typeConfig: Record<
   {
     label: string
     icon: React.ElementType
-    variant: 'profit' | 'loss' | 'transfer'
+    variant: 'profit' | 'loss' | 'transfer' | 'liquidity'
   }
 > = {
   transfer_in: {
@@ -40,18 +40,18 @@ const typeConfig: Record<
   },
   lp_deposit: {
     label: 'LP Deposit',
-    icon: Droplets,
-    variant: 'loss',
+    icon: ArrowDownToLine,
+    variant: 'liquidity',
   },
   lp_withdraw: {
     label: 'LP Withdraw',
-    icon: Droplets,
-    variant: 'profit',
+    icon: ArrowUpFromLine,
+    variant: 'liquidity',
   },
   lp_claim_fees: {
-    label: 'LP Fees',
-    icon: HandCoins,
-    variant: 'profit',
+    label: 'LP Claim',
+    icon: Coins,
+    variant: 'liquidity',
   },
 }
 
@@ -77,6 +77,13 @@ export function TransactionTypeBadge({
   className,
 }: TransactionTypeBadgeProps) {
   const config = typeConfig[type]
+  if (!config) {
+    return (
+      <Badge variant="secondary" className={cn('gap-1', sizeConfig[size].text, className)}>
+        {showLabel && <span>{type}</span>}
+      </Badge>
+    )
+  }
   const sizes = sizeConfig[size]
   const Icon = config.icon
 
