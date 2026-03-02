@@ -36,6 +36,13 @@ const (
 	TxTypeLPDeposit   TransactionType = "lp_deposit"    // Add liquidity to LP
 	TxTypeLPWithdraw  TransactionType = "lp_withdraw"   // Remove liquidity from LP
 	TxTypeLPClaimFees TransactionType = "lp_claim_fees" // Collect LP trading fees
+
+	// Lending transaction types
+	TxTypeLendingSupply   TransactionType = "lending_supply"   // Supply asset to lending protocol
+	TxTypeLendingWithdraw TransactionType = "lending_withdraw" // Withdraw asset from lending protocol
+	TxTypeLendingBorrow   TransactionType = "lending_borrow"   // Borrow asset from lending protocol
+	TxTypeLendingRepay    TransactionType = "lending_repay"    // Repay borrowed asset
+	TxTypeLendingClaim    TransactionType = "lending_claim"    // Claim lending rewards/interest
 )
 
 // AllTransactionTypes returns all valid transaction types
@@ -55,6 +62,11 @@ func AllTransactionTypes() []TransactionType {
 		TxTypeLPDeposit,
 		TxTypeLPWithdraw,
 		TxTypeLPClaimFees,
+		TxTypeLendingSupply,
+		TxTypeLendingWithdraw,
+		TxTypeLendingBorrow,
+		TxTypeLendingRepay,
+		TxTypeLendingClaim,
 	}
 }
 
@@ -65,7 +77,9 @@ func (t TransactionType) IsValid() bool {
 		TxTypeManualIncome, TxTypeManualOutcome, TxTypeAssetAdjustment,
 		TxTypeSwap, TxTypeDefiDeposit, TxTypeDefiWithdraw, TxTypeDefiClaim,
 		TxTypeGenesisBalance,
-		TxTypeLPDeposit, TxTypeLPWithdraw, TxTypeLPClaimFees:
+		TxTypeLPDeposit, TxTypeLPWithdraw, TxTypeLPClaimFees,
+		TxTypeLendingSupply, TxTypeLendingWithdraw, TxTypeLendingBorrow,
+		TxTypeLendingRepay, TxTypeLendingClaim:
 		return true
 	}
 	return false
@@ -107,6 +121,16 @@ func (t TransactionType) Label() string {
 		return "LP Withdraw"
 	case TxTypeLPClaimFees:
 		return "LP Claim Fees"
+	case TxTypeLendingSupply:
+		return "Lending Supply"
+	case TxTypeLendingWithdraw:
+		return "Lending Withdraw"
+	case TxTypeLendingBorrow:
+		return "Lending Borrow"
+	case TxTypeLendingRepay:
+		return "Lending Repay"
+	case TxTypeLendingClaim:
+		return "Lending Claim"
 	default:
 		return "Unknown"
 	}
@@ -243,6 +267,11 @@ const (
 	EntryTypeExpense       EntryType = "expense"
 	EntryTypeGasFee        EntryType = "gas_fee"
 	EntryTypeClearing      EntryType = "clearing"
+
+	EntryTypeCollateralIncrease EntryType = "collateral_increase"
+	EntryTypeCollateralDecrease EntryType = "collateral_decrease"
+	EntryTypeLiabilityIncrease  EntryType = "liability_increase"
+	EntryTypeLiabilityDecrease  EntryType = "liability_decrease"
 )
 
 // Entry represents a single debit or credit entry in the double-entry ledger
@@ -319,6 +348,8 @@ const (
 	AccountTypeExpense      AccountType = "EXPENSE"
 	AccountTypeGasFee       AccountType = "GAS_FEE"
 	AccountTypeClearing     AccountType = "CLEARING"
+	AccountTypeCollateral   AccountType = "COLLATERAL"
+	AccountTypeLiability    AccountType = "LIABILITY"
 )
 
 // Account represents a ledger account for tracking balances
@@ -353,6 +384,16 @@ func (a *Account) IsGasFeeAccount() bool {
 	return a.Type == AccountTypeGasFee
 }
 
+// IsCollateralAccount returns true if this is a collateral account
+func (a *Account) IsCollateralAccount() bool {
+	return a.Type == AccountTypeCollateral
+}
+
+// IsLiabilityAccount returns true if this is a liability account
+func (a *Account) IsLiabilityAccount() bool {
+	return a.Type == AccountTypeLiability
+}
+
 // Validate validates the account
 func (a *Account) Validate() error {
 	if a.Code == "" {
@@ -365,7 +406,7 @@ func (a *Account) Validate() error {
 
 	// Validate account type
 	switch a.Type {
-	case AccountTypeCryptoWallet:
+	case AccountTypeCryptoWallet, AccountTypeCollateral, AccountTypeLiability:
 		if a.WalletID == nil {
 			return ErrWalletAccountRequiresWalletID
 		}
