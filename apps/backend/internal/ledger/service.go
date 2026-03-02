@@ -361,6 +361,10 @@ func (r *accountResolver) parseAccountCode(code string, entry *Entry) (AccountTy
 			accountType = AccountTypeGasFee
 		case len(code) > 9 && code[:9] == "clearing.":
 			accountType = AccountTypeClearing
+		case len(code) > 11 && code[:11] == "collateral.":
+			accountType = AccountTypeCollateral
+		case len(code) > 10 && code[:10] == "liability.":
+			accountType = AccountTypeLiability
 		default:
 			return "", nil, nil, fmt.Errorf("cannot determine account type from code: %s", code)
 		}
@@ -456,7 +460,8 @@ func (v *transactionValidator) validateAccountBalances(ctx context.Context, tx *
 	balanceChanges := make(map[uuid.UUID]*balanceInfo)
 
 	for _, entry := range tx.Entries {
-		if entry.EntryType != EntryTypeAssetIncrease && entry.EntryType != EntryTypeAssetDecrease {
+		delta := entryBalanceChange(entry)
+		if delta == nil {
 			continue
 		}
 
@@ -467,7 +472,7 @@ func (v *transactionValidator) validateAccountBalances(ctx context.Context, tx *
 			}
 		}
 
-		balanceChanges[entry.AccountID].change.Add(balanceChanges[entry.AccountID].change, entry.SignedAmount())
+		balanceChanges[entry.AccountID].change.Add(balanceChanges[entry.AccountID].change, delta)
 	}
 
 	for accountID, info := range balanceChanges {
@@ -558,6 +563,27 @@ func (c *transactionCommitter) commit(ctx context.Context, tx *Transaction) erro
 	return nil
 }
 
+// entryBalanceChange returns the signed balance delta for balance-affecting entry types.
+// Returns nil for entry types that don't affect account balances (income, expense, gas_fee, clearing).
+func entryBalanceChange(entry *Entry) *big.Int {
+	switch entry.EntryType {
+	case EntryTypeAssetIncrease:
+		return new(big.Int).Set(entry.Amount)
+	case EntryTypeAssetDecrease:
+		return new(big.Int).Neg(new(big.Int).Set(entry.Amount))
+	case EntryTypeCollateralIncrease:
+		return new(big.Int).Set(entry.Amount)
+	case EntryTypeCollateralDecrease:
+		return new(big.Int).Neg(new(big.Int).Set(entry.Amount))
+	case EntryTypeLiabilityIncrease:
+		return new(big.Int).Set(entry.Amount)
+	case EntryTypeLiabilityDecrease:
+		return new(big.Int).Neg(new(big.Int).Set(entry.Amount))
+	default:
+		return nil
+	}
+}
+
 type balanceChange struct {
 	accountID uuid.UUID
 	assetID   string
@@ -568,7 +594,8 @@ func (c *transactionCommitter) updateBalances(ctx context.Context, tx *Transacti
 	balanceChanges := make(map[string]*balanceChange)
 
 	for _, entry := range tx.Entries {
-		if entry.EntryType != EntryTypeAssetIncrease && entry.EntryType != EntryTypeAssetDecrease {
+		delta := entryBalanceChange(entry)
+		if delta == nil {
 			continue
 		}
 
@@ -582,7 +609,7 @@ func (c *transactionCommitter) updateBalances(ctx context.Context, tx *Transacti
 			}
 		}
 
-		balanceChanges[key].change.Add(balanceChanges[key].change, entry.SignedAmount())
+		balanceChanges[key].change.Add(balanceChanges[key].change, delta)
 	}
 
 	// Sort keys to acquire locks in deterministic order and prevent deadlocks
