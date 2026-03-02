@@ -76,3 +76,6 @@ temp/
 
 # Just command runner
 .just/
+
+# Git worktrees
+.worktrees/
