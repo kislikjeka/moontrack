@@ -57,14 +57,14 @@ func NewTaxLotHook(repo TaxLotRepository, ledgerRepo Repository, log *logger.Log
 				return fmt.Errorf("failed to lookup account %s for tax lot: %w", entry.AccountID, err)
 			}
 
-			if acct.Type != AccountTypeCryptoWallet {
+			if acct.Type != AccountTypeCryptoWallet && acct.Type != AccountTypeCollateral {
 				continue
 			}
 
 			switch entry.EntryType {
-			case EntryTypeAssetDecrease:
+			case EntryTypeAssetDecrease, EntryTypeCollateralDecrease:
 				disposals = append(disposals, disposalEntry{entry: entry, acct: acct})
-			case EntryTypeAssetIncrease:
+			case EntryTypeAssetIncrease, EntryTypeCollateralIncrease:
 				acquisitions = append(acquisitions, acquisitionEntry{entry: entry, acct: acct})
 			}
 		}
@@ -128,7 +128,7 @@ func NewTaxLotHook(repo TaxLotRepository, ledgerRepo Repository, log *logger.Log
 			source := classifyCostBasisSource(tx)
 
 			var linkedLotID *uuid.UUID
-			if tx.Type == TxTypeInternalTransfer {
+			if tx.Type == TxTypeInternalTransfer || tx.Type == TxTypeLendingSupply || tx.Type == TxTypeLendingWithdraw {
 				if dr, ok := disposalResults[a.entry.AssetID]; ok {
 					linkedLotID = dr.firstLotID
 
@@ -180,8 +180,11 @@ func classifyDisposalType(tx *Transaction, entry *Entry) DisposalType {
 		}
 	}
 
-	if tx.Type == TxTypeInternalTransfer {
+	switch tx.Type {
+	case TxTypeInternalTransfer:
 		return DisposalTypeInternalTransfer
+	case TxTypeLendingSupply, TxTypeLendingWithdraw:
+		return DisposalTypeLendingTransfer
 	}
 
 	return DisposalTypeSale
@@ -194,6 +197,8 @@ func classifyCostBasisSource(tx *Transaction) CostBasisSource {
 		return CostBasisSwapPrice
 	case TxTypeInternalTransfer:
 		return CostBasisLinkedTransfer
+	case TxTypeLendingSupply, TxTypeLendingWithdraw:
+		return CostBasisLendingCarryOver
 	case TxTypeGenesisBalance:
 		return CostBasisGenesisApproximation
 	default:

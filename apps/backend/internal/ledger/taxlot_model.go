@@ -15,6 +15,7 @@ const (
 	CostBasisFMVAtTransfer        CostBasisSource = "fmv_at_transfer"
 	CostBasisLinkedTransfer       CostBasisSource = "linked_transfer"
 	CostBasisGenesisApproximation CostBasisSource = "genesis_approximation"
+	CostBasisLendingCarryOver     CostBasisSource = "lending_carry_over"
 )
 
 // DisposalType describes how the asset was disposed of
@@ -23,7 +24,8 @@ type DisposalType string
 const (
 	DisposalTypeSale             DisposalType = "sale"
 	DisposalTypeInternalTransfer DisposalType = "internal_transfer"
-	DisposalTypeGasFee           DisposalType = "gas_fee"
+	DisposalTypeGasFee            DisposalType = "gas_fee"
+	DisposalTypeLendingTransfer   DisposalType = "lending_transfer"
 )
 
 // TaxLot represents a batch of asset acquired in a single transaction.
