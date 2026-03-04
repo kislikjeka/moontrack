@@ -18,12 +18,14 @@ import (
 	"github.com/kislikjeka/moontrack/internal/module/adjustment"
 	"github.com/kislikjeka/moontrack/internal/module/defi"
 	"github.com/kislikjeka/moontrack/internal/module/genesis"
+	"github.com/kislikjeka/moontrack/internal/module/lending"
 	"github.com/kislikjeka/moontrack/internal/module/liquidity"
 	"github.com/kislikjeka/moontrack/internal/module/portfolio"
 	"github.com/kislikjeka/moontrack/internal/module/swap"
 	"github.com/kislikjeka/moontrack/internal/module/transactions"
 	"github.com/kislikjeka/moontrack/internal/module/transfer"
 	"github.com/kislikjeka/moontrack/internal/platform/asset"
+	"github.com/kislikjeka/moontrack/internal/platform/lendingposition"
 	"github.com/kislikjeka/moontrack/internal/platform/lpposition"
 	"github.com/kislikjeka/moontrack/internal/platform/sync"
 	"github.com/kislikjeka/moontrack/internal/platform/taxlot"
@@ -178,10 +180,32 @@ func main() {
 	handlerRegistry.Register(lpClaimFeesHandler)
 	log.Info("Registered LP claim fees handler")
 
+	// Lending handlers (AAVE supply, withdraw, borrow, repay, claim)
+	lendingSupplyHandler := lending.NewLendingSupplyHandler(walletRepo, log)
+	handlerRegistry.Register(lendingSupplyHandler)
+
+	lendingWithdrawHandler := lending.NewLendingWithdrawHandler(walletRepo, log)
+	handlerRegistry.Register(lendingWithdrawHandler)
+
+	lendingBorrowHandler := lending.NewLendingBorrowHandler(walletRepo, log)
+	handlerRegistry.Register(lendingBorrowHandler)
+
+	lendingRepayHandler := lending.NewLendingRepayHandler(walletRepo, log)
+	handlerRegistry.Register(lendingRepayHandler)
+
+	lendingClaimHandler := lending.NewLendingClaimHandler(walletRepo, log)
+	handlerRegistry.Register(lendingClaimHandler)
+	log.Info("Registered lending handlers (supply, withdraw, borrow, repay, claim)")
+
 	// LP Position tracking
 	lpPositionRepo := postgres.NewLPPositionRepo(db.Pool)
 	lpPositionSvc := lpposition.NewService(lpPositionRepo, log)
 	log.Info("LP Position service initialized")
+
+	// Lending Position tracking
+	lendingPositionRepo := postgres.NewLendingPositionRepo(db.Pool)
+	lendingPositionSvc := lendingposition.NewService(lendingPositionRepo, log)
+	log.Info("Lending Position service initialized")
 
 	// Initialize decimal resolver (cascading: assets table → zerion_assets table → hardcoded)
 	zerionAssetRepo := postgres.NewZerionAssetRepository(db.Pool)
@@ -218,7 +242,7 @@ func main() {
 
 		rawTxRepo := postgres.NewRawTransactionRepository(db.Pool)
 
-		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, zerionProvider, zerionProvider, rawTxRepo, zerionAssetRepo, lpPositionSvc, nil)
+		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, zerionProvider, zerionProvider, rawTxRepo, zerionAssetRepo, lpPositionSvc, lendingPositionSvc)
 		log.Info("Sync service initialized",
 			"poll_interval", cfg.SyncPollInterval,
 			"provider", "zerion")
