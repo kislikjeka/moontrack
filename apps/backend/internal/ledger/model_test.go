@@ -72,8 +72,8 @@ func TestTransactionType_Label(t *testing.T) {
 func TestAllTransactionTypes(t *testing.T) {
 	allTypes := ledger.AllTransactionTypes()
 
-	// Should contain all 14 types (10 base + genesis + 3 LP)
-	require.Len(t, allTypes, 14)
+	// Should contain all 19 types (10 base + genesis + 3 LP + 5 lending)
+	require.Len(t, allTypes, 19)
 
 	// Verify DeFi and LP types are included
 	typeSet := make(map[ledger.TransactionType]bool)
@@ -89,6 +89,11 @@ func TestAllTransactionTypes(t *testing.T) {
 	assert.True(t, typeSet[ledger.TxTypeLPDeposit], "AllTransactionTypes should include lp_deposit")
 	assert.True(t, typeSet[ledger.TxTypeLPWithdraw], "AllTransactionTypes should include lp_withdraw")
 	assert.True(t, typeSet[ledger.TxTypeLPClaimFees], "AllTransactionTypes should include lp_claim_fees")
+	assert.True(t, typeSet[ledger.TxTypeLendingSupply], "AllTransactionTypes should include lending_supply")
+	assert.True(t, typeSet[ledger.TxTypeLendingWithdraw], "AllTransactionTypes should include lending_withdraw")
+	assert.True(t, typeSet[ledger.TxTypeLendingBorrow], "AllTransactionTypes should include lending_borrow")
+	assert.True(t, typeSet[ledger.TxTypeLendingRepay], "AllTransactionTypes should include lending_repay")
+	assert.True(t, typeSet[ledger.TxTypeLendingClaim], "AllTransactionTypes should include lending_claim")
 }
 
 // =============================================================================
