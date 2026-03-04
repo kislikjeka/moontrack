@@ -103,13 +103,13 @@ func NewRouter(cfg Config) *chi.Mux {
 					r.Get("/lp/positions/{id}", cfg.LPPositionHandler.GetPosition)
 				}
 
-				// Lending Position routes
-			if cfg.LendingPositionHandler != nil {
-				r.Get("/lending/positions", cfg.LendingPositionHandler.ListPositions)
-				r.Get("/lending/positions/{id}", cfg.LendingPositionHandler.GetPosition)
-			}
+					// Lending Position routes
+				if cfg.LendingPositionHandler != nil {
+					r.Get("/lending/positions", cfg.LendingPositionHandler.ListPositions)
+					r.Get("/lending/positions/{id}", cfg.LendingPositionHandler.GetPosition)
+				}
 
-			// Asset routes (unified)
+				// Asset routes (unified)
 				if cfg.AssetHandler != nil {
 					r.Route("/assets", func(r chi.Router) {
 						r.Get("/", cfg.AssetHandler.ListAssets)
