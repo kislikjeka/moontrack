@@ -218,7 +218,7 @@ func main() {
 
 		rawTxRepo := postgres.NewRawTransactionRepository(db.Pool)
 
-		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, zerionProvider, zerionProvider, rawTxRepo, zerionAssetRepo, lpPositionSvc)
+		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, zerionProvider, zerionProvider, rawTxRepo, zerionAssetRepo, lpPositionSvc, nil)
 		log.Info("Sync service initialized",
 			"poll_interval", cfg.SyncPollInterval,
 			"provider", "zerion")

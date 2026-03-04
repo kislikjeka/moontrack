@@ -142,7 +142,7 @@ func TestSync_LP_FullLifecycle(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewZerionProcessor(walletRepo, ledgerSvc, lpSvc, log)
+	processor := sync.NewZerionProcessor(walletRepo, ledgerSvc, lpSvc, nil, log)
 	w := newTestWallet(userID, walletAddr)
 
 	// ─── Step 1: LP Deposit ───────────────────────────────────────────────
@@ -340,7 +340,7 @@ func TestSync_LP_UniV3Mint_ClassifiesAsDeposit(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewZerionProcessor(walletRepo, ledgerSvc, lpSvc, log)
+	processor := sync.NewZerionProcessor(walletRepo, ledgerSvc, lpSvc, nil, log)
 	w := newTestWallet(userID, walletAddr)
 
 	// Mint operation on Uniswap V3 should classify as lp_deposit
@@ -373,7 +373,7 @@ func TestSync_LP_UniV3Mint_ClassifiesAsDeposit(t *testing.T) {
 	assert.Len(t, lpSvc.positions, 1)
 }
 
-func TestSync_LP_NonUniV3_StaysDeFi(t *testing.T) {
+func TestSync_LP_AaveDeposit_IsLendingSupply(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
@@ -386,10 +386,10 @@ func TestSync_LP_NonUniV3_StaysDeFi(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewZerionProcessor(walletRepo, ledgerSvc, lpSvc, log)
+	processor := sync.NewZerionProcessor(walletRepo, ledgerSvc, lpSvc, nil, log)
 	w := newTestWallet(userID, walletAddr)
 
-	// Aave deposit should stay as defi_deposit, not lp_deposit
+	// Aave deposit should be classified as lending_supply, not defi_deposit or lp_deposit
 	tx := sync.DecodedTransaction{
 		ID:            "zerion-aave-1",
 		TxHash:        "0xaave123",
@@ -414,6 +414,6 @@ func TestSync_LP_NonUniV3_StaysDeFi(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
-	assert.Equal(t, ledger.TxTypeDefiDeposit, ledgerSvc.recordedTransactions[0].TxType)
-	assert.Len(t, lpSvc.positions, 0, "no LP position should be created for non-UniV3")
+	assert.Equal(t, ledger.TxTypeLendingSupply, ledgerSvc.recordedTransactions[0].TxType)
+	assert.Len(t, lpSvc.positions, 0, "no LP position should be created for AAVE lending")
 }

@@ -18,23 +18,25 @@ import (
 // ZerionProcessor handles decoded transaction classification and ledger recording
 // for transactions fetched via the Zerion API.
 type ZerionProcessor struct {
-	walletRepo    WalletRepository
-	ledgerSvc     LedgerService
-	lpPositionSvc LPPositionService
-	classifier    *Classifier
-	logger        *logger.Logger
-	addressCache  map[string][]uuid.UUID
+	walletRepo         WalletRepository
+	ledgerSvc          LedgerService
+	lpPositionSvc      LPPositionService
+	lendingPositionSvc LendingPositionService
+	classifier         *Classifier
+	logger             *logger.Logger
+	addressCache       map[string][]uuid.UUID
 }
 
 // NewZerionProcessor creates a new ZerionProcessor.
-func NewZerionProcessor(walletRepo WalletRepository, ledgerSvc LedgerService, lpPositionSvc LPPositionService, logger *logger.Logger) *ZerionProcessor {
+func NewZerionProcessor(walletRepo WalletRepository, ledgerSvc LedgerService, lpPositionSvc LPPositionService, lendingPositionSvc LendingPositionService, logger *logger.Logger) *ZerionProcessor {
 	return &ZerionProcessor{
-		walletRepo:    walletRepo,
-		ledgerSvc:     ledgerSvc,
-		lpPositionSvc: lpPositionSvc,
-		classifier:    NewClassifier(),
-		logger:        logger,
-		addressCache:  make(map[string][]uuid.UUID),
+		walletRepo:         walletRepo,
+		ledgerSvc:          ledgerSvc,
+		lpPositionSvc:      lpPositionSvc,
+		lendingPositionSvc: lendingPositionSvc,
+		classifier:         NewClassifier(),
+		logger:             logger,
+		addressCache:       make(map[string][]uuid.UUID),
 	}
 }
 
@@ -86,6 +88,16 @@ func (p *ZerionProcessor) ProcessTransaction(ctx context.Context, w *wallet.Wall
 		data = p.buildLPWithdrawData(w, tx)
 	case ledger.TxTypeLPClaimFees:
 		data = p.buildLPClaimFeesData(w, tx)
+	case ledger.TxTypeLendingSupply:
+		data = p.buildLendingSupplyData(w, tx)
+	case ledger.TxTypeLendingWithdraw:
+		data = p.buildLendingWithdrawData(w, tx)
+	case ledger.TxTypeLendingBorrow:
+		data = p.buildLendingBorrowData(w, tx)
+	case ledger.TxTypeLendingRepay:
+		data = p.buildLendingRepayData(w, tx)
+	case ledger.TxTypeLendingClaim:
+		data = p.buildLendingClaimData(w, tx)
 	default:
 		p.logger.Warn("unhandled transaction type", "type", txType, "tx_hash", tx.TxHash)
 		return nil
@@ -111,6 +123,22 @@ func (p *ZerionProcessor) ProcessTransaction(ctx context.Context, w *wallet.Wall
 			p.handleLPWithdraw(ctx, w, tx)
 		case ledger.TxTypeLPClaimFees:
 			p.handleLPClaimFees(ctx, w, tx)
+		}
+	}
+
+	// Post-process lending transactions: update lending position aggregates
+	if p.lendingPositionSvc != nil {
+		switch txType {
+		case ledger.TxTypeLendingSupply:
+			p.handleLendingSupply(ctx, w, tx)
+		case ledger.TxTypeLendingWithdraw:
+			p.handleLendingWithdraw(ctx, w, tx)
+		case ledger.TxTypeLendingBorrow:
+			p.handleLendingBorrow(ctx, w, tx)
+		case ledger.TxTypeLendingRepay:
+			p.handleLendingRepay(ctx, w, tx)
+		case ledger.TxTypeLendingClaim:
+			p.handleLendingClaim(ctx, w, tx)
 		}
 	}
 
@@ -562,4 +590,218 @@ func (p *ZerionProcessor) buildSingleTransfer(t DecodedTransfer) map[string]inte
 		"sender":           t.Sender,
 		"recipient":        t.Recipient,
 	}
+}
+
+// --- Lending data builders ---
+
+func (p *ZerionProcessor) buildLendingSupplyData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+	data := p.buildBaseData(w, tx)
+	// Supply: the outgoing transfer is the asset being supplied
+	if t := p.findTransfer(tx.Transfers, DirectionOut); t != nil {
+		p.setLendingAssetFields(data, t)
+	}
+	return data
+}
+
+func (p *ZerionProcessor) buildLendingWithdrawData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+	data := p.buildBaseData(w, tx)
+	// Withdraw: the incoming transfer is the asset being withdrawn
+	if t := p.findTransfer(tx.Transfers, DirectionIn); t != nil {
+		p.setLendingAssetFields(data, t)
+	}
+	return data
+}
+
+func (p *ZerionProcessor) buildLendingBorrowData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+	data := p.buildBaseData(w, tx)
+	// Borrow: the incoming transfer is the borrowed asset
+	if t := p.findTransfer(tx.Transfers, DirectionIn); t != nil {
+		p.setLendingAssetFields(data, t)
+	}
+	return data
+}
+
+func (p *ZerionProcessor) buildLendingRepayData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+	data := p.buildBaseData(w, tx)
+	// Repay: the outgoing transfer is the asset being repaid
+	if t := p.findTransfer(tx.Transfers, DirectionOut); t != nil {
+		p.setLendingAssetFields(data, t)
+	}
+	return data
+}
+
+func (p *ZerionProcessor) buildLendingClaimData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+	data := p.buildBaseData(w, tx)
+	// Claim: the incoming transfer is the reward/interest
+	if t := p.findTransfer(tx.Transfers, DirectionIn); t != nil {
+		p.setLendingAssetFields(data, t)
+	}
+	return data
+}
+
+func (p *ZerionProcessor) findTransfer(transfers []DecodedTransfer, dir TransferDirection) *DecodedTransfer {
+	for i := range transfers {
+		if transfers[i].Direction == dir {
+			return &transfers[i]
+		}
+	}
+	if len(transfers) > 0 {
+		return &transfers[0]
+	}
+	return nil
+}
+
+func (p *ZerionProcessor) setLendingAssetFields(data map[string]interface{}, t *DecodedTransfer) {
+	data["asset"] = t.AssetSymbol
+	data["amount"] = money.NewBigInt(t.Amount).String()
+	data["decimals"] = t.Decimals
+	data["contract_address"] = t.ContractAddress
+	if t.USDPrice != nil {
+		data["usd_price"] = t.USDPrice.String()
+	}
+}
+
+// --- Lending position post-processing ---
+
+func (p *ZerionProcessor) handleLendingSupply(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
+	t := p.findTransfer(tx.Transfers, DirectionOut)
+	if t == nil {
+		p.logger.Warn("lending supply: no outgoing transfer", "tx_hash", tx.TxHash)
+		return
+	}
+
+	pos, err := p.lendingPositionSvc.FindOrCreate(ctx, w.UserID, w.ID,
+		tx.Protocol, tx.ChainID, t.AssetSymbol,
+		t.Decimals, t.ContractAddress, tx.MinedAt,
+	)
+	if err != nil {
+		p.logger.Error("lending supply: failed to find or create position", "tx_hash", tx.TxHash, "error", err)
+		return
+	}
+
+	usdValue := p.calcLendingUSD(t)
+	if err := p.lendingPositionSvc.RecordSupply(ctx, pos.ID, t.Amount, usdValue); err != nil {
+		p.logger.Error("lending supply: failed to record", "tx_hash", tx.TxHash, "position_id", pos.ID, "error", err)
+	}
+}
+
+func (p *ZerionProcessor) handleLendingWithdraw(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
+	t := p.findTransfer(tx.Transfers, DirectionIn)
+	if t == nil {
+		p.logger.Warn("lending withdraw: no incoming transfer", "tx_hash", tx.TxHash)
+		return
+	}
+
+	pos, err := p.lendingPositionSvc.FindOrCreate(ctx, w.UserID, w.ID,
+		tx.Protocol, tx.ChainID, t.AssetSymbol,
+		t.Decimals, t.ContractAddress, tx.MinedAt,
+	)
+	if err != nil {
+		p.logger.Error("lending withdraw: failed to find position", "tx_hash", tx.TxHash, "error", err)
+		return
+	}
+
+	usdValue := p.calcLendingUSD(t)
+	if err := p.lendingPositionSvc.RecordWithdraw(ctx, pos.ID, t.Amount, usdValue); err != nil {
+		p.logger.Error("lending withdraw: failed to record", "tx_hash", tx.TxHash, "position_id", pos.ID, "error", err)
+	}
+}
+
+func (p *ZerionProcessor) handleLendingBorrow(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
+	t := p.findTransfer(tx.Transfers, DirectionIn)
+	if t == nil {
+		p.logger.Warn("lending borrow: no incoming transfer", "tx_hash", tx.TxHash)
+		return
+	}
+
+	// Find the supply position — borrow needs an existing supply position
+	// Look for any active position for this wallet+protocol+chain
+	supplyTransfer := p.findTransfer(tx.Transfers, DirectionOut)
+	supplyAsset := ""
+	if supplyTransfer != nil {
+		supplyAsset = supplyTransfer.AssetSymbol
+	}
+
+	// If no supply asset in this tx, try to find existing active position
+	if supplyAsset == "" {
+		// Borrow without supply in same tx — find existing position by protocol+chain
+		pos, err := p.lendingPositionSvc.FindOrCreate(ctx, w.UserID, w.ID,
+			tx.Protocol, tx.ChainID, t.AssetSymbol,
+			t.Decimals, t.ContractAddress, tx.MinedAt,
+		)
+		if err != nil {
+			p.logger.Error("lending borrow: failed to find position", "tx_hash", tx.TxHash, "error", err)
+			return
+		}
+		usdValue := p.calcLendingUSD(t)
+		if err := p.lendingPositionSvc.RecordBorrow(ctx, pos.ID, t.AssetSymbol, t.Decimals, t.ContractAddress, t.Amount, usdValue); err != nil {
+			p.logger.Error("lending borrow: failed to record", "tx_hash", tx.TxHash, "position_id", pos.ID, "error", err)
+		}
+		return
+	}
+
+	pos, err := p.lendingPositionSvc.FindOrCreate(ctx, w.UserID, w.ID,
+		tx.Protocol, tx.ChainID, supplyAsset,
+		supplyTransfer.Decimals, supplyTransfer.ContractAddress, tx.MinedAt,
+	)
+	if err != nil {
+		p.logger.Error("lending borrow: failed to find position", "tx_hash", tx.TxHash, "error", err)
+		return
+	}
+
+	usdValue := p.calcLendingUSD(t)
+	if err := p.lendingPositionSvc.RecordBorrow(ctx, pos.ID, t.AssetSymbol, t.Decimals, t.ContractAddress, t.Amount, usdValue); err != nil {
+		p.logger.Error("lending borrow: failed to record", "tx_hash", tx.TxHash, "position_id", pos.ID, "error", err)
+	}
+}
+
+func (p *ZerionProcessor) handleLendingRepay(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
+	t := p.findTransfer(tx.Transfers, DirectionOut)
+	if t == nil {
+		p.logger.Warn("lending repay: no outgoing transfer", "tx_hash", tx.TxHash)
+		return
+	}
+
+	pos, err := p.lendingPositionSvc.FindOrCreate(ctx, w.UserID, w.ID,
+		tx.Protocol, tx.ChainID, t.AssetSymbol,
+		t.Decimals, t.ContractAddress, tx.MinedAt,
+	)
+	if err != nil {
+		p.logger.Error("lending repay: failed to find position", "tx_hash", tx.TxHash, "error", err)
+		return
+	}
+
+	usdValue := p.calcLendingUSD(t)
+	if err := p.lendingPositionSvc.RecordRepay(ctx, pos.ID, t.Amount, usdValue); err != nil {
+		p.logger.Error("lending repay: failed to record", "tx_hash", tx.TxHash, "position_id", pos.ID, "error", err)
+	}
+}
+
+func (p *ZerionProcessor) handleLendingClaim(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
+	t := p.findTransfer(tx.Transfers, DirectionIn)
+	if t == nil {
+		p.logger.Warn("lending claim: no incoming transfer", "tx_hash", tx.TxHash)
+		return
+	}
+
+	pos, err := p.lendingPositionSvc.FindOrCreate(ctx, w.UserID, w.ID,
+		tx.Protocol, tx.ChainID, t.AssetSymbol,
+		t.Decimals, t.ContractAddress, tx.MinedAt,
+	)
+	if err != nil {
+		p.logger.Error("lending claim: failed to find position", "tx_hash", tx.TxHash, "error", err)
+		return
+	}
+
+	usdValue := p.calcLendingUSD(t)
+	if err := p.lendingPositionSvc.RecordClaim(ctx, pos.ID, usdValue); err != nil {
+		p.logger.Error("lending claim: failed to record", "tx_hash", tx.TxHash, "position_id", pos.ID, "error", err)
+	}
+}
+
+func (p *ZerionProcessor) calcLendingUSD(t *DecodedTransfer) *big.Int {
+	if t.USDPrice != nil && t.Amount != nil {
+		return new(big.Int).Mul(t.Amount, t.USDPrice)
+	}
+	return big.NewInt(0)
 }

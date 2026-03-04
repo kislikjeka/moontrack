@@ -163,11 +163,21 @@ func TestClassify_UniV3ClaimFees(t *testing.T) {
 	assert.Equal(t, ledger.TxTypeLPClaimFees, c.Classify(tx))
 }
 
-func TestClassify_NonUniDeposit_StaysDeFi(t *testing.T) {
+func TestClassify_AaveDeposit_IsLendingSupply(t *testing.T) {
 	c := sync.NewClassifier()
 	tx := sync.DecodedTransaction{
 		OperationType: sync.OpDeposit,
 		Protocol:      "Aave",
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionOut, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
+	}
+	assert.Equal(t, ledger.TxTypeLendingSupply, c.Classify(tx))
+}
+
+func TestClassify_NonAAVEDeposit_StaysDeFi(t *testing.T) {
+	c := sync.NewClassifier()
+	tx := sync.DecodedTransaction{
+		OperationType: sync.OpDeposit,
+		Protocol:      "Compound",
 		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionOut, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
 	}
 	assert.Equal(t, ledger.TxTypeDefiDeposit, c.Classify(tx))

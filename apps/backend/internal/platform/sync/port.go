@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/internal/platform/lendingposition"
 	"github.com/kislikjeka/moontrack/internal/platform/lpposition"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 )
@@ -138,6 +139,16 @@ type LPPositionService interface {
 	RecordDeposit(ctx context.Context, positionID uuid.UUID, token0Amt, token1Amt, usdValue *big.Int) error
 	RecordWithdraw(ctx context.Context, positionID uuid.UUID, token0Amt, token1Amt, usdValue *big.Int) error
 	RecordClaimFees(ctx context.Context, positionID uuid.UUID, token0Amt, token1Amt, usdValue *big.Int) error
+}
+
+// LendingPositionService manages lending position lifecycle
+type LendingPositionService interface {
+	FindOrCreate(ctx context.Context, userID, walletID uuid.UUID, protocol, chainID, supplyAsset string, supplyDecimals int, supplyContract string, openedAt time.Time) (*lendingposition.LendingPosition, error)
+	RecordSupply(ctx context.Context, positionID uuid.UUID, amount, usdValue *big.Int) error
+	RecordWithdraw(ctx context.Context, positionID uuid.UUID, amount, usdValue *big.Int) error
+	RecordBorrow(ctx context.Context, positionID uuid.UUID, borrowAsset string, borrowDecimals int, borrowContract string, amount, usdValue *big.Int) error
+	RecordRepay(ctx context.Context, positionID uuid.UUID, amount, usdValue *big.Int) error
+	RecordClaim(ctx context.Context, positionID uuid.UUID, usdValue *big.Int) error
 }
 
 // AssetService defines asset operations for sync

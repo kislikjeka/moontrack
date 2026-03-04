@@ -24,6 +24,13 @@ func (c *Classifier) Classify(tx DecodedTransaction) ledger.TransactionType {
 		}
 	}
 
+	// AAVE lending protocol
+	if c.isAAVE(tx.Protocol) {
+		if lt := c.classifyLending(tx); lt != "" {
+			return lt
+		}
+	}
+
 	switch tx.OperationType {
 	case OpTrade:
 		return ledger.TxTypeSwap
@@ -107,4 +114,51 @@ func (c *Classifier) classifyExecute(tx DecodedTransaction) ledger.TransactionTy
 	default:
 		return "" // skip
 	}
+}
+
+func (c *Classifier) isAAVE(protocol string) bool {
+	return protocol == "AAVE" || protocol == "Aave" || protocol == "Aave V3" || protocol == "Aave V2"
+}
+
+func (c *Classifier) classifyLending(tx DecodedTransaction) ledger.TransactionType {
+	switch tx.OperationType {
+	case OpDeposit, OpMint:
+		return ledger.TxTypeLendingSupply
+	case OpWithdraw, OpBurn:
+		return ledger.TxTypeLendingWithdraw
+	case OpClaim:
+		return ledger.TxTypeLendingClaim
+	case OpReceive:
+		if c.hasClaimAct(tx.Acts) {
+			return ledger.TxTypeLendingClaim
+		}
+		return ledger.TxTypeLendingBorrow
+	case OpSend:
+		return ledger.TxTypeLendingRepay
+	default:
+		return c.classifyLendingFromTransfers(tx)
+	}
+}
+
+func (c *Classifier) classifyLendingFromTransfers(tx DecodedTransaction) ledger.TransactionType {
+	hasIn := false
+	hasOut := false
+	for _, t := range tx.Transfers {
+		if t.Direction == DirectionIn {
+			hasIn = true
+		}
+		if t.Direction == DirectionOut {
+			hasOut = true
+		}
+	}
+	if hasIn && !hasOut {
+		return ledger.TxTypeLendingBorrow
+	}
+	if hasOut && !hasIn {
+		return ledger.TxTypeLendingRepay
+	}
+	if hasIn && hasOut {
+		return ledger.TxTypeLendingSupply
+	}
+	return ""
 }

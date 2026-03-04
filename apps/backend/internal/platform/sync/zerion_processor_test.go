@@ -25,7 +25,7 @@ import (
 
 func newZerionProcessor(walletRepo sync.WalletRepository, ledgerSvc sync.LedgerService) *sync.ZerionProcessor {
 	log := logger.New("test", os.Stdout)
-	return sync.NewZerionProcessor(walletRepo, ledgerSvc, nil, log)
+	return sync.NewZerionProcessor(walletRepo, ledgerSvc, nil, nil, log)
 }
 
 func newDecodedTransaction(opType sync.OperationType, transfers []sync.DecodedTransfer) sync.DecodedTransaction {
@@ -410,7 +410,8 @@ func TestZerionProcessor_DeFiDeposit(t *testing.T) {
 	walletRepo := new(MockWalletRepository)
 	ledgerSvc := new(MockLedgerService)
 
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeDefiDeposit, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	// Aave V3 deposits are now classified as lending_supply
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeLendingSupply, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newZerionProcessor(walletRepo, ledgerSvc)
@@ -433,10 +434,11 @@ func TestZerionProcessor_DeFiDeposit(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
-	assert.Equal(t, ledger.TxTypeDefiDeposit, ledgerSvc.recordedTransactions[0].TxType)
+	assert.Equal(t, ledger.TxTypeLendingSupply, ledgerSvc.recordedTransactions[0].TxType)
 
 	rawData := ledgerSvc.recordedTransactions[0].RawData
 	assert.Equal(t, "Aave V3", rawData["protocol"])
+	assert.Equal(t, "ETH", rawData["asset"])
 }
 
 func TestZerionProcessor_DeFiWithdraw(t *testing.T) {
@@ -447,7 +449,8 @@ func TestZerionProcessor_DeFiWithdraw(t *testing.T) {
 	walletRepo := new(MockWalletRepository)
 	ledgerSvc := new(MockLedgerService)
 
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeDefiWithdraw, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	// Aave V3 withdrawals are now classified as lending_withdraw
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeLendingWithdraw, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newZerionProcessor(walletRepo, ledgerSvc)
@@ -470,10 +473,11 @@ func TestZerionProcessor_DeFiWithdraw(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
-	assert.Equal(t, ledger.TxTypeDefiWithdraw, ledgerSvc.recordedTransactions[0].TxType)
+	assert.Equal(t, ledger.TxTypeLendingWithdraw, ledgerSvc.recordedTransactions[0].TxType)
 
 	rawData := ledgerSvc.recordedTransactions[0].RawData
 	assert.Equal(t, "Aave V3", rawData["protocol"])
+	assert.Equal(t, "ETH", rawData["asset"])
 }
 
 func TestZerionProcessor_DeFiClaim(t *testing.T) {
@@ -484,7 +488,8 @@ func TestZerionProcessor_DeFiClaim(t *testing.T) {
 	walletRepo := new(MockWalletRepository)
 	ledgerSvc := new(MockLedgerService)
 
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeDefiClaim, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	// Aave V3 claims are now classified as lending_claim
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeLendingClaim, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newZerionProcessor(walletRepo, ledgerSvc)
@@ -508,12 +513,9 @@ func TestZerionProcessor_DeFiClaim(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
-	assert.Equal(t, ledger.TxTypeDefiClaim, ledgerSvc.recordedTransactions[0].TxType)
+	assert.Equal(t, ledger.TxTypeLendingClaim, ledgerSvc.recordedTransactions[0].TxType)
 
 	rawData := ledgerSvc.recordedTransactions[0].RawData
 	assert.Equal(t, "Aave V3", rawData["protocol"])
-
-	transfers := rawData["transfers"].([]map[string]interface{})
-	require.Len(t, transfers, 1)
-	assert.Equal(t, "AAVE", transfers[0]["asset_symbol"])
+	assert.Equal(t, "AAVE", rawData["asset"])
 }

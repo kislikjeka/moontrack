@@ -48,7 +48,7 @@ func newTestService(
 ) *pkgsync.Service {
 	log := logger.New("test", os.Stdout)
 	config := pkgsync.DefaultConfig()
-	return pkgsync.NewService(config, walletRepo, ledgerSvc, nil, log, provider, posProvider, rawTxRepo, nil, nil)
+	return pkgsync.NewService(config, walletRepo, ledgerSvc, nil, log, provider, posProvider, rawTxRepo, nil, nil, nil)
 }
 
 // marshalDecodedTx is a test helper to serialize a DecodedTransaction to JSON (for RawTransaction.RawJSON)
