@@ -262,6 +262,7 @@ func main() {
 	assetHandler := handler.NewAssetHandler(assetSvc)
 	taxLotHandler := handler.NewTaxLotHandler(taxLotSvc, decimalResolver)
 	lpPositionHTTPHandler := handler.NewLPPositionHandler(lpPositionSvc)
+	lendingPositionHTTPHandler := handler.NewLendingPositionHandler(lendingPositionSvc)
 	docsHandler := handler.NewDocsHandler(openAPISpec)
 
 	// Create JWT middleware
@@ -286,8 +287,9 @@ func main() {
 		PortfolioHandler:   portfolioHandler,
 		AssetHandler:       assetHandler,
 		TaxLotHandler:      taxLotHandler,
-		LPPositionHandler:  lpPositionHTTPHandler,
-		DocsHandler:        docsHandler,
+		LPPositionHandler:      lpPositionHTTPHandler,
+		LendingPositionHandler: lendingPositionHTTPHandler,
+		DocsHandler:            docsHandler,
 		JWTMiddleware:      jwtMiddleware,
 	}
 	r := httpapi.NewRouter(routerCfg)
