@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/dialog'
 import { WalletHoldings } from './WalletHoldings'
 import { LPPositionsSection } from './components/LPPositionsSection'
+import { LendingPositionsSection } from './components/LendingPositionsSection'
 import { TransactionFilters } from '@/features/transactions/TransactionFilters'
 import { TransactionListTable } from '@/features/transactions/TransactionListTable'
 import { toast } from 'sonner'
@@ -212,6 +213,7 @@ export default function WalletDetailPage() {
           <TabsTrigger value="assets">Holdings</TabsTrigger>
           <TabsTrigger value="transactions">Transactions</TabsTrigger>
           <TabsTrigger value="lp">LP Positions</TabsTrigger>
+          <TabsTrigger value="lending">Lending</TabsTrigger>
         </TabsList>
 
         <TabsContent value="assets">
@@ -282,6 +284,10 @@ export default function WalletDetailPage() {
 
         <TabsContent value="lp">
           <LPPositionsSection walletId={id!} />
+        </TabsContent>
+
+        <TabsContent value="lending">
+          <LendingPositionsSection walletId={id!} />
         </TabsContent>
       </Tabs>
     </div>
