@@ -53,6 +53,31 @@ const typeConfig: Record<
     icon: Coins,
     variant: 'liquidity',
   },
+  lending_supply: {
+    label: 'Supply',
+    icon: ArrowDownToLine,
+    variant: 'liquidity',
+  },
+  lending_withdraw: {
+    label: 'Withdraw',
+    icon: ArrowUpFromLine,
+    variant: 'liquidity',
+  },
+  lending_borrow: {
+    label: 'Borrow',
+    icon: ArrowDownLeft,
+    variant: 'profit',
+  },
+  lending_repay: {
+    label: 'Repay',
+    icon: ArrowUpRight,
+    variant: 'loss',
+  },
+  lending_claim: {
+    label: 'Claim',
+    icon: Coins,
+    variant: 'liquidity',
+  },
 }
 
 const sizeConfig = {

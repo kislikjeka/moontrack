@@ -19,6 +19,14 @@ const transactionTypes: { value: TransactionType; label: string }[] = [
   { value: 'transfer_out', label: 'Transfer Out' },
   { value: 'internal_transfer', label: 'Internal Transfer' },
   { value: 'asset_adjustment', label: 'Adjustment' },
+  { value: 'lp_deposit', label: 'LP Deposit' },
+  { value: 'lp_withdraw', label: 'LP Withdraw' },
+  { value: 'lp_claim_fees', label: 'LP Claim' },
+  { value: 'lending_supply', label: 'Supply' },
+  { value: 'lending_withdraw', label: 'Withdraw' },
+  { value: 'lending_borrow', label: 'Borrow' },
+  { value: 'lending_repay', label: 'Repay' },
+  { value: 'lending_claim', label: 'Claim' },
 ]
 
 export function TransactionFilters({ filters, onFiltersChange, showWalletFilter = true }: TransactionFiltersProps) {

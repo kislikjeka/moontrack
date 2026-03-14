@@ -7,6 +7,11 @@ export type TransactionType =
   | 'lp_deposit'
   | 'lp_withdraw'
   | 'lp_claim_fees'
+  | 'lending_supply'
+  | 'lending_withdraw'
+  | 'lending_borrow'
+  | 'lending_repay'
+  | 'lending_claim'
 
 export type TransactionDirection = 'in' | 'out' | 'adjustment' | 'internal'
 export type TransactionStatus = 'COMPLETED' | 'FAILED'
