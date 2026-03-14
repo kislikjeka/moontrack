@@ -17,7 +17,7 @@ func generateSwapLikeEntries(txn *LPTransaction) []*ledger.Entry {
 	entries := make([]*ledger.Entry, 0, 2*(len(txn.Transfers))+2)
 
 	walletIDStr := txn.WalletID.String()
-	chainIDStr := fmt.Sprintf("%d", txn.ChainID)
+	chainIDStr := txn.ChainID
 
 	for _, tr := range txn.Transfers {
 		amount := tr.Amount.ToBigInt()
@@ -42,7 +42,7 @@ func generateSwapLikeEntries(txn *LPTransaction) []*ledger.Entry {
 				CreatedAt:   time.Now().UTC(),
 				Metadata: map[string]any{
 					"wallet_id":        walletIDStr,
-					"account_code":     fmt.Sprintf("wallet.%s.%s", walletIDStr, tr.AssetSymbol),
+					"account_code":     fmt.Sprintf("wallet.%s.%s.%s", walletIDStr, chainIDStr, tr.AssetSymbol),
 					"tx_hash":          txn.TxHash,
 					"chain_id":         chainIDStr,
 					"lp_direction":     "out",
@@ -63,7 +63,7 @@ func generateSwapLikeEntries(txn *LPTransaction) []*ledger.Entry {
 				OccurredAt:  txn.OccurredAt,
 				CreatedAt:   time.Now().UTC(),
 				Metadata: map[string]any{
-					"account_code": fmt.Sprintf("clearing.%d.%s", txn.ChainID, tr.AssetSymbol),
+					"account_code": fmt.Sprintf("clearing.%s.%s", txn.ChainID, tr.AssetSymbol),
 					"account_type": "CLEARING",
 					"chain_id":     chainIDStr,
 					"tx_hash":      txn.TxHash,
@@ -85,7 +85,7 @@ func generateSwapLikeEntries(txn *LPTransaction) []*ledger.Entry {
 				CreatedAt:   time.Now().UTC(),
 				Metadata: map[string]any{
 					"wallet_id":        walletIDStr,
-					"account_code":     fmt.Sprintf("wallet.%s.%s", walletIDStr, tr.AssetSymbol),
+					"account_code":     fmt.Sprintf("wallet.%s.%s.%s", walletIDStr, chainIDStr, tr.AssetSymbol),
 					"tx_hash":          txn.TxHash,
 					"chain_id":         chainIDStr,
 					"lp_direction":     "in",
@@ -106,7 +106,7 @@ func generateSwapLikeEntries(txn *LPTransaction) []*ledger.Entry {
 				OccurredAt:  txn.OccurredAt,
 				CreatedAt:   time.Now().UTC(),
 				Metadata: map[string]any{
-					"account_code": fmt.Sprintf("clearing.%d.%s", txn.ChainID, tr.AssetSymbol),
+					"account_code": fmt.Sprintf("clearing.%s.%s", txn.ChainID, tr.AssetSymbol),
 					"account_type": "CLEARING",
 					"chain_id":     chainIDStr,
 					"tx_hash":      txn.TxHash,
@@ -125,7 +125,7 @@ func generateLPClaimEntries(txn *LPTransaction) []*ledger.Entry {
 	entries := make([]*ledger.Entry, 0, 2*len(txn.Transfers))
 
 	walletIDStr := txn.WalletID.String()
-	chainIDStr := fmt.Sprintf("%d", txn.ChainID)
+	chainIDStr := txn.ChainID
 
 	for _, tr := range txn.Transfers {
 		if tr.Direction != "in" {
@@ -153,7 +153,7 @@ func generateLPClaimEntries(txn *LPTransaction) []*ledger.Entry {
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]any{
 				"wallet_id":        walletIDStr,
-				"account_code":     fmt.Sprintf("wallet.%s.%s", walletIDStr, tr.AssetSymbol),
+				"account_code":     fmt.Sprintf("wallet.%s.%s.%s", walletIDStr, chainIDStr, tr.AssetSymbol),
 				"tx_hash":          txn.TxHash,
 				"chain_id":         chainIDStr,
 				"lp_direction":     "in",
@@ -174,7 +174,7 @@ func generateLPClaimEntries(txn *LPTransaction) []*ledger.Entry {
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]any{
-				"account_code": fmt.Sprintf("income.lp.%d.%s", txn.ChainID, tr.AssetSymbol),
+				"account_code": fmt.Sprintf("income.lp.%s.%s", txn.ChainID, tr.AssetSymbol),
 				"account_type": "INCOME",
 				"chain_id":     chainIDStr,
 				"tx_hash":      txn.TxHash,
@@ -203,7 +203,7 @@ func generateGasFeeEntries(txn *LPTransaction) []*ledger.Entry {
 	feeUSDValue := money.CalcUSDValue(feeAmount, feeUSDRate, feeDecimals)
 
 	walletIDStr := txn.WalletID.String()
-	chainIDStr := fmt.Sprintf("%d", txn.ChainID)
+	chainIDStr := txn.ChainID
 
 	return []*ledger.Entry{
 		// DEBIT gas account
@@ -219,7 +219,7 @@ func generateGasFeeEntries(txn *LPTransaction) []*ledger.Entry {
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]any{
-				"account_code": fmt.Sprintf("gas.%d.%s", txn.ChainID, txn.FeeAsset),
+				"account_code": fmt.Sprintf("gas.%s.%s", txn.ChainID, txn.FeeAsset),
 				"tx_hash":      txn.TxHash,
 				"chain_id":     chainIDStr,
 			},
@@ -238,7 +238,7 @@ func generateGasFeeEntries(txn *LPTransaction) []*ledger.Entry {
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]any{
 				"wallet_id":    walletIDStr,
-				"account_code": fmt.Sprintf("wallet.%s.%s", walletIDStr, txn.FeeAsset),
+				"account_code": fmt.Sprintf("wallet.%s.%s.%s", walletIDStr, chainIDStr, txn.FeeAsset),
 				"tx_hash":      txn.TxHash,
 				"chain_id":     chainIDStr,
 				"entry_type":   "gas_payment",

@@ -224,10 +224,83 @@ func TestClosePosition_CalculatesPnLAndAPR(t *testing.T) {
 	assert.InDelta(t, 1500, *updated.APRBps, 10)
 }
 
+func TestRecordWithdraw_ClosesWithImpermanentLoss(t *testing.T) {
+	svc, repo := newTestService()
+	pos := createTestPosition(repo)
+	ctx := context.Background()
+
+	// Deposit 1000 token0, 2000 token1
+	pos.TotalDepositedToken0 = big.NewInt(1000)
+	pos.TotalDepositedToken1 = big.NewInt(2000)
+	pos.TotalDepositedUSD = big.NewInt(500)
+
+	// Withdraw with impermanent loss: over-withdraw token0, under-withdraw token1.
+	// token0: 1050 withdrawn (50 over), token1: 1960 withdrawn (40 under).
+	// Net remaining = (1000-1050) + (2000-1960) = -50 + 40 = -10 <= 0 → closed.
+	err := svc.RecordWithdraw(ctx, pos.ID, big.NewInt(1050), big.NewInt(1960), big.NewInt(500))
+	require.NoError(t, err)
+
+	updated := repo.positions[pos.ID]
+	assert.Equal(t, StatusClosed, updated.Status, "should close when net remaining <= 0 despite positive token1 remainder")
+	assert.NotNil(t, updated.ClosedAt)
+}
+
+func TestRecordWithdraw_StaysOpenWithPositiveNetRemaining(t *testing.T) {
+	svc, repo := newTestService()
+	pos := createTestPosition(repo)
+	ctx := context.Background()
+
+	// Deposit 1000 token0, 2000 token1
+	pos.TotalDepositedToken0 = big.NewInt(1000)
+	pos.TotalDepositedToken1 = big.NewInt(2000)
+	pos.TotalDepositedUSD = big.NewInt(500)
+
+	// Partial withdraw: net remaining = (1000-500) + (2000-800) = 500 + 1200 = 1700 > 0
+	err := svc.RecordWithdraw(ctx, pos.ID, big.NewInt(500), big.NewInt(800), big.NewInt(250))
+	require.NoError(t, err)
+
+	updated := repo.positions[pos.ID]
+	assert.Equal(t, StatusOpen, updated.Status, "should remain open with positive net remaining")
+}
+
+func TestRecordClaimFees_ClosesAlreadyWithdrawnPosition(t *testing.T) {
+	svc, repo := newTestService()
+	pos := createTestPosition(repo)
+	ctx := context.Background()
+
+	pos.OpenedAt = time.Now().UTC().Add(-24 * time.Hour)
+
+	// Simulate a position that was fully withdrawn but not yet closed
+	// (e.g., withdraw happened before IsFullyWithdrawn was fixed).
+	pos.TotalDepositedToken0 = big.NewInt(1000)
+	pos.TotalDepositedToken1 = big.NewInt(2000)
+	pos.TotalDepositedUSD = big.NewInt(500)
+	pos.TotalWithdrawnToken0 = big.NewInt(1000)
+	pos.TotalWithdrawnToken1 = big.NewInt(2000)
+	pos.TotalWithdrawnUSD = big.NewInt(500)
+	// Position is fully withdrawn but still open
+	pos.Status = StatusOpen
+
+	// Claim fees
+	err := svc.RecordClaimFees(ctx, pos.ID, big.NewInt(5), big.NewInt(10), big.NewInt(3))
+	require.NoError(t, err)
+
+	updated := repo.positions[pos.ID]
+	assert.Equal(t, StatusClosed, updated.Status, "claim should close already-withdrawn position")
+	assert.NotNil(t, updated.ClosedAt)
+	// PnL = withdrawn(500) + claimed(3) - deposited(500) = 3
+	assert.Equal(t, big.NewInt(3), updated.RealizedPnLUSD)
+}
+
 func TestRecordClaimFees_UpdatesAggregates(t *testing.T) {
 	svc, repo := newTestService()
 	pos := createTestPosition(repo)
 	ctx := context.Background()
+
+	// Ensure position has deposits so it's not considered fully withdrawn
+	pos.TotalDepositedToken0 = big.NewInt(1000)
+	pos.TotalDepositedToken1 = big.NewInt(2000)
+	pos.TotalDepositedUSD = big.NewInt(500)
 
 	err := svc.RecordClaimFees(ctx, pos.ID, big.NewInt(50), big.NewInt(100), big.NewInt(25))
 	require.NoError(t, err)
@@ -236,7 +309,7 @@ func TestRecordClaimFees_UpdatesAggregates(t *testing.T) {
 	assert.Equal(t, big.NewInt(25), updated.TotalClaimedFeesUSD)
 	assert.Equal(t, big.NewInt(50), updated.TotalClaimedToken0)
 	assert.Equal(t, big.NewInt(100), updated.TotalClaimedToken1)
-	assert.Equal(t, StatusOpen, updated.Status, "claim should not close position")
+	assert.Equal(t, StatusOpen, updated.Status, "claim should not close position with remaining deposits")
 }
 
 func TestFindOrCreate_ReusesExistingByNFT(t *testing.T) {

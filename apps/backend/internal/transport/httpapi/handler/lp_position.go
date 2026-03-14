@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"time"
@@ -99,6 +100,7 @@ func (h *LPPositionHandler) ListPositions(w http.ResponseWriter, r *http.Request
 
 	positions, err := h.svc.ListByUser(r.Context(), userID, statusFilter, walletIDFilter, chainIDFilter)
 	if err != nil {
+		slog.Error("failed to list LP positions", "error", err, "user_id", userID)
 		respondWithError(w, http.StatusInternalServerError, "failed to list LP positions")
 		return
 	}
@@ -128,6 +130,7 @@ func (h *LPPositionHandler) GetPosition(w http.ResponseWriter, r *http.Request) 
 
 	pos, err := h.svc.GetByID(r.Context(), posID)
 	if err != nil {
+		slog.Error("failed to get LP position", "error", err, "position_id", posID)
 		respondWithError(w, http.StatusInternalServerError, "failed to get LP position")
 		return
 	}

@@ -168,6 +168,10 @@ func (s *Service) RecordClaimFees(ctx context.Context, positionID uuid.UUID, tok
 	pos.TotalClaimedToken1.Add(pos.TotalClaimedToken1, token1Amt)
 	pos.UpdatedAt = time.Now().UTC()
 
+	if pos.IsFullyWithdrawn() && pos.Status != StatusClosed {
+		s.closePosition(pos)
+	}
+
 	return s.repo.Update(ctx, pos)
 }
 

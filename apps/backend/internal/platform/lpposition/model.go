@@ -63,7 +63,19 @@ func (p *LPPosition) RemainingToken1() *big.Int {
 	return new(big.Int).Sub(p.TotalDepositedToken1, p.TotalWithdrawnToken1)
 }
 
-// IsFullyWithdrawn returns true if both token remainders are <= 0.
+// IsFullyWithdrawn returns true if the position has been fully withdrawn.
+// Handles impermanent loss where one token may be slightly over-withdrawn
+// (negative remainder) while the other is slightly under-withdrawn (positive).
 func (p *LPPosition) IsFullyWithdrawn() bool {
-	return p.RemainingToken0().Sign() <= 0 && p.RemainingToken1().Sign() <= 0
+	remaining0 := p.RemainingToken0()
+	remaining1 := p.RemainingToken1()
+
+	// Simple case: both tokens fully withdrawn.
+	if remaining0.Sign() <= 0 && remaining1.Sign() <= 0 {
+		return true
+	}
+
+	// Impermanent loss case: net remaining <= 0 means more withdrawn than deposited overall.
+	net := new(big.Int).Add(remaining0, remaining1)
+	return net.Sign() <= 0
 }

@@ -2,6 +2,7 @@
 # Just command runner - https://github.com/casey/just
 
 set dotenv-load
+set shell := ["bash", "-c"]
 
 default:
     @just --list
@@ -98,6 +99,7 @@ db-clear-data:
         DELETE FROM accounts; \
         DELETE FROM raw_transactions; \
         DELETE FROM transactions; \
+        DELETE FROM lp_positions; \
         DELETE FROM wallets; \
     "
     @echo "All portfolio data cleared. User accounts and price history preserved."
@@ -181,6 +183,65 @@ loki-mcp-check:
         && echo "✓ Loki is reachable at localhost:3100" \
         || (echo "✗ Loki is not reachable. Run: just dev-logs" && exit 1)
     @echo "All checks passed!"
+
+# =============================================================================
+# Workflow
+# =============================================================================
+
+# Reset data, create test wallet, and trigger sync in one command
+resync:
+    @echo "=== Resetting & Syncing Test Wallet ==="
+    @echo ""
+    @echo "1. Clearing portfolio data..."
+    @just db-clear-data
+    @echo ""
+    @echo "2. Restarting backend..."
+    docker-compose up -d --build backend
+    @echo "   Waiting for backend to be ready..."
+    @i=0; while [ $i -lt 30 ]; do \
+        if curl -sf http://localhost:8080/health > /dev/null 2>&1; then \
+            echo "   Backend is ready!"; \
+            break; \
+        fi; \
+        i=$((i + 1)); \
+        if [ $i -eq 30 ]; then \
+            echo "   ERROR: Backend failed to start"; \
+            exit 1; \
+        fi; \
+        sleep 1; \
+    done
+    @echo ""
+    @echo "3. Authenticating (${RESYNC_EMAIL})..."
+    @TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/register \
+        -H "Content-Type: application/json" \
+        -d "{\"email\":\"${RESYNC_EMAIL}\",\"password\":\"${RESYNC_PASSWORD}\"}" \
+        | grep -o '"token":"[^"]*"' | cut -d'"' -f4); \
+    if [ -z "$TOKEN" ]; then \
+        TOKEN=$(curl -sf -X POST http://localhost:8080/api/v1/auth/login \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"${RESYNC_EMAIL}\",\"password\":\"${RESYNC_PASSWORD}\"}" \
+            | grep -o '"token":"[^"]*"' | cut -d'"' -f4); \
+    fi; \
+    if [ -z "$TOKEN" ]; then \
+        echo "   ERROR: Authentication failed"; \
+        exit 1; \
+    fi; \
+    echo "   Authenticated."; \
+    echo ""; \
+    echo "4. Creating test wallet..."; \
+    WALLET_ID=$(curl -sf -X POST http://localhost:8080/api/v1/wallets \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $TOKEN" \
+        -d "{\"name\":\"test\",\"address\":\"${RESYNC_WALLET_ADDRESS}\"}" \
+        | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4); \
+    echo "   Wallet created: $WALLET_ID"; \
+    echo ""; \
+    echo "5. Triggering sync..."; \
+    curl -sf -X POST "http://localhost:8080/api/v1/wallets/$WALLET_ID/sync" \
+        -H "Authorization: Bearer $TOKEN" > /dev/null; \
+    echo "   Sync triggered!"; \
+    echo ""; \
+    echo "=== Done! Wallet is syncing. ==="
 
 # =============================================================================
 # Setup & Utilities

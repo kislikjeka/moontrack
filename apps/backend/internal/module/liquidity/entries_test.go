@@ -17,7 +17,7 @@ func newTestLPTxn(transfers []LPTransfer) *LPTransaction {
 	return &LPTransaction{
 		WalletID:   uuid.New(),
 		TxHash:     "0xabc123",
-		ChainID:    1,
+		ChainID:    "ethereum",
 		OccurredAt: time.Now().UTC(),
 		Protocol:   "Uniswap V3",
 		Transfers:  transfers,
@@ -72,6 +72,41 @@ func TestDepositEntries_AssetDecrease(t *testing.T) {
 	// Second entry: DEBIT clearing
 	assert.Equal(t, ledger.Debit, entries[1].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeClearing, entries[1].EntryType)
+}
+
+func TestEntries_AccountCodeIncludesChainID(t *testing.T) {
+	walletID := uuid.New()
+	txn := &LPTransaction{
+		WalletID:   walletID,
+		TxHash:     "0xabc123",
+		ChainID:    "base",
+		OccurredAt: time.Now().UTC(),
+		Protocol:   "Uniswap V3",
+		Transfers: []LPTransfer{
+			{AssetSymbol: "ETH", Amount: money.NewBigIntFromInt64(1e18), Decimals: 18, Direction: "in", USDPrice: money.NewBigIntFromInt64(250000000000)},
+		},
+		FeeAsset:    "ETH",
+		FeeAmount:   money.NewBigIntFromInt64(21000000000000),
+		FeeDecimals: 18,
+		FeeUSDPrice: money.NewBigIntFromInt64(250000000000),
+	}
+
+	expectedWalletCode := "wallet." + walletID.String() + ".base.ETH"
+
+	// Check swap-like entries
+	swapEntries := generateSwapLikeEntries(txn)
+	walletEntry := swapEntries[0]
+	assert.Equal(t, expectedWalletCode, walletEntry.Metadata["account_code"])
+
+	// Check claim entries
+	claimEntries := generateLPClaimEntries(txn)
+	claimWalletEntry := claimEntries[0]
+	assert.Equal(t, expectedWalletCode, claimWalletEntry.Metadata["account_code"])
+
+	// Check gas fee entries
+	gasEntries := generateGasFeeEntries(txn)
+	gasWalletEntry := gasEntries[1] // second entry is wallet credit
+	assert.Equal(t, expectedWalletCode, gasWalletEntry.Metadata["account_code"])
 }
 
 func TestWithdrawEntries_AssetIncrease(t *testing.T) {

@@ -295,6 +295,7 @@ func (r *LPReader) ReadForList(raw map[string]interface{}) (*ListFields, error) 
 	}
 
 	assetSymbol, amount, usdValue := r.primaryTransfer(raw)
+	chainID, _ := raw["chain_id"].(string)
 
 	return &ListFields{
 		WalletID:  walletID,
@@ -302,6 +303,7 @@ func (r *LPReader) ReadForList(raw map[string]interface{}) (*ListFields, error) 
 		Amount:    amount,
 		USDValue:  usdValue,
 		Direction: r.direction,
+		ChainID:   chainID,
 	}, nil
 }
 
