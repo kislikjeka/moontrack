@@ -143,11 +143,11 @@ type LPPositionService interface {
 
 // LendingPositionService manages lending position lifecycle
 type LendingPositionService interface {
-	FindOrCreate(ctx context.Context, userID, walletID uuid.UUID, protocol, chainID, supplyAsset string, supplyDecimals int, supplyContract string, openedAt time.Time) (*lendingposition.LendingPosition, error)
-	RecordSupply(ctx context.Context, positionID uuid.UUID, amount, usdValue *big.Int) error
-	RecordWithdraw(ctx context.Context, positionID uuid.UUID, amount, usdValue *big.Int) error
-	RecordBorrow(ctx context.Context, positionID uuid.UUID, borrowAsset string, borrowDecimals int, borrowContract string, amount, usdValue *big.Int) error
-	RecordRepay(ctx context.Context, positionID uuid.UUID, amount, usdValue *big.Int) error
+	FindOrCreate(ctx context.Context, userID, walletID uuid.UUID, protocol, chainID string, openedAt time.Time) (*lendingposition.LendingPosition, error)
+	RecordSupply(ctx context.Context, positionID uuid.UUID, asset string, decimals int, contract string, amount, usdValue *big.Int) error
+	RecordWithdraw(ctx context.Context, positionID uuid.UUID, asset string, amount, usdValue *big.Int) error
+	RecordBorrow(ctx context.Context, positionID uuid.UUID, asset string, decimals int, contract string, amount, usdValue *big.Int) error
+	RecordRepay(ctx context.Context, positionID uuid.UUID, asset string, amount, usdValue *big.Int) error
 	RecordClaim(ctx context.Context, positionID uuid.UUID, usdValue *big.Int) error
 }
 

@@ -17,10 +17,14 @@ import (
 // mockRepo is an in-memory implementation of Repository for testing.
 type mockRepo struct {
 	positions map[uuid.UUID]*LendingPosition
+	assets    map[uuid.UUID]*LendingPositionAsset // keyed by asset ID
 }
 
 func newMockRepo() *mockRepo {
-	return &mockRepo{positions: make(map[uuid.UUID]*LendingPosition)}
+	return &mockRepo{
+		positions: make(map[uuid.UUID]*LendingPosition),
+		assets:    make(map[uuid.UUID]*LendingPositionAsset),
+	}
 }
 
 func (r *mockRepo) Create(_ context.Context, pos *LendingPosition) error {
@@ -33,6 +37,30 @@ func (r *mockRepo) Update(_ context.Context, pos *LendingPosition) error {
 	return nil
 }
 
+func (r *mockRepo) UpsertAsset(_ context.Context, asset *LendingPositionAsset) error {
+	// Store asset by ID
+	r.assets[asset.ID] = asset
+
+	// Also update the position's Assets slice
+	pos, ok := r.positions[asset.PositionID]
+	if !ok {
+		return nil
+	}
+
+	found := false
+	for i := range pos.Assets {
+		if pos.Assets[i].Side == asset.Side && pos.Assets[i].Asset == asset.Asset {
+			pos.Assets[i] = *asset
+			found = true
+			break
+		}
+	}
+	if !found {
+		pos.Assets = append(pos.Assets, *asset)
+	}
+	return nil
+}
+
 func (r *mockRepo) GetByID(_ context.Context, id uuid.UUID) (*LendingPosition, error) {
 	pos, ok := r.positions[id]
 	if !ok {
@@ -41,13 +69,11 @@ func (r *mockRepo) GetByID(_ context.Context, id uuid.UUID) (*LendingPosition, e
 	return pos, nil
 }
 
-func (r *mockRepo) FindActiveByWalletAndAsset(_ context.Context, walletID uuid.UUID, protocol, chainID, supplyAsset, borrowAsset string) (*LendingPosition, error) {
+func (r *mockRepo) FindActiveByWalletProtocolChain(_ context.Context, walletID uuid.UUID, protocol, chainID string) (*LendingPosition, error) {
 	for _, pos := range r.positions {
 		if pos.WalletID == walletID && pos.Protocol == protocol && pos.ChainID == chainID &&
-			pos.SupplyAsset == supplyAsset && pos.Status == StatusActive {
-			if borrowAsset == "" || pos.BorrowAsset == borrowAsset {
-				return pos, nil
-			}
+			pos.Status == StatusActive {
+			return pos, nil
 		}
 	}
 	return nil, nil
@@ -88,24 +114,9 @@ func createTestPosition(repo *mockRepo) *LendingPosition {
 		ChainID:  "ethereum",
 		Protocol: "Aave V3",
 
-		SupplyAsset:    "ETH",
-		SupplyAmount:   big.NewInt(0),
-		SupplyDecimals: 18,
-		SupplyContract: "0xeth",
-
-		BorrowAmount: big.NewInt(0),
-
-		TotalSupplied:  big.NewInt(0),
-		TotalWithdrawn: big.NewInt(0),
-		TotalBorrowed:  big.NewInt(0),
-		TotalRepaid:    big.NewInt(0),
-
-		TotalSuppliedUSD:  big.NewInt(0),
-		TotalWithdrawnUSD: big.NewInt(0),
-		TotalBorrowedUSD:  big.NewInt(0),
-		TotalRepaidUSD:    big.NewInt(0),
-
 		InterestEarnedUSD: big.NewInt(0),
+
+		Assets: nil,
 
 		Status:    StatusActive,
 		OpenedAt:  time.Now().UTC().Add(-24 * time.Hour),
@@ -121,14 +132,58 @@ func TestRecordSupply_UpdatesAggregates(t *testing.T) {
 	pos := createTestPosition(repo)
 	ctx := context.Background()
 
-	err := svc.RecordSupply(ctx, pos.ID, big.NewInt(1000), big.NewInt(500))
+	err := svc.RecordSupply(ctx, pos.ID, "ETH", 18, "0xeth", big.NewInt(1000), big.NewInt(500))
 	require.NoError(t, err)
 
 	updated := repo.positions[pos.ID]
-	assert.Equal(t, big.NewInt(1000), updated.SupplyAmount)
-	assert.Equal(t, big.NewInt(1000), updated.TotalSupplied)
-	assert.Equal(t, big.NewInt(500), updated.TotalSuppliedUSD)
+	supplyAsset := updated.FindAsset("supply", "ETH")
+	require.NotNil(t, supplyAsset)
+	assert.Equal(t, big.NewInt(1000), supplyAsset.Amount)
+	assert.Equal(t, big.NewInt(1000), supplyAsset.TotalIn)
+	assert.Equal(t, big.NewInt(500), supplyAsset.TotalInUSD)
 	assert.Equal(t, StatusActive, updated.Status)
+}
+
+func TestRecordSupply_MultipleAssets(t *testing.T) {
+	svc, repo := newTestService()
+	pos := createTestPosition(repo)
+	ctx := context.Background()
+
+	err := svc.RecordSupply(ctx, pos.ID, "ETH", 18, "0xeth", big.NewInt(1000), big.NewInt(500))
+	require.NoError(t, err)
+
+	err = svc.RecordSupply(ctx, pos.ID, "WBTC", 8, "0xwbtc", big.NewInt(2000), big.NewInt(1000))
+	require.NoError(t, err)
+
+	updated := repo.positions[pos.ID]
+	assert.Len(t, updated.SupplyAssets(), 2)
+
+	ethAsset := updated.FindAsset("supply", "ETH")
+	require.NotNil(t, ethAsset)
+	assert.Equal(t, big.NewInt(1000), ethAsset.Amount)
+
+	wbtcAsset := updated.FindAsset("supply", "WBTC")
+	require.NotNil(t, wbtcAsset)
+	assert.Equal(t, big.NewInt(2000), wbtcAsset.Amount)
+}
+
+func TestRecordSupply_AccumulatesOnSameAsset(t *testing.T) {
+	svc, repo := newTestService()
+	pos := createTestPosition(repo)
+	ctx := context.Background()
+
+	err := svc.RecordSupply(ctx, pos.ID, "ETH", 18, "0xeth", big.NewInt(1000), big.NewInt(500))
+	require.NoError(t, err)
+
+	err = svc.RecordSupply(ctx, pos.ID, "ETH", 18, "0xeth", big.NewInt(500), big.NewInt(250))
+	require.NoError(t, err)
+
+	updated := repo.positions[pos.ID]
+	ethAsset := updated.FindAsset("supply", "ETH")
+	require.NotNil(t, ethAsset)
+	assert.Equal(t, big.NewInt(1500), ethAsset.Amount)
+	assert.Equal(t, big.NewInt(1500), ethAsset.TotalIn)
+	assert.Equal(t, big.NewInt(750), ethAsset.TotalInUSD)
 }
 
 func TestRecordWithdraw_ClosesWhenFullyWithdrawn(t *testing.T) {
@@ -137,18 +192,27 @@ func TestRecordWithdraw_ClosesWhenFullyWithdrawn(t *testing.T) {
 	ctx := context.Background()
 
 	// Supply first
-	pos.SupplyAmount = big.NewInt(1000)
-	pos.TotalSupplied = big.NewInt(1000)
-	pos.TotalSuppliedUSD = big.NewInt(500)
+	pos.Assets = []LendingPositionAsset{
+		{
+			ID: uuid.New(), PositionID: pos.ID, Side: "supply", Asset: "ETH",
+			Amount: big.NewInt(1000), Decimals: 18, Contract: "0xeth",
+			TotalIn: big.NewInt(1000), TotalOut: big.NewInt(0),
+			TotalInUSD: big.NewInt(500), TotalOutUSD: big.NewInt(0),
+			CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		},
+	}
 
 	// Withdraw everything
-	err := svc.RecordWithdraw(ctx, pos.ID, big.NewInt(1000), big.NewInt(600))
+	err := svc.RecordWithdraw(ctx, pos.ID, "ETH", big.NewInt(1000), big.NewInt(600))
 	require.NoError(t, err)
 
 	updated := repo.positions[pos.ID]
 	assert.Equal(t, StatusClosed, updated.Status)
 	assert.NotNil(t, updated.ClosedAt)
-	assert.Equal(t, 0, updated.SupplyAmount.Sign(), "supply amount should be zero")
+
+	ethAsset := updated.FindAsset("supply", "ETH")
+	require.NotNil(t, ethAsset)
+	assert.Equal(t, 0, ethAsset.Amount.Sign(), "supply amount should be zero")
 }
 
 func TestRecordWithdraw_StaysOpenWithBorrow(t *testing.T) {
@@ -156,11 +220,25 @@ func TestRecordWithdraw_StaysOpenWithBorrow(t *testing.T) {
 	pos := createTestPosition(repo)
 	ctx := context.Background()
 
-	pos.SupplyAmount = big.NewInt(1000)
-	pos.BorrowAmount = big.NewInt(500) // Outstanding borrow
+	pos.Assets = []LendingPositionAsset{
+		{
+			ID: uuid.New(), PositionID: pos.ID, Side: "supply", Asset: "ETH",
+			Amount: big.NewInt(1000), Decimals: 18, Contract: "0xeth",
+			TotalIn: big.NewInt(1000), TotalOut: big.NewInt(0),
+			TotalInUSD: big.NewInt(500), TotalOutUSD: big.NewInt(0),
+			CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		},
+		{
+			ID: uuid.New(), PositionID: pos.ID, Side: "borrow", Asset: "USDC",
+			Amount: big.NewInt(500), Decimals: 6, Contract: "0xusdc",
+			TotalIn: big.NewInt(500), TotalOut: big.NewInt(0),
+			TotalInUSD: big.NewInt(500), TotalOutUSD: big.NewInt(0),
+			CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		},
+	}
 
 	// Withdraw all supply
-	err := svc.RecordWithdraw(ctx, pos.ID, big.NewInt(1000), big.NewInt(600))
+	err := svc.RecordWithdraw(ctx, pos.ID, "ETH", big.NewInt(1000), big.NewInt(600))
 	require.NoError(t, err)
 
 	updated := repo.positions[pos.ID]
@@ -168,7 +246,7 @@ func TestRecordWithdraw_StaysOpenWithBorrow(t *testing.T) {
 	assert.Nil(t, updated.ClosedAt)
 }
 
-func TestRecordBorrow_SetsBorrowAsset(t *testing.T) {
+func TestRecordBorrow_CreatesAsset(t *testing.T) {
 	svc, repo := newTestService()
 	pos := createTestPosition(repo)
 	ctx := context.Background()
@@ -177,12 +255,14 @@ func TestRecordBorrow_SetsBorrowAsset(t *testing.T) {
 	require.NoError(t, err)
 
 	updated := repo.positions[pos.ID]
-	assert.Equal(t, "USDC", updated.BorrowAsset)
-	assert.Equal(t, 6, updated.BorrowDecimals)
-	assert.Equal(t, "0xusdc", updated.BorrowContract)
-	assert.Equal(t, big.NewInt(2000), updated.BorrowAmount)
-	assert.Equal(t, big.NewInt(2000), updated.TotalBorrowed)
-	assert.Equal(t, big.NewInt(2000), updated.TotalBorrowedUSD)
+	borrowAsset := updated.FindAsset("borrow", "USDC")
+	require.NotNil(t, borrowAsset)
+	assert.Equal(t, "USDC", borrowAsset.Asset)
+	assert.Equal(t, 6, borrowAsset.Decimals)
+	assert.Equal(t, "0xusdc", borrowAsset.Contract)
+	assert.Equal(t, big.NewInt(2000), borrowAsset.Amount)
+	assert.Equal(t, big.NewInt(2000), borrowAsset.TotalIn)
+	assert.Equal(t, big.NewInt(2000), borrowAsset.TotalInUSD)
 }
 
 func TestRecordRepay_ReducesDebt(t *testing.T) {
@@ -190,16 +270,32 @@ func TestRecordRepay_ReducesDebt(t *testing.T) {
 	pos := createTestPosition(repo)
 	ctx := context.Background()
 
-	pos.BorrowAsset = "USDC"
-	pos.BorrowAmount = big.NewInt(2000)
+	pos.Assets = []LendingPositionAsset{
+		{
+			ID: uuid.New(), PositionID: pos.ID, Side: "supply", Asset: "ETH",
+			Amount: big.NewInt(1000), Decimals: 18, Contract: "0xeth",
+			TotalIn: big.NewInt(1000), TotalOut: big.NewInt(0),
+			TotalInUSD: big.NewInt(500), TotalOutUSD: big.NewInt(0),
+			CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		},
+		{
+			ID: uuid.New(), PositionID: pos.ID, Side: "borrow", Asset: "USDC",
+			Amount: big.NewInt(2000), Decimals: 6, Contract: "0xusdc",
+			TotalIn: big.NewInt(2000), TotalOut: big.NewInt(0),
+			TotalInUSD: big.NewInt(2000), TotalOutUSD: big.NewInt(0),
+			CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		},
+	}
 
-	err := svc.RecordRepay(ctx, pos.ID, big.NewInt(1500), big.NewInt(1500))
+	err := svc.RecordRepay(ctx, pos.ID, "USDC", big.NewInt(1500), big.NewInt(1500))
 	require.NoError(t, err)
 
 	updated := repo.positions[pos.ID]
-	assert.Equal(t, big.NewInt(500), updated.BorrowAmount)
-	assert.Equal(t, big.NewInt(1500), updated.TotalRepaid)
-	assert.Equal(t, big.NewInt(1500), updated.TotalRepaidUSD)
+	borrowAsset := updated.FindAsset("borrow", "USDC")
+	require.NotNil(t, borrowAsset)
+	assert.Equal(t, big.NewInt(500), borrowAsset.Amount)
+	assert.Equal(t, big.NewInt(1500), borrowAsset.TotalOut)
+	assert.Equal(t, big.NewInt(1500), borrowAsset.TotalOutUSD)
 	assert.Equal(t, StatusActive, updated.Status)
 }
 
@@ -208,10 +304,17 @@ func TestRecordRepay_ClosesWhenFullyRepaidAndNoSupply(t *testing.T) {
 	pos := createTestPosition(repo)
 	ctx := context.Background()
 
-	pos.BorrowAmount = big.NewInt(500)
-	pos.SupplyAmount = big.NewInt(0)
+	pos.Assets = []LendingPositionAsset{
+		{
+			ID: uuid.New(), PositionID: pos.ID, Side: "borrow", Asset: "USDC",
+			Amount: big.NewInt(500), Decimals: 6, Contract: "0xusdc",
+			TotalIn: big.NewInt(500), TotalOut: big.NewInt(0),
+			TotalInUSD: big.NewInt(500), TotalOutUSD: big.NewInt(0),
+			CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		},
+	}
 
-	err := svc.RecordRepay(ctx, pos.ID, big.NewInt(500), big.NewInt(500))
+	err := svc.RecordRepay(ctx, pos.ID, "USDC", big.NewInt(500), big.NewInt(500))
 	require.NoError(t, err)
 
 	updated := repo.positions[pos.ID]
@@ -243,8 +346,7 @@ func TestFindOrCreate_ReusesExisting(t *testing.T) {
 	ctx := context.Background()
 
 	found, err := svc.FindOrCreate(ctx, pos.UserID, pos.WalletID,
-		pos.Protocol, pos.ChainID, pos.SupplyAsset,
-		pos.SupplyDecimals, pos.SupplyContract,
+		pos.Protocol, pos.ChainID,
 		time.Now(),
 	)
 	require.NoError(t, err)
@@ -256,22 +358,55 @@ func TestFindOrCreate_CreatesNew(t *testing.T) {
 	ctx := context.Background()
 
 	pos, err := svc.FindOrCreate(ctx, uuid.New(), uuid.New(),
-		"Aave V3", "ethereum", "WBTC",
-		8, "0xwbtc",
+		"Aave V3", "ethereum",
 		time.Now(),
 	)
 	require.NoError(t, err)
 	assert.NotNil(t, pos)
 	assert.Equal(t, StatusActive, pos.Status)
-	assert.Equal(t, "WBTC", pos.SupplyAsset)
-	assert.Equal(t, 8, pos.SupplyDecimals)
 }
 
 func TestGetPosition_NotFound(t *testing.T) {
 	svc, _ := newTestService()
 	ctx := context.Background()
 
-	err := svc.RecordSupply(ctx, uuid.New(), big.NewInt(100), big.NewInt(50))
+	err := svc.RecordSupply(ctx, uuid.New(), "ETH", 18, "0xeth", big.NewInt(100), big.NewInt(50))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "position not found")
+}
+
+func TestShouldClose_EmptyAssets(t *testing.T) {
+	pos := &LendingPosition{Assets: nil}
+	assert.True(t, pos.ShouldClose())
+}
+
+func TestShouldClose_AllZero(t *testing.T) {
+	pos := &LendingPosition{
+		Assets: []LendingPositionAsset{
+			{Side: "supply", Asset: "ETH", Amount: big.NewInt(0)},
+			{Side: "borrow", Asset: "USDC", Amount: big.NewInt(0)},
+		},
+	}
+	assert.True(t, pos.ShouldClose())
+}
+
+func TestShouldClose_SupplyRemaining(t *testing.T) {
+	pos := &LendingPosition{
+		Assets: []LendingPositionAsset{
+			{Side: "supply", Asset: "ETH", Amount: big.NewInt(100)},
+			{Side: "borrow", Asset: "USDC", Amount: big.NewInt(0)},
+		},
+	}
+	assert.False(t, pos.ShouldClose())
+}
+
+func TestFindAsset_NotFound(t *testing.T) {
+	pos := &LendingPosition{
+		Assets: []LendingPositionAsset{
+			{Side: "supply", Asset: "ETH", Amount: big.NewInt(100)},
+		},
+	}
+	assert.Nil(t, pos.FindAsset("borrow", "ETH"))
+	assert.Nil(t, pos.FindAsset("supply", "WBTC"))
+	assert.NotNil(t, pos.FindAsset("supply", "ETH"))
 }

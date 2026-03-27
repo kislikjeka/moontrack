@@ -12,6 +12,7 @@ import (
 
 	"github.com/kislikjeka/moontrack/internal/platform/lpposition"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
+	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
 // LPPositionServiceInterface defines LP position operations for the HTTP handler
@@ -158,9 +159,9 @@ func toLPPositionResponse(pos *lpposition.LPPosition) LPPositionResponse {
 		Token0Decimals: pos.Token0Decimals,
 		Token1Decimals: pos.Token1Decimals,
 
-		TotalDepositedUSD:   bigIntStr(pos.TotalDepositedUSD),
-		TotalWithdrawnUSD:   bigIntStr(pos.TotalWithdrawnUSD),
-		TotalClaimedFeesUSD: bigIntStr(pos.TotalClaimedFeesUSD),
+		TotalDepositedUSD:   money.FormatUSD(pos.TotalDepositedUSD),
+		TotalWithdrawnUSD:   money.FormatUSD(pos.TotalWithdrawnUSD),
+		TotalClaimedFeesUSD: money.FormatUSD(pos.TotalClaimedFeesUSD),
 
 		TotalDepositedToken0: bigIntStr(pos.TotalDepositedToken0),
 		TotalDepositedToken1: bigIntStr(pos.TotalDepositedToken1),
@@ -182,7 +183,7 @@ func toLPPositionResponse(pos *lpposition.LPPosition) LPPositionResponse {
 		resp.ClosedAt = &s
 	}
 	if pos.RealizedPnLUSD != nil {
-		s := pos.RealizedPnLUSD.String()
+		s := money.FormatUSD(pos.RealizedPnLUSD)
 		resp.RealizedPnLUSD = &s
 	}
 

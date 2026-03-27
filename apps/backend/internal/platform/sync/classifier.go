@@ -1,6 +1,10 @@
 package sync
 
-import "github.com/kislikjeka/moontrack/internal/ledger"
+import (
+	"strings"
+
+	"github.com/kislikjeka/moontrack/internal/ledger"
+)
 
 // Classifier maps decoded blockchain transactions to ledger transaction types
 type Classifier struct{}
@@ -24,8 +28,8 @@ func (c *Classifier) Classify(tx DecodedTransaction) ledger.TransactionType {
 		}
 	}
 
-	// AAVE lending protocol
-	if c.isAAVE(tx.Protocol) {
+	// AAVE lending protocol (by protocol name or by asset heuristics)
+	if c.isAAVE(tx.Protocol) || c.hasAaveAssets(tx.Transfers) {
 		if lt := c.classifyLending(tx); lt != "" {
 			return lt
 		}
@@ -118,6 +122,27 @@ func (c *Classifier) classifyExecute(tx DecodedTransaction) ledger.TransactionTy
 
 func (c *Classifier) isAAVE(protocol string) bool {
 	return protocol == "AAVE" || protocol == "Aave" || protocol == "Aave V3" || protocol == "Aave V2"
+}
+
+// hasAaveAssets detects AAVE lending transactions by transfer asset names/symbols
+// when Zerion doesn't tag the protocol. Aave aTokens and debt tokens have
+// distinctive naming: aEthWETH, variableDebtBasUSDC, stableDebtEthDAI, etc.
+func (c *Classifier) hasAaveAssets(transfers []DecodedTransfer) bool {
+	for _, t := range transfers {
+		if strings.HasPrefix(t.AssetName, "Aave ") {
+			return true
+		}
+		if strings.HasPrefix(t.AssetSymbol, "variableDebt") ||
+			strings.HasPrefix(t.AssetSymbol, "stableDebt") {
+			return true
+		}
+		// aToken pattern: lowercase 'a' + uppercase letter (e.g. aEthWETH, aBasUSDC)
+		if len(t.AssetSymbol) > 2 && t.AssetSymbol[0] == 'a' &&
+			t.AssetSymbol[1] >= 'A' && t.AssetSymbol[1] <= 'Z' {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Classifier) classifyLending(tx DecodedTransaction) ledger.TransactionType {

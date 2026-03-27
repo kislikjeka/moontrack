@@ -23,16 +23,15 @@ func NewService(repo Repository, log *logger.Logger) *Service {
 	}
 }
 
-// FindOrCreate looks up an active lending position by wallet+protocol+chain+asset,
+// FindOrCreate looks up an active lending position by wallet+protocol+chain,
 // or creates a new one.
 func (s *Service) FindOrCreate(
 	ctx context.Context,
 	userID, walletID uuid.UUID,
-	protocol, chainID, supplyAsset string,
-	supplyDecimals int, supplyContract string,
+	protocol, chainID string,
 	openedAt time.Time,
 ) (*LendingPosition, error) {
-	existing, err := s.repo.FindActiveByWalletAndAsset(ctx, walletID, protocol, chainID, supplyAsset, "")
+	existing, err := s.repo.FindActiveByWalletProtocolChain(ctx, walletID, protocol, chainID)
 	if err != nil {
 		return nil, fmt.Errorf("find active position: %w", err)
 	}
@@ -47,24 +46,9 @@ func (s *Service) FindOrCreate(
 		ChainID:  chainID,
 		Protocol: protocol,
 
-		SupplyAsset:    supplyAsset,
-		SupplyAmount:   big.NewInt(0),
-		SupplyDecimals: supplyDecimals,
-		SupplyContract: supplyContract,
-
-		BorrowAmount: big.NewInt(0),
-
-		TotalSupplied:  big.NewInt(0),
-		TotalWithdrawn: big.NewInt(0),
-		TotalBorrowed:  big.NewInt(0),
-		TotalRepaid:    big.NewInt(0),
-
-		TotalSuppliedUSD:  big.NewInt(0),
-		TotalWithdrawnUSD: big.NewInt(0),
-		TotalBorrowedUSD:  big.NewInt(0),
-		TotalRepaidUSD:    big.NewInt(0),
-
 		InterestEarnedUSD: big.NewInt(0),
+
+		Assets: nil,
 
 		Status:   StatusActive,
 		OpenedAt: openedAt,
@@ -80,51 +64,17 @@ func (s *Service) FindOrCreate(
 	s.logger.Info("lending position created",
 		"position_id", pos.ID,
 		"protocol", protocol,
-		"supply_asset", supplyAsset,
+		"chain_id", chainID,
 	)
 
 	return pos, nil
 }
 
-// RecordSupply adds to supply totals and current supply balance.
-func (s *Service) RecordSupply(ctx context.Context, positionID uuid.UUID, amount, usdValue *big.Int) error {
-	pos, err := s.getPosition(ctx, positionID)
-	if err != nil {
-		return err
-	}
-
-	pos.SupplyAmount.Add(pos.SupplyAmount, amount)
-	pos.TotalSupplied.Add(pos.TotalSupplied, amount)
-	pos.TotalSuppliedUSD.Add(pos.TotalSuppliedUSD, usdValue)
-	pos.UpdatedAt = time.Now().UTC()
-
-	return s.repo.Update(ctx, pos)
-}
-
-// RecordWithdraw subtracts from supply balance. May close position.
-func (s *Service) RecordWithdraw(ctx context.Context, positionID uuid.UUID, amount, usdValue *big.Int) error {
-	pos, err := s.getPosition(ctx, positionID)
-	if err != nil {
-		return err
-	}
-
-	pos.SupplyAmount.Sub(pos.SupplyAmount, amount)
-	pos.TotalWithdrawn.Add(pos.TotalWithdrawn, amount)
-	pos.TotalWithdrawnUSD.Add(pos.TotalWithdrawnUSD, usdValue)
-	pos.UpdatedAt = time.Now().UTC()
-
-	if pos.ShouldClose() {
-		s.closePosition(pos)
-	}
-
-	return s.repo.Update(ctx, pos)
-}
-
-// RecordBorrow sets borrow asset info and adds to borrow totals.
-func (s *Service) RecordBorrow(
+// RecordSupply adds to supply totals and current supply balance for a specific asset.
+func (s *Service) RecordSupply(
 	ctx context.Context,
 	positionID uuid.UUID,
-	borrowAsset string, borrowDecimals int, borrowContract string,
+	asset string, decimals int, contract string,
 	amount, usdValue *big.Int,
 ) error {
 	pos, err := s.getPosition(ctx, positionID)
@@ -132,37 +82,135 @@ func (s *Service) RecordBorrow(
 		return err
 	}
 
-	pos.BorrowAsset = borrowAsset
-	pos.BorrowDecimals = borrowDecimals
-	pos.BorrowContract = borrowContract
-	pos.BorrowAmount.Add(pos.BorrowAmount, amount)
-	pos.TotalBorrowed.Add(pos.TotalBorrowed, amount)
-	pos.TotalBorrowedUSD.Add(pos.TotalBorrowedUSD, usdValue)
-	pos.UpdatedAt = time.Now().UTC()
+	a := pos.FindAsset("supply", asset)
+	if a == nil {
+		newAsset := LendingPositionAsset{
+			ID:          uuid.New(),
+			PositionID:  positionID,
+			Side:        "supply",
+			Asset:       asset,
+			Amount:      new(big.Int).Set(amount),
+			Decimals:    decimals,
+			Contract:    contract,
+			TotalIn:     new(big.Int).Set(amount),
+			TotalOut:    big.NewInt(0),
+			TotalInUSD:  new(big.Int).Set(usdValue),
+			TotalOutUSD: big.NewInt(0),
+			CreatedAt:   time.Now().UTC(),
+			UpdatedAt:   time.Now().UTC(),
+		}
+		pos.Assets = append(pos.Assets, newAsset)
+		a = &pos.Assets[len(pos.Assets)-1]
+	} else {
+		a.Amount.Add(a.Amount, amount)
+		a.TotalIn.Add(a.TotalIn, amount)
+		a.TotalInUSD.Add(a.TotalInUSD, usdValue)
+		a.UpdatedAt = time.Now().UTC()
+	}
 
-	return s.repo.Update(ctx, pos)
+	return s.repo.UpsertAsset(ctx, a)
 }
 
-// RecordRepay subtracts from borrow balance. May close position.
-func (s *Service) RecordRepay(ctx context.Context, positionID uuid.UUID, amount, usdValue *big.Int) error {
+// RecordWithdraw subtracts from supply balance for a specific asset. May close position.
+func (s *Service) RecordWithdraw(ctx context.Context, positionID uuid.UUID, asset string, amount, usdValue *big.Int) error {
 	pos, err := s.getPosition(ctx, positionID)
 	if err != nil {
 		return err
 	}
 
-	pos.BorrowAmount.Sub(pos.BorrowAmount, amount)
-	pos.TotalRepaid.Add(pos.TotalRepaid, amount)
-	pos.TotalRepaidUSD.Add(pos.TotalRepaidUSD, usdValue)
-	pos.UpdatedAt = time.Now().UTC()
+	a := pos.FindAsset("supply", asset)
+	if a == nil {
+		return fmt.Errorf("supply asset %s not found on position %s", asset, positionID)
+	}
+
+	a.Amount.Sub(a.Amount, amount)
+	a.TotalOut.Add(a.TotalOut, amount)
+	a.TotalOutUSD.Add(a.TotalOutUSD, usdValue)
+	a.UpdatedAt = time.Now().UTC()
+
+	if err := s.repo.UpsertAsset(ctx, a); err != nil {
+		return err
+	}
 
 	if pos.ShouldClose() {
 		s.closePosition(pos)
+		return s.repo.Update(ctx, pos)
 	}
 
-	return s.repo.Update(ctx, pos)
+	return nil
 }
 
-// RecordClaim adds to interest earned.
+// RecordBorrow adds to borrow totals and current borrow balance for a specific asset.
+func (s *Service) RecordBorrow(
+	ctx context.Context,
+	positionID uuid.UUID,
+	asset string, decimals int, contract string,
+	amount, usdValue *big.Int,
+) error {
+	pos, err := s.getPosition(ctx, positionID)
+	if err != nil {
+		return err
+	}
+
+	a := pos.FindAsset("borrow", asset)
+	if a == nil {
+		newAsset := LendingPositionAsset{
+			ID:          uuid.New(),
+			PositionID:  positionID,
+			Side:        "borrow",
+			Asset:       asset,
+			Amount:      new(big.Int).Set(amount),
+			Decimals:    decimals,
+			Contract:    contract,
+			TotalIn:     new(big.Int).Set(amount),
+			TotalOut:    big.NewInt(0),
+			TotalInUSD:  new(big.Int).Set(usdValue),
+			TotalOutUSD: big.NewInt(0),
+			CreatedAt:   time.Now().UTC(),
+			UpdatedAt:   time.Now().UTC(),
+		}
+		pos.Assets = append(pos.Assets, newAsset)
+		a = &pos.Assets[len(pos.Assets)-1]
+	} else {
+		a.Amount.Add(a.Amount, amount)
+		a.TotalIn.Add(a.TotalIn, amount)
+		a.TotalInUSD.Add(a.TotalInUSD, usdValue)
+		a.UpdatedAt = time.Now().UTC()
+	}
+
+	return s.repo.UpsertAsset(ctx, a)
+}
+
+// RecordRepay subtracts from borrow balance for a specific asset. May close position.
+func (s *Service) RecordRepay(ctx context.Context, positionID uuid.UUID, asset string, amount, usdValue *big.Int) error {
+	pos, err := s.getPosition(ctx, positionID)
+	if err != nil {
+		return err
+	}
+
+	a := pos.FindAsset("borrow", asset)
+	if a == nil {
+		return fmt.Errorf("borrow asset %s not found on position %s", asset, positionID)
+	}
+
+	a.Amount.Sub(a.Amount, amount)
+	a.TotalOut.Add(a.TotalOut, amount)
+	a.TotalOutUSD.Add(a.TotalOutUSD, usdValue)
+	a.UpdatedAt = time.Now().UTC()
+
+	if err := s.repo.UpsertAsset(ctx, a); err != nil {
+		return err
+	}
+
+	if pos.ShouldClose() {
+		s.closePosition(pos)
+		return s.repo.Update(ctx, pos)
+	}
+
+	return nil
+}
+
+// RecordClaim adds to interest earned at the position level.
 func (s *Service) RecordClaim(ctx context.Context, positionID uuid.UUID, usdValue *big.Int) error {
 	pos, err := s.getPosition(ctx, positionID)
 	if err != nil {

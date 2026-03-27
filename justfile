@@ -99,6 +99,7 @@ db-clear-data:
         DELETE FROM accounts; \
         DELETE FROM raw_transactions; \
         DELETE FROM transactions; \
+        DELETE FROM lending_positions; \
         DELETE FROM lp_positions; \
         DELETE FROM wallets; \
     "

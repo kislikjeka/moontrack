@@ -54,6 +54,7 @@ export function TransactionLotImpactSection({ transactionId }: TransactionLotImp
                 <TableRow>
                   <TableHead className="w-12">#</TableHead>
                   <TableHead>Acquired</TableHead>
+                  <TableHead>Asset</TableHead>
                   <TableHead className="text-right">Qty Acquired</TableHead>
                   <TableHead className="text-right">Remaining</TableHead>
                   <TableHead className="text-right">Cost/Unit</TableHead>
@@ -72,6 +73,7 @@ export function TransactionLotImpactSection({ transactionId }: TransactionLotImp
                     <TableRow key={lot.id}>
                       <TableCell className="text-muted-foreground">{index + 1}</TableCell>
                       <TableCell>{formatDate(lot.acquired_at)}</TableCell>
+                      <TableCell>{lot.asset}</TableCell>
                       <TableCell className="text-right font-mono">{lot.quantity_acquired}</TableCell>
                       <TableCell className="text-right font-mono">{lot.quantity_remaining}</TableCell>
                       <TableCell className="text-right font-mono">

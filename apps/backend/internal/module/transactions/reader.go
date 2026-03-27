@@ -10,13 +10,21 @@ import (
 	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
+// Direction constants for transaction display.
+const (
+	DirectionIn         = "in"
+	DirectionOut        = "out"
+	DirectionAdjustment = "adjustment"
+	DirectionInternal   = "internal"
+)
+
 // ListFields contains the fields needed for transaction list view
 type ListFields struct {
 	WalletID  uuid.UUID
 	AssetID   string
 	Amount    *big.Int
 	USDValue  *big.Int
-	Direction string // "in", "out", "adjustment", "internal"
+	Direction string // DirectionIn, DirectionOut, DirectionAdjustment, DirectionInternal
 	ChainID   string // Zerion chain name, e.g. "ethereum", "base"
 }
 
@@ -50,14 +58,34 @@ func NewReaderRegistry() *ReaderRegistry {
 		readers: make(map[ledger.TransactionType]TransactionReader),
 	}
 
-	// Register all readers at creation time
+	// Transfer readers
 	r.register(&TransferInReader{})
 	r.register(&TransferOutReader{})
 	r.register(&InternalTransferReader{})
 	r.register(&AdjustmentReader{})
-	r.register(&LPReader{txType: ledger.TxTypeLPDeposit, direction: "out"})
-	r.register(&LPReader{txType: ledger.TxTypeLPWithdraw, direction: "in"})
-	r.register(&LPReader{txType: ledger.TxTypeLPClaimFees, direction: "in"})
+
+	// LP readers
+	r.register(&LPReader{txType: ledger.TxTypeLPDeposit, direction: DirectionOut})
+	r.register(&LPReader{txType: ledger.TxTypeLPWithdraw, direction: DirectionIn})
+	r.register(&LPReader{txType: ledger.TxTypeLPClaimFees, direction: DirectionIn})
+
+	// DeFi readers (same raw_data structure as LP)
+	r.register(&LPReader{txType: ledger.TxTypeDefiDeposit, direction: DirectionOut})
+	r.register(&LPReader{txType: ledger.TxTypeDefiWithdraw, direction: DirectionIn})
+	r.register(&LPReader{txType: ledger.TxTypeDefiClaim, direction: DirectionIn})
+
+	// Lending readers
+	r.register(&LendingReader{txType: ledger.TxTypeLendingSupply, direction: DirectionOut})
+	r.register(&LendingReader{txType: ledger.TxTypeLendingWithdraw, direction: DirectionIn})
+	r.register(&LendingReader{txType: ledger.TxTypeLendingBorrow, direction: DirectionIn})
+	r.register(&LendingReader{txType: ledger.TxTypeLendingRepay, direction: DirectionOut})
+	r.register(&LendingReader{txType: ledger.TxTypeLendingClaim, direction: DirectionIn})
+
+	// Swap reader
+	r.register(&SwapReader{})
+
+	// Genesis reader
+	r.register(&GenesisReader{})
 
 	return r
 }
@@ -73,15 +101,15 @@ func (r *ReaderRegistry) GetReader(txType ledger.TransactionType) (TransactionRe
 	return reader, ok
 }
 
+// --- Transfer readers ---
+
 // TransferInReader parses transfer_in transactions
 type TransferInReader struct{}
 
-// Type returns the transaction type this reader handles
 func (r *TransferInReader) Type() ledger.TransactionType {
 	return ledger.TxTypeTransferIn
 }
 
-// ReadForList extracts display fields for list view
 func (r *TransferInReader) ReadForList(raw map[string]interface{}) (*ListFields, error) {
 	transfer, err := rawdata.ParseTransferInFromRawData(raw)
 	if err != nil {
@@ -93,12 +121,11 @@ func (r *TransferInReader) ReadForList(raw map[string]interface{}) (*ListFields,
 		AssetID:   transfer.AssetID,
 		Amount:    transfer.GetAmount(),
 		USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
-		Direction: "in",
+		Direction: DirectionIn,
 		ChainID:   transfer.ChainID,
 	}, nil
 }
 
-// ReadForDetail extracts all fields for detail view
 func (r *TransferInReader) ReadForDetail(raw map[string]interface{}) (*DetailFields, error) {
 	transfer, err := rawdata.ParseTransferInFromRawData(raw)
 	if err != nil {
@@ -111,7 +138,7 @@ func (r *TransferInReader) ReadForDetail(raw map[string]interface{}) (*DetailFie
 			AssetID:   transfer.AssetID,
 			Amount:    transfer.GetAmount(),
 			USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
-			Direction: "in",
+			Direction: DirectionIn,
 		},
 		ExtraFields: map[string]interface{}{
 			"tx_hash":          transfer.TxHash,
@@ -127,12 +154,10 @@ func (r *TransferInReader) ReadForDetail(raw map[string]interface{}) (*DetailFie
 // TransferOutReader parses transfer_out transactions
 type TransferOutReader struct{}
 
-// Type returns the transaction type this reader handles
 func (r *TransferOutReader) Type() ledger.TransactionType {
 	return ledger.TxTypeTransferOut
 }
 
-// ReadForList extracts display fields for list view
 func (r *TransferOutReader) ReadForList(raw map[string]interface{}) (*ListFields, error) {
 	transfer, err := rawdata.ParseTransferOutFromRawData(raw)
 	if err != nil {
@@ -144,12 +169,11 @@ func (r *TransferOutReader) ReadForList(raw map[string]interface{}) (*ListFields
 		AssetID:   transfer.AssetID,
 		Amount:    transfer.GetAmount(),
 		USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
-		Direction: "out",
+		Direction: DirectionOut,
 		ChainID:   transfer.ChainID,
 	}, nil
 }
 
-// ReadForDetail extracts all fields for detail view
 func (r *TransferOutReader) ReadForDetail(raw map[string]interface{}) (*DetailFields, error) {
 	transfer, err := rawdata.ParseTransferOutFromRawData(raw)
 	if err != nil {
@@ -162,7 +186,7 @@ func (r *TransferOutReader) ReadForDetail(raw map[string]interface{}) (*DetailFi
 			AssetID:   transfer.AssetID,
 			Amount:    transfer.GetAmount(),
 			USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
-			Direction: "out",
+			Direction: DirectionOut,
 		},
 		ExtraFields: map[string]interface{}{
 			"tx_hash":          transfer.TxHash,
@@ -178,12 +202,10 @@ func (r *TransferOutReader) ReadForDetail(raw map[string]interface{}) (*DetailFi
 // InternalTransferReader parses internal_transfer transactions
 type InternalTransferReader struct{}
 
-// Type returns the transaction type this reader handles
 func (r *InternalTransferReader) Type() ledger.TransactionType {
 	return ledger.TxTypeInternalTransfer
 }
 
-// ReadForList extracts display fields for list view
 func (r *InternalTransferReader) ReadForList(raw map[string]interface{}) (*ListFields, error) {
 	transfer, err := rawdata.ParseInternalTransferFromRawData(raw)
 	if err != nil {
@@ -195,12 +217,11 @@ func (r *InternalTransferReader) ReadForList(raw map[string]interface{}) (*ListF
 		AssetID:   transfer.AssetID,
 		Amount:    transfer.GetAmount(),
 		USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
-		Direction: "internal",
+		Direction: DirectionInternal,
 		ChainID:   transfer.ChainID,
 	}, nil
 }
 
-// ReadForDetail extracts all fields for detail view
 func (r *InternalTransferReader) ReadForDetail(raw map[string]interface{}) (*DetailFields, error) {
 	transfer, err := rawdata.ParseInternalTransferFromRawData(raw)
 	if err != nil {
@@ -213,7 +234,7 @@ func (r *InternalTransferReader) ReadForDetail(raw map[string]interface{}) (*Det
 			AssetID:   transfer.AssetID,
 			Amount:    transfer.GetAmount(),
 			USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
-			Direction: "internal",
+			Direction: DirectionInternal,
 		},
 		ExtraFields: map[string]interface{}{
 			"source_wallet_id": transfer.SourceWalletID,
@@ -227,15 +248,15 @@ func (r *InternalTransferReader) ReadForDetail(raw map[string]interface{}) (*Det
 	}, nil
 }
 
+// --- Adjustment reader ---
+
 // AdjustmentReader parses asset_adjustment transactions
 type AdjustmentReader struct{}
 
-// Type returns the transaction type this reader handles
 func (r *AdjustmentReader) Type() ledger.TransactionType {
 	return ledger.TxTypeAssetAdjustment
 }
 
-// ReadForList extracts display fields for list view
 func (r *AdjustmentReader) ReadForList(raw map[string]interface{}) (*ListFields, error) {
 	adj, err := rawdata.ParseAdjustmentFromRawData(raw)
 	if err != nil {
@@ -247,11 +268,10 @@ func (r *AdjustmentReader) ReadForList(raw map[string]interface{}) (*ListFields,
 		AssetID:   adj.AssetID,
 		Amount:    adj.GetNewBalance(),
 		USDValue:  money.CalcUSDValue(adj.GetNewBalance(), adj.GetUSDRate(), adj.Decimals),
-		Direction: "adjustment",
+		Direction: DirectionAdjustment,
 	}, nil
 }
 
-// ReadForDetail extracts all fields for detail view
 func (r *AdjustmentReader) ReadForDetail(raw map[string]interface{}) (*DetailFields, error) {
 	adj, err := rawdata.ParseAdjustmentFromRawData(raw)
 	if err != nil {
@@ -264,7 +284,7 @@ func (r *AdjustmentReader) ReadForDetail(raw map[string]interface{}) (*DetailFie
 			AssetID:   adj.AssetID,
 			Amount:    adj.GetNewBalance(),
 			USDValue:  money.CalcUSDValue(adj.GetNewBalance(), adj.GetUSDRate(), adj.Decimals),
-			Direction: "adjustment",
+			Direction: DirectionAdjustment,
 		},
 		Notes: adj.Notes,
 		ExtraFields: map[string]interface{}{
@@ -275,12 +295,13 @@ func (r *AdjustmentReader) ReadForDetail(raw map[string]interface{}) (*DetailFie
 	}, nil
 }
 
-// LPReader parses LP deposit/withdraw/claim_fees transactions.
-// LP raw data has a "transfers" array; the reader picks the primary transfer
-// based on direction (out for deposits, in for withdraws/claims).
+// --- LP / DeFi reader (shared) ---
+
+// LPReader parses LP and DeFi transactions with a "transfers" array.
+// The reader picks the primary transfer based on direction.
 type LPReader struct {
 	txType    ledger.TransactionType
-	direction string // primary direction to display: "in" or "out"
+	direction string
 }
 
 func (r *LPReader) Type() ledger.TransactionType {
@@ -347,7 +368,7 @@ func (r *LPReader) primaryTransfer(raw map[string]interface{}) (string, *big.Int
 				if m, ok3 := item.(map[string]interface{}); ok3 {
 					dir, _ := m["direction"].(string)
 					if dir == r.direction {
-						return r.extractTransferFields(m)
+						return extractTransferFields(m)
 					}
 				}
 			}
@@ -358,18 +379,196 @@ func (r *LPReader) primaryTransfer(raw map[string]interface{}) (string, *big.Int
 	for _, t := range transfers {
 		dir, _ := t["direction"].(string)
 		if dir == r.direction {
-			return r.extractTransferFields(t)
+			return extractTransferFields(t)
 		}
 	}
 
 	// Fallback: first transfer regardless of direction
 	if len(transfers) > 0 {
-		return r.extractTransferFields(transfers[0])
+		return extractTransferFields(transfers[0])
 	}
 	return "", big.NewInt(0), nil
 }
 
-func (r *LPReader) extractTransferFields(t map[string]interface{}) (string, *big.Int, *big.Int) {
+// --- Lending reader ---
+
+// LendingReader parses lending transactions with flat raw_data structure.
+type LendingReader struct {
+	txType    ledger.TransactionType
+	direction string
+}
+
+func (r *LendingReader) Type() ledger.TransactionType {
+	return r.txType
+}
+
+func (r *LendingReader) ReadForList(raw map[string]interface{}) (*ListFields, error) {
+	walletIDStr, _ := raw["wallet_id"].(string)
+	walletID, err := uuid.Parse(walletIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid wallet_id in lending transaction: %w", err)
+	}
+
+	assetSymbol, _ := raw["asset"].(string)
+	amount := parseBigIntField(raw, "amount")
+	chainID, _ := raw["chain_id"].(string)
+
+	var usdValue *big.Int
+	decimals := 0
+	if d, ok := raw["decimals"].(float64); ok {
+		decimals = int(d)
+	}
+	if priceStr, ok := raw["usd_price"].(string); ok && priceStr != "0" {
+		price, ok := new(big.Int).SetString(priceStr, 10)
+		if ok {
+			usdValue = money.CalcUSDValue(amount, price, decimals)
+		}
+	}
+
+	return &ListFields{
+		WalletID:  walletID,
+		AssetID:   assetSymbol,
+		Amount:    amount,
+		USDValue:  usdValue,
+		Direction: r.direction,
+		ChainID:   chainID,
+	}, nil
+}
+
+func (r *LendingReader) ReadForDetail(raw map[string]interface{}) (*DetailFields, error) {
+	fields, err := r.ReadForList(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	extras := map[string]interface{}{}
+	for _, key := range []string{"tx_hash", "chain_id", "protocol", "contract_address", "occurred_at"} {
+		if v, ok := raw[key]; ok {
+			extras[key] = v
+		}
+	}
+
+	return &DetailFields{
+		ListFields:  *fields,
+		ExtraFields: extras,
+	}, nil
+}
+
+// --- Swap reader ---
+
+// SwapReader parses swap transactions with transfers_in/transfers_out arrays.
+type SwapReader struct{}
+
+func (r *SwapReader) Type() ledger.TransactionType {
+	return ledger.TxTypeSwap
+}
+
+func (r *SwapReader) ReadForList(raw map[string]interface{}) (*ListFields, error) {
+	walletIDStr, _ := raw["wallet_id"].(string)
+	walletID, err := uuid.Parse(walletIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid wallet_id in swap transaction: %w", err)
+	}
+
+	chainID, _ := raw["chain_id"].(string)
+
+	// Display the received asset (transfers_in) as primary
+	assetSymbol, amount, usdValue := firstTransferFromArray(raw, "transfers_in")
+
+	return &ListFields{
+		WalletID:  walletID,
+		AssetID:   assetSymbol,
+		Amount:    amount,
+		USDValue:  usdValue,
+		Direction: DirectionIn,
+		ChainID:   chainID,
+	}, nil
+}
+
+func (r *SwapReader) ReadForDetail(raw map[string]interface{}) (*DetailFields, error) {
+	fields, err := r.ReadForList(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	extras := map[string]interface{}{}
+	for _, key := range []string{"tx_hash", "chain_id", "protocol", "occurred_at"} {
+		if v, ok := raw[key]; ok {
+			extras[key] = v
+		}
+	}
+
+	return &DetailFields{
+		ListFields:  *fields,
+		ExtraFields: extras,
+	}, nil
+}
+
+// --- Genesis reader ---
+
+// GenesisReader parses genesis_balance transactions.
+type GenesisReader struct{}
+
+func (r *GenesisReader) Type() ledger.TransactionType {
+	return ledger.TxTypeGenesisBalance
+}
+
+func (r *GenesisReader) ReadForList(raw map[string]interface{}) (*ListFields, error) {
+	walletIDStr, _ := raw["wallet_id"].(string)
+	walletID, err := uuid.Parse(walletIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid wallet_id in genesis transaction: %w", err)
+	}
+
+	assetID, _ := raw["asset_id"].(string)
+	amount := parseBigIntField(raw, "amount")
+	chainID, _ := raw["chain_id"].(string)
+
+	var usdValue *big.Int
+	decimals := 0
+	if d, ok := raw["decimals"].(float64); ok {
+		decimals = int(d)
+	}
+	if rateStr, ok := raw["usd_rate"].(string); ok && rateStr != "0" {
+		rate, ok := new(big.Int).SetString(rateStr, 10)
+		if ok {
+			usdValue = money.CalcUSDValue(amount, rate, decimals)
+		}
+	}
+
+	return &ListFields{
+		WalletID:  walletID,
+		AssetID:   assetID,
+		Amount:    amount,
+		USDValue:  usdValue,
+		Direction: DirectionIn,
+		ChainID:   chainID,
+	}, nil
+}
+
+func (r *GenesisReader) ReadForDetail(raw map[string]interface{}) (*DetailFields, error) {
+	fields, err := r.ReadForList(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	extras := map[string]interface{}{}
+	for _, key := range []string{"chain_id", "occurred_at"} {
+		if v, ok := raw[key]; ok {
+			extras[key] = v
+		}
+	}
+
+	return &DetailFields{
+		ListFields:  *fields,
+		ExtraFields: extras,
+	}, nil
+}
+
+// --- Helpers ---
+
+// extractTransferFields extracts symbol, amount, and USD value from a transfer map.
+func extractTransferFields(t map[string]interface{}) (string, *big.Int, *big.Int) {
 	symbol, _ := t["asset_symbol"].(string)
 	amount := big.NewInt(0)
 	if amtStr, ok := t["amount"].(string); ok {
@@ -392,4 +591,29 @@ func (r *LPReader) extractTransferFields(t map[string]interface{}) (string, *big
 	}
 
 	return symbol, amount, usdValue
+}
+
+// parseBigIntField parses a string field from raw data into a *big.Int.
+func parseBigIntField(raw map[string]interface{}, key string) *big.Int {
+	if str, ok := raw[key].(string); ok {
+		v, ok := new(big.Int).SetString(str, 10)
+		if ok {
+			return v
+		}
+	}
+	return big.NewInt(0)
+}
+
+// firstTransferFromArray extracts the first element from a named transfer array
+// (e.g., "transfers_in" or "transfers_out") and returns its fields.
+func firstTransferFromArray(raw map[string]interface{}, key string) (string, *big.Int, *big.Int) {
+	if arr, ok := raw[key].([]interface{}); ok && len(arr) > 0 {
+		if m, ok := arr[0].(map[string]interface{}); ok {
+			return extractTransferFields(m)
+		}
+	}
+	if arr, ok := raw[key].([]map[string]interface{}); ok && len(arr) > 0 {
+		return extractTransferFields(arr[0])
+	}
+	return "", big.NewInt(0), nil
 }

@@ -180,7 +180,7 @@ func TestSync_LP_FullLifecycle(t *testing.T) {
 			Status:  "confirmed",
 		}
 
-		err := processor.ProcessTransaction(ctx, w, tx)
+		_, err := processor.ProcessTransaction(ctx, w, tx)
 		require.NoError(t, err)
 
 		// Verify ledger recorded LP deposit
@@ -238,7 +238,7 @@ func TestSync_LP_FullLifecycle(t *testing.T) {
 			Status:  "confirmed",
 		}
 
-		err := processor.ProcessTransaction(ctx, w, tx)
+		_, err := processor.ProcessTransaction(ctx, w, tx)
 		require.NoError(t, err)
 
 		// Verify ledger recorded claim fees
@@ -290,7 +290,7 @@ func TestSync_LP_FullLifecycle(t *testing.T) {
 			Status:  "confirmed",
 		}
 
-		err := processor.ProcessTransaction(ctx, w, tx)
+		_, err := processor.ProcessTransaction(ctx, w, tx)
 		require.NoError(t, err)
 
 		// Verify ledger recorded LP withdraw
@@ -365,7 +365,7 @@ func TestSync_LP_UniV3Mint_ClassifiesAsDeposit(t *testing.T) {
 		Status:  "confirmed",
 	}
 
-	err := processor.ProcessTransaction(ctx, w, tx)
+	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
@@ -410,7 +410,7 @@ func TestSync_LP_AaveDeposit_IsLendingSupply(t *testing.T) {
 		Status:  "confirmed",
 	}
 
-	err := processor.ProcessTransaction(ctx, w, tx)
+	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)

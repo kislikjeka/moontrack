@@ -79,7 +79,7 @@ func setupIntegrationTest(t *testing.T) *testEnv {
 		Enabled:             true,
 		PollInterval:        5 * time.Second,
 		ConcurrentWallets:   3,
-		InitialSyncLookback: 2160 * time.Hour,
+		InitialSyncLookback: 0,
 	}
 
 	// Create sync service

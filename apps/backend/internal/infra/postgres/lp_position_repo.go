@@ -145,8 +145,8 @@ func (r *LPPositionRepo) FindOpenByTokenPair(ctx context.Context, walletID uuid.
 		FROM lp_positions
 		WHERE wallet_id = $1 AND chain_id = $2 AND protocol = $3 AND status = 'open'
 		  AND (
-			(token0_contract = $4 AND token1_contract = $5) OR
-			(token0_contract = $5 AND token1_contract = $4)
+			(token0_symbol = $4 AND token1_symbol = $5) OR
+			(token0_symbol = $5 AND token1_symbol = $4)
 		  )
 		ORDER BY opened_at ASC
 	`

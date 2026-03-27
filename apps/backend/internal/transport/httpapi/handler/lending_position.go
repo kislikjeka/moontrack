@@ -10,6 +10,7 @@ import (
 
 	"github.com/kislikjeka/moontrack/internal/platform/lendingposition"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
+	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
 // LendingPositionServiceInterface defines lending position operations for the HTTP handler
@@ -28,6 +29,21 @@ func NewLendingPositionHandler(svc LendingPositionServiceInterface) *LendingPosi
 	return &LendingPositionHandler{svc: svc}
 }
 
+// LendingPositionAssetResponse represents a lending position asset in the API response
+type LendingPositionAssetResponse struct {
+	ID       string `json:"id"`
+	Side     string `json:"side"`
+	Asset    string `json:"asset"`
+	Amount   string `json:"amount"`
+	Decimals int    `json:"decimals"`
+	Contract string `json:"contract,omitempty"`
+
+	TotalIn    string `json:"total_in"`
+	TotalOut   string `json:"total_out"`
+	TotalInUSD  string `json:"total_in_usd"`
+	TotalOutUSD string `json:"total_out_usd"`
+}
+
 // LendingPositionResponse represents a lending position in the API response
 type LendingPositionResponse struct {
 	ID       string `json:"id"`
@@ -35,27 +51,9 @@ type LendingPositionResponse struct {
 	ChainID  string `json:"chain_id"`
 	Protocol string `json:"protocol"`
 
-	SupplyAsset    string `json:"supply_asset"`
-	SupplyAmount   string `json:"supply_amount"`
-	SupplyDecimals int    `json:"supply_decimals"`
-	SupplyContract string `json:"supply_contract,omitempty"`
-
-	BorrowAsset    string `json:"borrow_asset,omitempty"`
-	BorrowAmount   string `json:"borrow_amount"`
-	BorrowDecimals int    `json:"borrow_decimals,omitempty"`
-	BorrowContract string `json:"borrow_contract,omitempty"`
-
-	TotalSupplied  string `json:"total_supplied"`
-	TotalWithdrawn string `json:"total_withdrawn"`
-	TotalBorrowed  string `json:"total_borrowed"`
-	TotalRepaid    string `json:"total_repaid"`
-
-	TotalSuppliedUSD  string `json:"total_supplied_usd"`
-	TotalWithdrawnUSD string `json:"total_withdrawn_usd"`
-	TotalBorrowedUSD  string `json:"total_borrowed_usd"`
-	TotalRepaidUSD    string `json:"total_repaid_usd"`
-
 	InterestEarnedUSD string `json:"interest_earned_usd"`
+
+	Assets []LendingPositionAssetResponse `json:"assets"`
 
 	Status   string  `json:"status"`
 	OpenedAt string  `json:"opened_at"`
@@ -134,33 +132,31 @@ func (h *LendingPositionHandler) GetPosition(w http.ResponseWriter, r *http.Requ
 }
 
 func toLendingPositionResponse(pos *lendingposition.LendingPosition) LendingPositionResponse {
+	assets := make([]LendingPositionAssetResponse, len(pos.Assets))
+	for i, a := range pos.Assets {
+		assets[i] = LendingPositionAssetResponse{
+			ID:          a.ID.String(),
+			Side:        a.Side,
+			Asset:       a.Asset,
+			Amount:      bigIntStr(a.Amount),
+			Decimals:    a.Decimals,
+			Contract:    a.Contract,
+			TotalIn:     bigIntStr(a.TotalIn),
+			TotalOut:    bigIntStr(a.TotalOut),
+			TotalInUSD:  money.FormatUSD(a.TotalInUSD),
+			TotalOutUSD: money.FormatUSD(a.TotalOutUSD),
+		}
+	}
+
 	resp := LendingPositionResponse{
 		ID:       pos.ID.String(),
 		WalletID: pos.WalletID.String(),
 		ChainID:  pos.ChainID,
 		Protocol: pos.Protocol,
 
-		SupplyAsset:    pos.SupplyAsset,
-		SupplyAmount:   bigIntStr(pos.SupplyAmount),
-		SupplyDecimals: pos.SupplyDecimals,
-		SupplyContract: pos.SupplyContract,
+		InterestEarnedUSD: money.FormatUSD(pos.InterestEarnedUSD),
 
-		BorrowAsset:    pos.BorrowAsset,
-		BorrowAmount:   bigIntStr(pos.BorrowAmount),
-		BorrowDecimals: pos.BorrowDecimals,
-		BorrowContract: pos.BorrowContract,
-
-		TotalSupplied:  bigIntStr(pos.TotalSupplied),
-		TotalWithdrawn: bigIntStr(pos.TotalWithdrawn),
-		TotalBorrowed:  bigIntStr(pos.TotalBorrowed),
-		TotalRepaid:    bigIntStr(pos.TotalRepaid),
-
-		TotalSuppliedUSD:  bigIntStr(pos.TotalSuppliedUSD),
-		TotalWithdrawnUSD: bigIntStr(pos.TotalWithdrawnUSD),
-		TotalBorrowedUSD:  bigIntStr(pos.TotalBorrowedUSD),
-		TotalRepaidUSD:    bigIntStr(pos.TotalRepaidUSD),
-
-		InterestEarnedUSD: bigIntStr(pos.InterestEarnedUSD),
+		Assets: assets,
 
 		Status:   string(pos.Status),
 		OpenedAt: pos.OpenedAt.Format(time.RFC3339),

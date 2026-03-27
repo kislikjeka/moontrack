@@ -231,7 +231,7 @@ func main() {
 		syncConfig := &sync.Config{
 			PollInterval:        cfg.SyncPollInterval,
 			ConcurrentWallets:   3,
-			InitialSyncLookback: 2160 * time.Hour,
+			InitialSyncLookback: 0, // fetch all available history
 			Enabled:             true,
 		}
 		syncAssetAdapter := sync.NewSyncAssetAdapter(assetSvc)

@@ -91,7 +91,7 @@ func TestZerionProcessor_TransferIn(t *testing.T) {
 		newIncomingTransfer(externalAddr),
 	})
 
-	err := processor.ProcessTransaction(ctx, w, tx)
+	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
@@ -132,7 +132,7 @@ func TestZerionProcessor_TransferOut(t *testing.T) {
 		newOutgoingTransfer(externalAddr),
 	})
 
-	err := processor.ProcessTransaction(ctx, w, tx)
+	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
@@ -176,7 +176,7 @@ func TestZerionProcessor_Swap(t *testing.T) {
 		},
 	})
 
-	err := processor.ProcessTransaction(ctx, w, tx)
+	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
@@ -216,7 +216,7 @@ func TestZerionProcessor_InternalTransfer(t *testing.T) {
 		newOutgoingTransfer(destAddr),
 	})
 
-	err := processor.ProcessTransaction(ctx, sourceWallet, tx)
+	_, err := processor.ProcessTransaction(ctx, sourceWallet, tx)
 	require.NoError(t, err)
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
@@ -249,7 +249,7 @@ func TestZerionProcessor_InternalTransfer_IncomingSkipped(t *testing.T) {
 
 	tx := newDecodedTransaction(sync.OpReceive, []sync.DecodedTransfer{transfer})
 
-	err := processor.ProcessTransaction(ctx, destWallet, tx)
+	_, err := processor.ProcessTransaction(ctx, destWallet, tx)
 	require.NoError(t, err)
 
 	assert.Empty(t, ledgerSvc.recordedTransactions)
@@ -268,7 +268,7 @@ func TestZerionProcessor_ApproveSkipped(t *testing.T) {
 
 	tx := newDecodedTransaction(sync.OpApprove, nil)
 
-	err := processor.ProcessTransaction(ctx, w, tx)
+	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
 
 	assert.Empty(t, ledgerSvc.recordedTransactions)
@@ -290,7 +290,7 @@ func TestZerionProcessor_FailedTxSkipped(t *testing.T) {
 	})
 	tx.Status = "failed"
 
-	err := processor.ProcessTransaction(ctx, w, tx)
+	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
 
 	assert.Empty(t, ledgerSvc.recordedTransactions)
@@ -318,7 +318,7 @@ func TestZerionProcessor_DuplicateHandling(t *testing.T) {
 		newIncomingTransfer(externalAddr),
 	})
 
-	err := processor.ProcessTransaction(ctx, w, tx)
+	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err, "duplicate error should be silently handled")
 }
 
@@ -350,7 +350,7 @@ func TestZerionProcessor_USDPrices(t *testing.T) {
 	}
 	tx := newDecodedTransaction(sync.OpReceive, []sync.DecodedTransfer{transfer})
 
-	err := processor.ProcessTransaction(ctx, w, tx)
+	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
@@ -386,7 +386,7 @@ func TestZerionProcessor_GasFee(t *testing.T) {
 		USDPrice:    feeUSDPrice,
 	}
 
-	err := processor.ProcessTransaction(ctx, w, tx)
+	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
@@ -430,7 +430,7 @@ func TestZerionProcessor_DeFiDeposit(t *testing.T) {
 	})
 	tx.Protocol = "Aave V3"
 
-	err := processor.ProcessTransaction(ctx, w, tx)
+	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
@@ -469,7 +469,7 @@ func TestZerionProcessor_DeFiWithdraw(t *testing.T) {
 	})
 	tx.Protocol = "Aave V3"
 
-	err := processor.ProcessTransaction(ctx, w, tx)
+	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
@@ -509,7 +509,7 @@ func TestZerionProcessor_DeFiClaim(t *testing.T) {
 	})
 	tx.Protocol = "Aave V3"
 
-	err := processor.ProcessTransaction(ctx, w, tx)
+	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)

@@ -220,13 +220,10 @@ func (p *Processor) processRegular(ctx context.Context, w *wallet.Wallet, raw *R
 		return nil, fmt.Errorf("failed to unmarshal raw tx: %w", err)
 	}
 
-	err := p.zerionProcessor.ProcessTransaction(ctx, w, dt)
+	ledgerTxID, err := p.zerionProcessor.ProcessTransaction(ctx, w, dt)
 	if err != nil {
 		return nil, err
 	}
 
-	// ZerionProcessor doesn't return the ledger tx ID directly.
-	// We use a sentinel UUID to indicate success.
-	sentinelID := uuid.New()
-	return &sentinelID, nil
+	return ledgerTxID, nil
 }
