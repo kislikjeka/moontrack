@@ -1,0 +1,9 @@
+{
+  "coins": {
+    "ethereum:0xdeadbeef00000000000000000000000000000001": {
+      "price": 42,
+      "timestamp": 1710000000,
+      "confidence": 0.5
+    }
+  }
+}
