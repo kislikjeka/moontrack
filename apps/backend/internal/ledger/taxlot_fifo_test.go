@@ -140,6 +140,10 @@ func (m *mockTaxLotRepo) MarkUnpriceable(_ context.Context, _ uuid.UUID) error {
 	return nil
 }
 
+func (m *mockTaxLotRepo) MarkResolved(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+
 func (m *mockTaxLotRepo) IncrementAttempt(_ context.Context, _ uuid.UUID, _ int, _ time.Time) error {
 	return nil
 }

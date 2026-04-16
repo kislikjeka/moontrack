@@ -20,6 +20,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/module/genesis"
 	"github.com/kislikjeka/moontrack/internal/module/lending"
 	"github.com/kislikjeka/moontrack/internal/module/liquidity"
+	"github.com/kislikjeka/moontrack/internal/module/lots"
 	"github.com/kislikjeka/moontrack/internal/module/portfolio"
 	"github.com/kislikjeka/moontrack/internal/module/swap"
 	"github.com/kislikjeka/moontrack/internal/module/transactions"
@@ -263,6 +264,8 @@ func main() {
 	portfolioHandler := handler.NewPortfolioHandler(portfolioSvc)
 	assetHandler := handler.NewAssetHandler(assetSvc)
 	taxLotHandler := handler.NewTaxLotHandler(taxLotSvc, decimalResolver)
+	lotsSvc := lots.NewService(taxLotRepo, ledgerRepo, walletRepo)
+	lotsHandler := lots.NewHandler(lotsSvc)
 	lpPositionHTTPHandler := handler.NewLPPositionHandler(lpPositionSvc)
 	lendingPositionHTTPHandler := handler.NewLendingPositionHandler(lendingPositionSvc)
 	docsHandler := handler.NewDocsHandler(openAPISpec)
@@ -289,6 +292,7 @@ func main() {
 		PortfolioHandler:   portfolioHandler,
 		AssetHandler:       assetHandler,
 		TaxLotHandler:      taxLotHandler,
+		LotsHandler:            lotsHandler,
 		LPPositionHandler:      lpPositionHTTPHandler,
 		LendingPositionHandler: lendingPositionHTTPHandler,
 		DocsHandler:            docsHandler,

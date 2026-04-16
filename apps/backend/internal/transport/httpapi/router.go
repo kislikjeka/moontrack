@@ -24,7 +24,13 @@ type Config struct {
 	TaxLotHandler      *handler.TaxLotHandler
 	LPPositionHandler      *handler.LPPositionHandler
 	LendingPositionHandler *handler.LendingPositionHandler
+	LotsHandler            lotsHandler
 	JWTMiddleware          func(http.Handler) http.Handler
+}
+
+// lotsHandler is the interface for the lots module handler (avoids import cycle).
+type lotsHandler interface {
+	SetManualPrice(w http.ResponseWriter, r *http.Request)
 }
 
 // NewRouter creates a new HTTP router
@@ -95,6 +101,9 @@ func NewRouter(cfg Config) *chi.Mux {
 					r.Put("/lots/{id}/override", cfg.TaxLotHandler.OverrideCostBasis)
 					r.Get("/positions/wac", cfg.TaxLotHandler.GetWAC)
 					r.Get("/transactions/{id}/lots", cfg.TaxLotHandler.GetTransactionLots)
+				}
+				if cfg.LotsHandler != nil {
+					r.Put("/lots/{id}/manual-price", cfg.LotsHandler.SetManualPrice)
 				}
 
 				// LP Position routes

@@ -598,6 +598,24 @@ func (r *TaxLotRepository) MarkUnpriceable(ctx context.Context, lotID uuid.UUID)
 	return nil
 }
 
+// MarkResolved transitions price_status to 'resolved' for any lot (pending or unpriceable).
+// Used when a manual price is applied by the user via PUT /lots/{id}/manual-price.
+func (r *TaxLotRepository) MarkResolved(ctx context.Context, lotID uuid.UUID) error {
+	query := `
+		UPDATE tax_lots
+		SET price_status = 'resolved',
+		    price_next_retry_at = NULL
+		WHERE id = $1 AND price_status IN ('pending', 'unpriceable')
+	`
+
+	q := r.getQueryer(ctx)
+	_, err := q.Exec(ctx, query, lotID)
+	if err != nil {
+		return fmt.Errorf("mark resolved: %w", err)
+	}
+	return nil
+}
+
 // CountLotsByPriceStatus returns the count of lots in 'pending' and 'unpriceable'
 // price_status for the given user. The JOIN on accounts enforces multi-tenant isolation.
 func (r *TaxLotRepository) CountLotsByPriceStatus(ctx context.Context, userID uuid.UUID) (pending, unpriceable int, err error) {

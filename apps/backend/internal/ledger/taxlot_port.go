@@ -49,6 +49,10 @@ type TaxLotRepository interface {
 	// MarkUnpriceable transitions price_status to 'unpriceable' for a pending lot.
 	MarkUnpriceable(ctx context.Context, lotID uuid.UUID) error
 
+	// MarkResolved transitions price_status to 'resolved' for any lot
+	// (pending or unpriceable). Used when a manual price is applied by the user.
+	MarkResolved(ctx context.Context, lotID uuid.UUID) error
+
 	// IncrementAttempt bumps the attempts counter and sets the next-retry time
 	// for a pending lot.
 	IncrementAttempt(ctx context.Context, lotID uuid.UUID, attempts int, nextRetryAt time.Time) error
