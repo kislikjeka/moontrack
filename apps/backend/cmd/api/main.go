@@ -7,10 +7,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/kislikjeka/moontrack/internal/infra/gateway/coingecko"
+	"github.com/kislikjeka/moontrack/internal/infra/gateway/defillama"
+	"github.com/kislikjeka/moontrack/internal/infra/gateway/geckoterminal"
 	"github.com/kislikjeka/moontrack/internal/infra/gateway/zerion"
 	"github.com/kislikjeka/moontrack/internal/infra/postgres"
 	infraRedis "github.com/kislikjeka/moontrack/internal/infra/redis"
@@ -27,6 +30,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/module/transfer"
 	"github.com/kislikjeka/moontrack/internal/platform/asset"
 	"github.com/kislikjeka/moontrack/internal/platform/lendingposition"
+	"github.com/kislikjeka/moontrack/internal/platform/price"
 	"github.com/kislikjeka/moontrack/internal/platform/lpposition"
 	"github.com/kislikjeka/moontrack/internal/platform/sync"
 	"github.com/kislikjeka/moontrack/internal/platform/taxlot"
@@ -307,6 +311,76 @@ func main() {
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
+	}
+
+	// Wire price fallback providers, backfill worker, and resolved hook (feature-flagged).
+	if os.Getenv("FEATURE_PRICE_FALLBACK") == "true" {
+		gtBaseURL := os.Getenv("GECKOTERMINAL_BASE_URL")
+		if gtBaseURL == "" {
+			gtBaseURL = "https://api.geckoterminal.com/api/v2"
+		}
+		dlBaseURL := os.Getenv("DEFILLAMA_BASE_URL")
+		if dlBaseURL == "" {
+			dlBaseURL = "https://coins.llama.fi"
+		}
+		dlMinConf := 0.9
+		if v := os.Getenv("DEFILLAMA_MIN_CONFIDENCE"); v != "" {
+			if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+				dlMinConf = parsed
+			}
+		}
+		backfillRateSec := 1
+		if v := os.Getenv("PRICE_BACKFILL_RATE_SECONDS"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+				backfillRateSec = parsed
+			}
+		}
+
+		gtClient := geckoterminal.NewClient(geckoterminal.Config{BaseURL: gtBaseURL})
+		dlClient := defillama.NewClient(defillama.Config{
+			BaseURL:       dlBaseURL,
+			MinConfidence: dlMinConf,
+		})
+
+		redisAdapter := infraRedis.NewPriceRedisAdapter(redisClient)
+		priceHistCache := price.NewCache(redisAdapter, 30*24*time.Hour)
+
+		providers := []price.Provider{
+			price.NewCoinGeckoProvider(assetSvc),
+			price.NewGeckoTerminalProvider(gtClient),
+			price.NewDefiLlamaProvider(dlClient),
+		}
+		resolver := price.NewResolver(providers, priceHistCache, log)
+
+		priceBackfillJobRepo := postgres.NewPriceBackfillJobRepository(db.Pool)
+		resolvedHook := ledger.NewPriceResolvedHook(taxLotRepo, log)
+
+		backfillWorker := price.NewBackfillWorker(price.WorkerDeps{
+			Jobs:          priceBackfillJobRepo,
+			Resolver:      resolver,
+			AssetLookup:   assetSvc,
+			PriceRecorder: priceHistoryRepo,
+			OnResolved:    price.OnPriceResolvedFunc(resolvedHook),
+			Logger:        log,
+		})
+
+		go backfillWorker.Run(ctx, time.Duration(backfillRateSec)*time.Second)
+		go func() {
+			tick := time.NewTicker(5 * time.Minute)
+			defer tick.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+					_, _ = priceBackfillJobRepo.ReapStale(ctx, 10*time.Minute)
+				}
+			}
+		}()
+		log.Info("Price fallback worker started",
+			"rate_seconds", backfillRateSec,
+			"providers", []string{"coingecko", "geckoterminal", "defillama"},
+		)
 	}
 
 	// Start background price refresh job using Asset PriceUpdater
