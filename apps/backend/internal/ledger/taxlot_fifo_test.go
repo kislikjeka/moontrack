@@ -113,12 +113,27 @@ func (m *mockTaxLotRepo) GetWAC(_ context.Context, _ []uuid.UUID) ([]*PositionWA
 	return nil, nil
 }
 
-func (m *mockTaxLotRepo) ListPendingLotsByAssetAndTime(_ context.Context, _ string, _ time.Time) ([]*TaxLot, error) {
-	return nil, nil
+func (m *mockTaxLotRepo) ListPendingLotsByAssetAndTime(_ context.Context, asset string, at time.Time) ([]*TaxLot, error) {
+	var result []*TaxLot
+	for _, l := range m.lots {
+		if l.Asset == asset && l.PriceStatus == PriceStatusPending &&
+			l.AcquiredAt.Truncate(time.Minute).Equal(at.Truncate(time.Minute)) {
+			result = append(result, l)
+		}
+	}
+	return result, nil
 }
 
-func (m *mockTaxLotRepo) ResolvePendingPrice(_ context.Context, _ uuid.UUID, _ *big.Int, _ CostBasisSource) error {
-	return nil
+func (m *mockTaxLotRepo) ResolvePendingPrice(_ context.Context, lotID uuid.UUID, autoCostBasisPerUnit *big.Int, autoSource CostBasisSource) error {
+	for _, l := range m.lots {
+		if l.ID == lotID && l.PriceStatus == PriceStatusPending {
+			l.AutoCostBasisPerUnit = new(big.Int).Set(autoCostBasisPerUnit)
+			l.AutoCostBasisSource = autoSource
+			l.PriceStatus = PriceStatusResolved
+			return nil
+		}
+	}
+	return ErrLotNotFound
 }
 
 func (m *mockTaxLotRepo) MarkUnpriceable(_ context.Context, _ uuid.UUID) error {
