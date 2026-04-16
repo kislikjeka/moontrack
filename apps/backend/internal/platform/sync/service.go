@@ -44,6 +44,8 @@ func NewService(
 	zerionAssetRepo ZerionAssetRepository,
 	lpPositionSvc LPPositionService,
 	lendingPositionSvc LendingPositionService,
+	assetUpsert AssetUpserter,
+	jobEnqueuer JobEnqueuer,
 ) *Service {
 	if config == nil {
 		config = DefaultConfig()
@@ -52,7 +54,7 @@ func NewService(
 
 	var zerionProc *ZerionProcessor
 	if zerionProvider != nil {
-		zerionProc = NewZerionProcessor(walletRepo, ledgerSvc, lpPositionSvc, lendingPositionSvc, logger)
+		zerionProc = NewZerionProcessor(walletRepo, ledgerSvc, lpPositionSvc, lendingPositionSvc, logger, assetUpsert, jobEnqueuer)
 	}
 
 	svc := &Service{

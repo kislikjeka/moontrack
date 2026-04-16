@@ -418,7 +418,7 @@ func (r *LendingReader) ReadForList(raw map[string]interface{}) (*ListFields, er
 	if d, ok := raw["decimals"].(float64); ok {
 		decimals = int(d)
 	}
-	if priceStr, ok := raw["usd_price"].(string); ok && priceStr != "0" {
+	if priceStr, ok := raw["usd_price"].(string); ok && priceStr != "" && priceStr != "0" {
 		price, ok := new(big.Int).SetString(priceStr, 10)
 		if ok {
 			usdValue = money.CalcUSDValue(amount, price, decimals)
@@ -583,7 +583,7 @@ func extractTransferFields(t map[string]interface{}) (string, *big.Int, *big.Int
 	if d, ok := t["decimals"].(float64); ok {
 		decimals = int(d)
 	}
-	if priceStr, ok := t["usd_price"].(string); ok && priceStr != "0" {
+	if priceStr, ok := t["usd_price"].(string); ok && priceStr != "" && priceStr != "0" {
 		price, ok := new(big.Int).SetString(priceStr, 10)
 		if ok {
 			usdValue = money.CalcUSDValue(amount, price, decimals)

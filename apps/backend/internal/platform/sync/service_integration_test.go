@@ -83,7 +83,7 @@ func setupIntegrationTest(t *testing.T) *testEnv {
 	}
 
 	// Create sync service
-	syncSvc := sync.NewService(config, walletRepo, ledgerSvc, nil, log, zerionMock, nil, nil, nil)
+	syncSvc := sync.NewService(config, walletRepo, ledgerSvc, nil, log, zerionMock, nil, nil, nil, nil, nil, nil, nil)
 
 	return &testEnv{
 		syncSvc:    syncSvc,
