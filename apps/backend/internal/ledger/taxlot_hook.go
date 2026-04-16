@@ -120,9 +120,12 @@ func NewTaxLotHook(repo TaxLotRepository, ledgerRepo Repository, log *logger.Log
 
 		// --- Process acquisitions ---
 		for _, a := range acquisitions {
-			costBasisPerUnit := a.entry.USDRate
-			if costBasisPerUnit == nil {
-				costBasisPerUnit = big.NewInt(0)
+			var costBasisPerUnit *big.Int
+			priceStatus := PriceStatusResolved
+			if a.entry.USDRate != nil {
+				costBasisPerUnit = new(big.Int).Set(a.entry.USDRate)
+			} else {
+				priceStatus = PriceStatusPending
 			}
 
 			source := classifyCostBasisSource(tx)
@@ -137,6 +140,7 @@ func NewTaxLotHook(repo TaxLotRepository, ledgerRepo Repository, log *logger.Log
 					waCost := weightedAvgCostBasis(ctx, repo, dr.disposals)
 					if waCost != nil {
 						costBasisPerUnit = waCost
+						priceStatus = PriceStatusResolved
 					}
 				}
 			}
@@ -149,8 +153,9 @@ func NewTaxLotHook(repo TaxLotRepository, ledgerRepo Repository, log *logger.Log
 				QuantityAcquired:     new(big.Int).Set(a.entry.Amount),
 				QuantityRemaining:    new(big.Int).Set(a.entry.Amount),
 				AcquiredAt:           a.entry.OccurredAt,
-				AutoCostBasisPerUnit: new(big.Int).Set(costBasisPerUnit),
+				AutoCostBasisPerUnit: costBasisPerUnit,
 				AutoCostBasisSource:  source,
+				PriceStatus:          priceStatus,
 				LinkedSourceLotID:    linkedLotID,
 				CreatedAt:            time.Now(),
 			}
