@@ -1,0 +1,11 @@
+{
+  "data": {
+    "id": "pool-xyz",
+    "type": "ohlcv_request_response",
+    "attributes": {
+      "ohlcv_list": [
+        [1744816620, "1.0004", "1.0005", "1.0003", "1.0004", "12345.67"]
+      ]
+    }
+  }
+}
