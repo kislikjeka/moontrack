@@ -58,15 +58,29 @@ func (r *TaxLotRepository) CreateTaxLot(ctx context.Context, lot *ledger.TaxLot)
 			quantity_acquired, quantity_remaining, acquired_at,
 			auto_cost_basis_per_unit, auto_cost_basis_source,
 			override_cost_basis_per_unit, override_reason, override_at,
-			linked_source_lot_id, created_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+			linked_source_lot_id, created_at,
+			price_status, price_resolution_attempts, price_next_retry_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 	`
 
 	// Nullable *big.Int -> *string
+	var autoCost *string
+	if lot.AutoCostBasisPerUnit != nil {
+		s := lot.AutoCostBasisPerUnit.String()
+		autoCost = &s
+	}
+
 	var overrideCost *string
 	if lot.OverrideCostBasisPerUnit != nil {
 		s := lot.OverrideCostBasisPerUnit.String()
 		overrideCost = &s
+	}
+
+	// Default price_status to 'resolved' when not explicitly set,
+	// so existing callers that don't set PriceStatus continue to work.
+	priceStatus := lot.PriceStatus
+	if priceStatus == "" {
+		priceStatus = ledger.PriceStatusResolved
 	}
 
 	q := r.getQueryer(ctx)
@@ -78,13 +92,16 @@ func (r *TaxLotRepository) CreateTaxLot(ctx context.Context, lot *ledger.TaxLot)
 		lot.QuantityAcquired.String(),
 		lot.QuantityRemaining.String(),
 		lot.AcquiredAt,
-		lot.AutoCostBasisPerUnit.String(),
+		autoCost,
 		string(lot.AutoCostBasisSource),
 		overrideCost,
 		lot.OverrideReason,
 		lot.OverrideAt,
 		lot.LinkedSourceLotID,
 		lot.CreatedAt,
+		string(priceStatus),
+		lot.PriceResolutionAttempts,
+		lot.PriceNextRetryAt,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create tax lot: %w", err)
@@ -99,7 +116,8 @@ func (r *TaxLotRepository) GetTaxLot(ctx context.Context, id uuid.UUID) (*ledger
 		       quantity_acquired, quantity_remaining, acquired_at,
 		       auto_cost_basis_per_unit, auto_cost_basis_source,
 		       override_cost_basis_per_unit, override_reason, override_at,
-		       linked_source_lot_id, created_at
+		       linked_source_lot_id, created_at,
+		       price_status, price_resolution_attempts, price_next_retry_at
 		FROM tax_lots
 		WHERE id = $1
 	`
@@ -125,7 +143,8 @@ func (r *TaxLotRepository) GetTaxLotForUpdate(ctx context.Context, id uuid.UUID)
 		       quantity_acquired, quantity_remaining, acquired_at,
 		       auto_cost_basis_per_unit, auto_cost_basis_source,
 		       override_cost_basis_per_unit, override_reason, override_at,
-		       linked_source_lot_id, created_at
+		       linked_source_lot_id, created_at,
+		       price_status, price_resolution_attempts, price_next_retry_at
 		FROM tax_lots
 		WHERE id = $1
 		FOR UPDATE
@@ -152,7 +171,8 @@ func (r *TaxLotRepository) GetOpenLotsFIFO(ctx context.Context, accountID uuid.U
 		       quantity_acquired, quantity_remaining, acquired_at,
 		       auto_cost_basis_per_unit, auto_cost_basis_source,
 		       override_cost_basis_per_unit, override_reason, override_at,
-		       linked_source_lot_id, created_at
+		       linked_source_lot_id, created_at,
+		       price_status, price_resolution_attempts, price_next_retry_at
 		FROM tax_lots
 		WHERE account_id = $1 AND asset = $2 AND quantity_remaining > 0
 		ORDER BY acquired_at ASC, created_at ASC, id ASC
@@ -195,7 +215,8 @@ func (r *TaxLotRepository) GetLotsByAccount(ctx context.Context, accountID uuid.
 		       quantity_acquired, quantity_remaining, acquired_at,
 		       auto_cost_basis_per_unit, auto_cost_basis_source,
 		       override_cost_basis_per_unit, override_reason, override_at,
-		       linked_source_lot_id, created_at
+		       linked_source_lot_id, created_at,
+		       price_status, price_resolution_attempts, price_next_retry_at
 		FROM tax_lots
 		WHERE account_id = $1 AND asset = $2
 		ORDER BY acquired_at ASC, created_at ASC, id ASC
@@ -218,7 +239,8 @@ func (r *TaxLotRepository) GetLotsByTransaction(ctx context.Context, txID uuid.U
 		       quantity_acquired, quantity_remaining, acquired_at,
 		       auto_cost_basis_per_unit, auto_cost_basis_source,
 		       override_cost_basis_per_unit, override_reason, override_at,
-		       linked_source_lot_id, created_at
+		       linked_source_lot_id, created_at,
+		       price_status, price_resolution_attempts, price_next_retry_at
 		FROM tax_lots
 		WHERE transaction_id = $1
 		ORDER BY acquired_at ASC, created_at ASC, id ASC
@@ -508,6 +530,93 @@ func (r *TaxLotRepository) GetWAC(ctx context.Context, accountIDs []uuid.UUID) (
 }
 
 // ---------------------------------------------------------------------------
+// Pending-price resolution methods (migration 000025)
+// ---------------------------------------------------------------------------
+
+// ListPendingLotsByAssetAndTime returns all lots with price_status='pending'
+// for the given asset symbol within the minute bucket containing at.
+func (r *TaxLotRepository) ListPendingLotsByAssetAndTime(ctx context.Context, asset string, at time.Time) ([]*ledger.TaxLot, error) {
+	minStart := at.UTC().Truncate(time.Minute)
+	minEnd := minStart.Add(time.Minute)
+
+	query := `
+		SELECT id, transaction_id, account_id, asset,
+		       quantity_acquired, quantity_remaining, acquired_at,
+		       auto_cost_basis_per_unit, auto_cost_basis_source,
+		       override_cost_basis_per_unit, override_reason, override_at,
+		       linked_source_lot_id, created_at,
+		       price_status, price_resolution_attempts, price_next_retry_at
+		FROM tax_lots
+		WHERE asset = $1 AND price_status = 'pending'
+		  AND acquired_at >= $2 AND acquired_at < $3
+	`
+
+	q := r.getQueryer(ctx)
+	rows, err := q.Query(ctx, query, asset, minStart, minEnd)
+	if err != nil {
+		return nil, fmt.Errorf("list pending lots by asset and time: %w", err)
+	}
+	defer rows.Close()
+
+	return r.collectTaxLots(rows)
+}
+
+// ResolvePendingPrice sets auto_cost_basis_per_unit and transitions
+// price_status to 'resolved'. Only affects rows where price_status='pending'.
+func (r *TaxLotRepository) ResolvePendingPrice(ctx context.Context, lotID uuid.UUID, autoCostBasisPerUnit *big.Int, autoSource ledger.CostBasisSource) error {
+	query := `
+		UPDATE tax_lots
+		SET auto_cost_basis_per_unit = $2,
+		    auto_cost_basis_source = $3,
+		    price_status = 'resolved',
+		    price_next_retry_at = NULL
+		WHERE id = $1 AND price_status = 'pending'
+	`
+
+	q := r.getQueryer(ctx)
+	_, err := q.Exec(ctx, query, lotID, autoCostBasisPerUnit.String(), string(autoSource))
+	if err != nil {
+		return fmt.Errorf("resolve pending price: %w", err)
+	}
+	return nil
+}
+
+// MarkUnpriceable transitions price_status to 'unpriceable' for a pending lot.
+func (r *TaxLotRepository) MarkUnpriceable(ctx context.Context, lotID uuid.UUID) error {
+	query := `
+		UPDATE tax_lots
+		SET price_status = 'unpriceable',
+		    price_next_retry_at = NULL
+		WHERE id = $1 AND price_status = 'pending'
+	`
+
+	q := r.getQueryer(ctx)
+	_, err := q.Exec(ctx, query, lotID)
+	if err != nil {
+		return fmt.Errorf("mark unpriceable: %w", err)
+	}
+	return nil
+}
+
+// IncrementAttempt bumps the attempts counter and sets the next-retry time
+// for a pending lot.
+func (r *TaxLotRepository) IncrementAttempt(ctx context.Context, lotID uuid.UUID, attempts int, nextRetryAt time.Time) error {
+	query := `
+		UPDATE tax_lots
+		SET price_resolution_attempts = $2,
+		    price_next_retry_at = $3
+		WHERE id = $1 AND price_status = 'pending'
+	`
+
+	q := r.getQueryer(ctx)
+	_, err := q.Exec(ctx, query, lotID, attempts, nextRetryAt)
+	if err != nil {
+		return fmt.Errorf("increment attempt: %w", err)
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // Internal scan helpers
 // ---------------------------------------------------------------------------
 
@@ -515,11 +624,12 @@ func (r *TaxLotRepository) GetWAC(ctx context.Context, accountIDs []uuid.UUID) (
 func (r *TaxLotRepository) scanTaxLot(row pgx.Row) (*ledger.TaxLot, error) {
 	var lot ledger.TaxLot
 	var qtyAcquiredStr, qtyRemainingStr string
-	var autoCostStr string
+	var autoCostStr sql.NullString // nullable since migration 000025
 	var overrideCostStr sql.NullString
 	var overrideReason sql.NullString
 	var overrideAt sql.NullTime
 	var linkedLotID sql.NullString
+	var priceNextRetryAt sql.NullTime
 
 	err := row.Scan(
 		&lot.ID,
@@ -536,6 +646,9 @@ func (r *TaxLotRepository) scanTaxLot(row pgx.Row) (*ledger.TaxLot, error) {
 		&overrideAt,
 		&linkedLotID,
 		&lot.CreatedAt,
+		&lot.PriceStatus,
+		&lot.PriceResolutionAttempts,
+		&priceNextRetryAt,
 	)
 	if err != nil {
 		return nil, err
@@ -554,13 +667,16 @@ func (r *TaxLotRepository) scanTaxLot(row pgx.Row) (*ledger.TaxLot, error) {
 	}
 	lot.QuantityRemaining = qtyRemaining
 
-	autoCost, ok := new(big.Int).SetString(autoCostStr, 10)
-	if !ok {
-		return nil, fmt.Errorf("failed to parse auto_cost_basis_per_unit: %s", autoCostStr)
+	// auto_cost_basis_per_unit is nullable for pending lots
+	if autoCostStr.Valid {
+		autoCost, ok := new(big.Int).SetString(autoCostStr.String, 10)
+		if !ok {
+			return nil, fmt.Errorf("failed to parse auto_cost_basis_per_unit: %s", autoCostStr.String)
+		}
+		lot.AutoCostBasisPerUnit = autoCost
 	}
-	lot.AutoCostBasisPerUnit = autoCost
 
-	// Parse nullable fields
+	// Parse other nullable fields
 	if overrideCostStr.Valid {
 		v, ok := new(big.Int).SetString(overrideCostStr.String, 10)
 		if !ok {
@@ -583,6 +699,10 @@ func (r *TaxLotRepository) scanTaxLot(row pgx.Row) (*ledger.TaxLot, error) {
 			return nil, fmt.Errorf("failed to parse linked_source_lot_id: %w", err)
 		}
 		lot.LinkedSourceLotID = &parsed
+	}
+
+	if priceNextRetryAt.Valid {
+		lot.PriceNextRetryAt = &priceNextRetryAt.Time
 	}
 
 	return &lot, nil

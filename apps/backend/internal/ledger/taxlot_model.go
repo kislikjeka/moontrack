@@ -7,6 +7,19 @@ import (
 	"github.com/google/uuid"
 )
 
+// PriceStatus describes the cost-basis resolution state of a tax lot.
+type PriceStatus string
+
+const (
+	// PriceStatusResolved means the lot has a known auto_cost_basis_per_unit.
+	PriceStatusResolved PriceStatus = "resolved"
+	// PriceStatusPending means no price was available at acquisition time;
+	// a backfill job will resolve it asynchronously.
+	PriceStatusPending PriceStatus = "pending"
+	// PriceStatusUnpriceable means all resolution attempts have been exhausted.
+	PriceStatusUnpriceable PriceStatus = "unpriceable"
+)
+
 // CostBasisSource describes how the cost basis was determined
 type CostBasisSource string
 
@@ -38,7 +51,9 @@ type TaxLot struct {
 	QuantityAcquired         *big.Int
 	QuantityRemaining        *big.Int
 	AcquiredAt               time.Time
-	AutoCostBasisPerUnit     *big.Int        // USD rate scaled 10^8
+	// AutoCostBasisPerUnit is the USD rate scaled 10^8. It may be nil for
+	// lots in PriceStatusPending state where the price has not been resolved yet.
+	AutoCostBasisPerUnit     *big.Int
 	AutoCostBasisSource      CostBasisSource
 	OverrideCostBasisPerUnit *big.Int   // nullable
 	OverrideReason           *string    // nullable
@@ -46,15 +61,22 @@ type TaxLot struct {
 	LinkedSourceLotID        *uuid.UUID // nullable — for internal transfers
 	CreatedAt                time.Time
 	ChainID                  string     // not persisted — populated at runtime by service layer
+
+	// Price resolution state — backed by price_status, price_resolution_attempts,
+	// and price_next_retry_at columns added in migration 000025.
+	PriceStatus             PriceStatus
+	PriceResolutionAttempts int
+	PriceNextRetryAt        *time.Time
 }
 
 // EffectiveCostBasisPerUnit returns the cost basis to use for PnL calculations.
-// Priority: override > auto.
+// Priority: override > auto. Returns nil when the lot is pending and has
+// neither an auto nor override cost basis yet — callers must handle nil.
 func (l *TaxLot) EffectiveCostBasisPerUnit() *big.Int {
 	if l.OverrideCostBasisPerUnit != nil {
 		return l.OverrideCostBasisPerUnit
 	}
-	return l.AutoCostBasisPerUnit
+	return l.AutoCostBasisPerUnit // may be nil for pending lots
 }
 
 // IsOpen returns true if the lot still has remaining quantity.

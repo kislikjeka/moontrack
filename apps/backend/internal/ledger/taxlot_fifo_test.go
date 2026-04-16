@@ -113,6 +113,22 @@ func (m *mockTaxLotRepo) GetWAC(_ context.Context, _ []uuid.UUID) ([]*PositionWA
 	return nil, nil
 }
 
+func (m *mockTaxLotRepo) ListPendingLotsByAssetAndTime(_ context.Context, _ string, _ time.Time) ([]*TaxLot, error) {
+	return nil, nil
+}
+
+func (m *mockTaxLotRepo) ResolvePendingPrice(_ context.Context, _ uuid.UUID, _ *big.Int, _ CostBasisSource) error {
+	return nil
+}
+
+func (m *mockTaxLotRepo) MarkUnpriceable(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+
+func (m *mockTaxLotRepo) IncrementAttempt(_ context.Context, _ uuid.UUID, _ int, _ time.Time) error {
+	return nil
+}
+
 // helpers
 
 func makeLot(accountID uuid.UUID, asset string, qty int64, acquiredAt time.Time) *TaxLot {
