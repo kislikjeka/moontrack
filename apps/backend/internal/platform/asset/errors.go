@@ -7,13 +7,14 @@ import (
 
 // Asset errors
 var (
-	ErrAssetNotFound       = errors.New("asset not found")
-	ErrDuplicateAsset      = errors.New("asset already exists")
-	ErrInvalidSymbol       = errors.New("invalid symbol")
-	ErrInvalidName         = errors.New("invalid name")
-	ErrCoinGeckoIDRequired = errors.New("coingecko_id is required")
-	ErrInvalidDecimals     = errors.New("invalid decimals")
-	ErrInvalidAssetType    = errors.New("invalid asset type")
+	ErrAssetNotFound        = errors.New("asset not found")
+	ErrDuplicateAsset       = errors.New("asset already exists")
+	ErrInvalidSymbol        = errors.New("invalid symbol")
+	ErrInvalidName          = errors.New("invalid name")
+	ErrCoinGeckoIDRequired  = errors.New("coingecko_id is required")
+	ErrAssetIdentityRequired = errors.New("asset must have coingecko_id or (chain_id + contract_address)")
+	ErrInvalidDecimals      = errors.New("invalid decimals")
+	ErrInvalidAssetType     = errors.New("invalid asset type")
 )
 
 // Price errors

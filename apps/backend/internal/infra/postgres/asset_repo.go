@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -345,4 +346,115 @@ func isAssetUniqueViolation(err error) bool {
 	return strings.Contains(errStr, "duplicate key") ||
 		strings.Contains(errStr, "unique constraint") ||
 		strings.Contains(errStr, "23505")
+}
+
+// UpsertByOnChainIdentity uses the partial unique index idx_assets_onchain_identity
+// to dedupe on (chain_id, contract_address).
+func (r *AssetRepository) UpsertByOnChainIdentity(
+	ctx context.Context,
+	chainID, contractAddress string,
+	symbol, name string,
+	decimals int,
+) (*asset.Asset, bool, error) {
+	// Case-insensitive match on address — stored addresses are normalized to lowercase.
+	addrLower := strings.ToLower(contractAddress)
+
+	// Try to find an existing row first.
+	row := r.pool.QueryRow(ctx, `
+		SELECT id, symbol, name, coingecko_id, decimals, asset_type,
+		       chain_id, contract_address, market_cap_rank, is_active,
+		       metadata, created_at, updated_at
+		FROM assets
+		WHERE chain_id = $1 AND contract_address = $2
+	`, chainID, addrLower)
+
+	existing, err := r.scanAssetNullableCG(row)
+	if err == nil {
+		return existing, false, nil
+	}
+	if err != pgx.ErrNoRows {
+		return nil, false, fmt.Errorf("failed to lookup asset by on-chain identity: %w", err)
+	}
+
+	// Not found — create. Race-safe: partial unique index catches concurrent inserts.
+	newAsset := &asset.Asset{
+		ID:              uuid.New(),
+		Symbol:          symbol,
+		Name:            name,
+		Decimals:        decimals,
+		AssetType:       asset.AssetTypeCrypto,
+		ChainID:         &chainID,
+		ContractAddress: &addrLower,
+		IsActive:        true,
+		Metadata:        json.RawMessage("{}"),
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}
+	_, err = r.pool.Exec(ctx, `
+		INSERT INTO assets (id, symbol, name, coingecko_id, decimals, asset_type,
+		                    chain_id, contract_address, is_active, metadata,
+		                    created_at, updated_at)
+		VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, TRUE, $8, $9, $10)
+		ON CONFLICT (chain_id, contract_address)
+		  WHERE chain_id IS NOT NULL AND contract_address IS NOT NULL
+		DO NOTHING
+	`, newAsset.ID, symbol, name, decimals, string(newAsset.AssetType),
+		chainID, addrLower, newAsset.Metadata, newAsset.CreatedAt, newAsset.UpdatedAt)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to insert asset: %w", err)
+	}
+
+	// Re-select in case the insert hit the conflict and did nothing (race).
+	row = r.pool.QueryRow(ctx, `
+		SELECT id, symbol, name, coingecko_id, decimals, asset_type,
+		       chain_id, contract_address, market_cap_rank, is_active,
+		       metadata, created_at, updated_at
+		FROM assets
+		WHERE chain_id = $1 AND contract_address = $2
+	`, chainID, addrLower)
+
+	out, err := r.scanAssetNullableCG(row)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to re-read upserted asset: %w", err)
+	}
+	created := out.ID == newAsset.ID
+	return out, created, nil
+}
+
+// scanAssetNullableCG scans a row where coingecko_id may be NULL.
+func (r *AssetRepository) scanAssetNullableCG(row pgx.Row) (*asset.Asset, error) {
+	var a asset.Asset
+	var cgID sql.NullString
+	var chainID, contractAddress sql.NullString
+	var marketCapRank sql.NullInt32
+	var assetType string
+
+	err := row.Scan(
+		&a.ID, &a.Symbol, &a.Name, &cgID, &a.Decimals,
+		&assetType, &chainID, &contractAddress, &marketCapRank, &a.IsActive,
+		&a.Metadata, &a.CreatedAt, &a.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	a.AssetType = asset.AssetType(assetType)
+	if cgID.Valid {
+		a.CoinGeckoID = cgID.String
+	}
+	if chainID.Valid {
+		a.ChainID = &chainID.String
+	}
+	if contractAddress.Valid {
+		a.ContractAddress = &contractAddress.String
+	}
+	if marketCapRank.Valid {
+		rank := int(marketCapRank.Int32)
+		a.MarketCapRank = &rank
+	}
+	if a.Metadata == nil {
+		a.Metadata = json.RawMessage("{}")
+	}
+
+	return &a, nil
 }

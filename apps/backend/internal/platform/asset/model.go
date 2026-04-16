@@ -44,8 +44,10 @@ func (a *Asset) Validate() error {
 		return ErrInvalidName
 	}
 
-	if a.CoinGeckoID == "" {
-		return ErrCoinGeckoIDRequired
+	// CoinGeckoID is now optional — on-chain tokens may not be listed.
+	// Either coingecko_id OR (chain_id + contract_address) must identify the asset.
+	if a.CoinGeckoID == "" && (a.ChainID == nil || a.ContractAddress == nil) {
+		return ErrAssetIdentityRequired
 	}
 
 	if a.Decimals < 0 || a.Decimals > 78 {

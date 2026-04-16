@@ -34,6 +34,15 @@ type Repository interface {
 
 	// GetByChain retrieves all assets on a specific chain
 	GetByChain(ctx context.Context, chainID string) ([]Asset, error)
+
+	// UpsertByOnChainIdentity finds an asset by (chainID, contractAddress) or creates
+	// one. Returns the asset and whether it was newly created.
+	UpsertByOnChainIdentity(
+		ctx context.Context,
+		chainID, contractAddress string,
+		symbol, name string,
+		decimals int,
+	) (*Asset, bool, error)
 }
 
 // PriceRepository defines the interface for price history persistence operations

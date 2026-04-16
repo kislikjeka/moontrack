@@ -553,3 +553,14 @@ func (s *Service) SearchAssetsWithFallback(ctx context.Context, query string) ([
 
 	return assets, nil
 }
+
+// UpsertByOnChainIdentity finds-or-creates an asset by on-chain identity.
+// Used by the sync path to dedupe tokens without a CoinGecko listing.
+func (s *Service) UpsertByOnChainIdentity(
+	ctx context.Context,
+	chainID, contractAddress string,
+	symbol, name string,
+	decimals int,
+) (*Asset, bool, error) {
+	return s.repo.UpsertByOnChainIdentity(ctx, chainID, contractAddress, symbol, name, decimals)
+}

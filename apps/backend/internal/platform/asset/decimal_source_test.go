@@ -38,6 +38,9 @@ func (m *mockAssetRepo) Create(context.Context, *Asset) error                   
 func (m *mockAssetRepo) Search(context.Context, string, int) ([]Asset, error)        { return nil, nil }
 func (m *mockAssetRepo) GetActiveAssets(context.Context) ([]Asset, error)             { return nil, nil }
 func (m *mockAssetRepo) GetByChain(context.Context, string) ([]Asset, error)         { return nil, nil }
+func (m *mockAssetRepo) UpsertByOnChainIdentity(_ context.Context, _, _ string, _, _ string, _ int) (*Asset, bool, error) {
+	return nil, false, nil
+}
 
 func TestDecimalSource_Found(t *testing.T) {
 	repo := &mockAssetRepo{
