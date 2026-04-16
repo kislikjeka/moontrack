@@ -41,6 +41,12 @@ type WACProvider interface {
 	GetWAC(ctx context.Context, userID uuid.UUID, walletID *uuid.UUID) ([]WACPosition, error)
 }
 
+// LotStatusCounter returns lot counts grouped by price_status for a user.
+// Used to populate PnLIsPartial / lot count fields in PortfolioSummary.
+type LotStatusCounter interface {
+	CountLotsByPriceStatus(ctx context.Context, userID uuid.UUID) (pending, unpriceable int, err error)
+}
+
 // WACPosition represents a single WAC data point (per-chain or aggregated).
 type WACPosition struct {
 	WalletID        uuid.UUID
@@ -73,11 +79,12 @@ type ChainHolding struct {
 
 // PortfolioService aggregates portfolio data from the ledger
 type PortfolioService struct {
-	ledgerRepo   LedgerRepository
-	walletRepo   WalletRepository
-	priceService PriceService
-	wacProvider  WACProvider              // nilable — WAC enrichment is optional
-	resolver     *money.DecimalResolver  // nilable — falls back to money.GetDecimals
+	ledgerRepo      LedgerRepository
+	walletRepo      WalletRepository
+	priceService    PriceService
+	wacProvider     WACProvider             // nilable — WAC enrichment is optional
+	lotStatusCounter LotStatusCounter       // nilable — lot-count enrichment is optional
+	resolver        *money.DecimalResolver  // nilable — falls back to money.GetDecimals
 }
 
 // NewPortfolioService creates a new portfolio service
@@ -95,6 +102,13 @@ func NewPortfolioService(
 		wacProvider:  wacProvider,
 		resolver:     resolver,
 	}
+}
+
+// WithLotStatusCounter attaches a LotStatusCounter to the service, enabling
+// PnLIsPartial / pending and unpriceable lot count fields in PortfolioSummary.
+func (s *PortfolioService) WithLotStatusCounter(c LotStatusCounter) *PortfolioService {
+	s.lotStatusCounter = c
+	return s
 }
 
 // AssetHolding represents a single asset holding across all wallets
@@ -127,11 +141,14 @@ type AssetBalance struct {
 
 // PortfolioSummary represents the complete portfolio overview
 type PortfolioSummary struct {
-	TotalUSDValue  *big.Int        `json:"total_usd_value"` // Total portfolio value in USD (scaled by 10^8)
-	TotalAssets    int             `json:"total_assets"`    // Number of unique assets
-	AssetHoldings  []AssetHolding  `json:"asset_holdings"`  // Aggregated holdings by asset
-	WalletBalances []WalletBalance `json:"wallet_balances"` // Balances per wallet
-	LastUpdated    string          `json:"last_updated"`    // ISO 8601 timestamp
+	TotalUSDValue       *big.Int        `json:"total_usd_value"`        // Total portfolio value in USD (scaled by 10^8)
+	TotalAssets         int             `json:"total_assets"`           // Number of unique assets
+	AssetHoldings       []AssetHolding  `json:"asset_holdings"`         // Aggregated holdings by asset
+	WalletBalances      []WalletBalance `json:"wallet_balances"`        // Balances per wallet
+	LastUpdated         string          `json:"last_updated"`           // ISO 8601 timestamp
+	PnLIsPartial        bool            `json:"pnl_is_partial"`         // True when ≥1 lot has pending price — PnL figures are incomplete
+	PendingLotCount     int             `json:"pending_lot_count"`      // Number of lots still awaiting price resolution
+	UnpriceableLotCount int             `json:"unpriceable_lot_count"`  // Number of lots that could not be priced
 }
 
 // GetPortfolioSummary returns the complete portfolio summary for a user
@@ -284,12 +301,22 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 		wb.Holdings = s.buildHoldings(ctx, userID, wb)
 	}
 
+	// Populate lot price-status counts when a counter is available.
+	var pendingCount, unpriceableCount int
+	if s.lotStatusCounter != nil {
+		pendingCount, unpriceableCount, _ = s.lotStatusCounter.CountLotsByPriceStatus(ctx, userID)
+		// Errors are non-fatal: we still return a valid (partial) portfolio.
+	}
+
 	summary := &PortfolioSummary{
-		TotalUSDValue:  totalUSD,
-		TotalAssets:    len(assetHoldings),
-		AssetHoldings:  assetHoldings,
-		WalletBalances: walletBalances,
-		LastUpdated:    "", // Will be set by handler
+		TotalUSDValue:       totalUSD,
+		TotalAssets:         len(assetHoldings),
+		AssetHoldings:       assetHoldings,
+		WalletBalances:      walletBalances,
+		LastUpdated:         "", // Will be set by handler
+		PnLIsPartial:        pendingCount > 0,
+		PendingLotCount:     pendingCount,
+		UnpriceableLotCount: unpriceableCount,
 	}
 
 	return summary, nil

@@ -598,6 +598,43 @@ func (r *TaxLotRepository) MarkUnpriceable(ctx context.Context, lotID uuid.UUID)
 	return nil
 }
 
+// CountLotsByPriceStatus returns the count of lots in 'pending' and 'unpriceable'
+// price_status for the given user. The JOIN on accounts enforces multi-tenant isolation.
+func (r *TaxLotRepository) CountLotsByPriceStatus(ctx context.Context, userID uuid.UUID) (pending, unpriceable int, err error) {
+	query := `
+		SELECT tl.price_status, COUNT(*)
+		FROM tax_lots tl
+		JOIN accounts a ON a.id = tl.account_id
+		WHERE a.user_id = $1 AND tl.price_status IN ('pending', 'unpriceable')
+		GROUP BY tl.price_status
+	`
+
+	q := r.getQueryer(ctx)
+	rows, err := q.Query(ctx, query, userID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("count lots by price status: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return 0, 0, fmt.Errorf("scan count lots by price status: %w", err)
+		}
+		switch status {
+		case "pending":
+			pending = count
+		case "unpriceable":
+			unpriceable = count
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, 0, fmt.Errorf("iterate count lots by price status: %w", err)
+	}
+	return pending, unpriceable, nil
+}
+
 // IncrementAttempt bumps the attempts counter and sets the next-retry time
 // for a pending lot.
 func (r *TaxLotRepository) IncrementAttempt(ctx context.Context, lotID uuid.UUID, attempts int, nextRetryAt time.Time) error {

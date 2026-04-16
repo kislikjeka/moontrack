@@ -218,7 +218,8 @@ func main() {
 	walletAdapter := portfolio.NewWalletRepositoryAdapter(walletRepo)
 	portfolioPriceAdapter := portfolio.NewPortfolioPriceAdapter(assetSvc)
 	wacAdapter := portfolio.NewWACAdapter(taxLotSvc)
-	portfolioSvc := portfolio.NewPortfolioService(ledgerRepo, walletAdapter, portfolioPriceAdapter, wacAdapter, decimalResolver)
+	portfolioSvc := portfolio.NewPortfolioService(ledgerRepo, walletAdapter, portfolioPriceAdapter, wacAdapter, decimalResolver).
+		WithLotStatusCounter(taxLotRepo)
 	log.Info("Portfolio service initialized")
 
 	// Initialize transaction service (read-only, for enriched views)

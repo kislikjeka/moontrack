@@ -52,4 +52,9 @@ type TaxLotRepository interface {
 	// IncrementAttempt bumps the attempts counter and sets the next-retry time
 	// for a pending lot.
 	IncrementAttempt(ctx context.Context, lotID uuid.UUID, attempts int, nextRetryAt time.Time) error
+
+	// CountLotsByPriceStatus returns the number of lots in 'pending' and 'unpriceable'
+	// price_status for the given user. Filters by user_id via accounts JOIN to
+	// preserve multi-tenant isolation.
+	CountLotsByPriceStatus(ctx context.Context, userID uuid.UUID) (pending, unpriceable int, err error)
 }

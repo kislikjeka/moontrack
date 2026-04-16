@@ -144,6 +144,10 @@ func (m *mockTaxLotRepo) IncrementAttempt(_ context.Context, _ uuid.UUID, _ int,
 	return nil
 }
 
+func (m *mockTaxLotRepo) CountLotsByPriceStatus(_ context.Context, _ uuid.UUID) (int, int, error) {
+	return 0, 0, nil
+}
+
 // helpers
 
 func makeLot(accountID uuid.UUID, asset string, qty int64, acquiredAt time.Time) *TaxLot {
