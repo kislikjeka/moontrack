@@ -195,6 +195,9 @@ resync:
     @echo ""
     @echo "1. Clearing portfolio data..."
     @just db-clear-data
+    @echo "   Removing stale test user (${RESYNC_EMAIL}) so register always succeeds..."
+    @docker exec moontrack-postgres psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} \
+        -c "DELETE FROM users WHERE email='${RESYNC_EMAIL}';" > /dev/null
     @echo ""
     @echo "2. Restarting backend..."
     docker-compose up -d --build backend
@@ -243,6 +246,18 @@ resync:
     echo "   Sync triggered!"; \
     echo ""; \
     echo "=== Done! Wallet is syncing. ==="
+
+# =============================================================================
+# Data Migrations
+# =============================================================================
+
+# Enqueue backfill jobs for legacy zero-priced lots (dry-run by default)
+backfill-legacy-prices-dry:
+    cd apps/backend && go run ./cmd/backfill-legacy-prices -dry-run
+
+# Enqueue backfill jobs for legacy zero-priced lots (DESTRUCTIVE - modifies data)
+backfill-legacy-prices:
+    cd apps/backend && go run ./cmd/backfill-legacy-prices -dry-run=false
 
 # =============================================================================
 # Setup & Utilities
