@@ -386,6 +386,81 @@ func TestTaxLotRepo_GetWAC_MixedPendingAndResolved(t *testing.T) {
 	}
 }
 
+// TestTaxLotRepo_GetWAC_MixedPending_ExcludesPendingFromDenominator verifies
+// that migration 000027 prevents WAC deflation for mixed positions: seed one
+// resolved lot (qty=100, cost=$10 at 10^8 = 1_000_000_000) and one pending
+// lot (qty=100, no cost); without the fix, Postgres SUM would skip the pending
+// lot's NULL cost in the numerator but include its quantity in the denominator,
+// yielding WAC = 1_000_000_000 * 100 / 200 = 500_000_000 ($5). After the fix,
+// the resolved-only CTE yields WAC = 1_000_000_000 * 100 / 100 = 1_000_000_000 ($10).
+func TestTaxLotRepo_GetWAC_MixedPending_ExcludesPendingFromDenominator(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	ctx := context.Background()
+	require.NoError(t, testDB.Reset(ctx))
+
+	repo := NewTaxLotRepository(testDB.Pool)
+	_, walletID := seedUserAndWallet(t, ctx)
+
+	accountID := seedAccountForPendingTest(t, ctx, walletID, "MIX")
+
+	// Resolved lot: qty=100, cost per unit = 10 * 10^8
+	resolvedTxID := seedTransactionForPendingTest(t, ctx, walletID)
+	resolvedLot := &ledger.TaxLot{
+		ID:                   uuid.New(),
+		TransactionID:        resolvedTxID,
+		AccountID:            accountID,
+		Asset:                "MIX",
+		QuantityAcquired:     big.NewInt(100),
+		QuantityRemaining:    big.NewInt(100),
+		AcquiredAt:           time.Now().UTC().Add(-time.Hour),
+		AutoCostBasisPerUnit: big.NewInt(1_000_000_000), // $10 scaled 10^8
+		AutoCostBasisSource:  ledger.CostBasisFMVAtTransfer,
+		PriceStatus:          ledger.PriceStatusResolved,
+		CreatedAt:            time.Now().UTC(),
+	}
+	require.NoError(t, repo.CreateTaxLot(ctx, resolvedLot))
+
+	// Pending lot: qty=100, no cost
+	pendingTxID := seedTransactionForPendingTest(t, ctx, walletID)
+	pendingLot := &ledger.TaxLot{
+		ID:                      uuid.New(),
+		TransactionID:           pendingTxID,
+		AccountID:               accountID,
+		Asset:                   "MIX",
+		QuantityAcquired:        big.NewInt(100),
+		QuantityRemaining:       big.NewInt(100),
+		AcquiredAt:              time.Now().UTC().Truncate(time.Minute),
+		AutoCostBasisPerUnit:    nil,
+		AutoCostBasisSource:     ledger.CostBasisFMVAtTransfer,
+		PriceStatus:             ledger.PriceStatusPending,
+		PriceResolutionAttempts: 0,
+		CreatedAt:               time.Now().UTC(),
+	}
+	require.NoError(t, repo.CreateTaxLot(ctx, pendingLot))
+
+	require.NoError(t, repo.RefreshWAC(ctx))
+
+	positions, err := repo.GetWAC(ctx, []uuid.UUID{accountID})
+	require.NoError(t, err)
+	require.Len(t, positions, 1, "one (account, asset) position expected")
+
+	p := positions[0]
+	require.Equal(t, accountID, p.AccountID)
+	require.Equal(t, "MIX", p.Asset)
+
+	// Total quantity spans every open lot (pending + resolved) since the
+	// pending quantity is still part of the user's holdings.
+	require.Equal(t, "200", p.TotalQuantity.String(), "total_quantity should include every open lot")
+
+	// WAC must reflect only the resolved lot's cost; the pending lot must
+	// NOT deflate the denominator.
+	require.NotNil(t, p.WeightedAvgCost, "WAC should be resolved since at least one lot has a cost basis")
+	require.Equal(t, "1000000000", p.WeightedAvgCost.String(),
+		"WAC should equal resolved cost ($10 scaled 10^8), not $5 which would indicate pending quantity leaking into the denominator")
+}
+
 // TestTaxLotRepo_GetWAC_AllPending_NilWAC verifies that when every lot is
 // pending, GetWAC still returns a row but with WeightedAvgCost == nil.
 func TestTaxLotRepo_GetWAC_AllPending_NilWAC(t *testing.T) {
