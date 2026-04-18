@@ -141,8 +141,10 @@ func TestTaxLotRepo_MarkUnpriceable(t *testing.T) {
 	fetched, err := repo.GetTaxLot(ctx, lot.ID)
 	require.NoError(t, err)
 	require.Equal(t, ledger.PriceStatusUnpriceable, fetched.PriceStatus)
-	// MarkUnpriceable only works on pending rows; calling again is a no-op
-	require.NoError(t, repo.MarkUnpriceable(ctx, lot.ID))
+	// MarkUnpriceable only works on pending rows; calling again on a non-pending
+	// lot surfaces ErrLotNotFound so concurrent workers can detect "someone
+	// else won the CAS" and continue safely.
+	require.ErrorIs(t, repo.MarkUnpriceable(ctx, lot.ID), ledger.ErrLotNotFound)
 }
 
 func TestTaxLotRepo_IncrementAttempt(t *testing.T) {
@@ -459,6 +461,107 @@ func TestTaxLotRepo_GetWAC_MixedPending_ExcludesPendingFromDenominator(t *testin
 	require.NotNil(t, p.WeightedAvgCost, "WAC should be resolved since at least one lot has a cost basis")
 	require.Equal(t, "1000000000", p.WeightedAvgCost.String(),
 		"WAC should equal resolved cost ($10 scaled 10^8), not $5 which would indicate pending quantity leaking into the denominator")
+}
+
+// TestTaxLotRepo_ResolvePendingPrice_AlreadyResolved verifies that calling
+// ResolvePendingPrice on a lot that is no longer 'pending' surfaces
+// ErrLotNotFound, so concurrent resolvers can detect "someone else won"
+// via errors.Is. Previously this case silently returned nil, making the
+// concurrent-resolution recovery path in PriceResolvedHook dead code.
+func TestTaxLotRepo_ResolvePendingPrice_AlreadyResolved(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	ctx := context.Background()
+	require.NoError(t, testDB.Reset(ctx))
+
+	repo := NewTaxLotRepository(testDB.Pool)
+	_, walletID := seedUserAndWallet(t, ctx)
+
+	// Seed a lot that is already in 'resolved' state (default for tax_lots).
+	accountID := seedAccountForPendingTest(t, ctx, walletID, "RSV")
+	txID := seedTransactionForPendingTest(t, ctx, walletID)
+
+	lot := &ledger.TaxLot{
+		ID:                   uuid.New(),
+		TransactionID:        txID,
+		AccountID:            accountID,
+		Asset:                "RSV",
+		QuantityAcquired:     big.NewInt(1_000),
+		QuantityRemaining:    big.NewInt(1_000),
+		AcquiredAt:           time.Now().UTC(),
+		AutoCostBasisPerUnit: big.NewInt(50_000_000),
+		AutoCostBasisSource:  ledger.CostBasisFMVAtTransfer,
+		PriceStatus:          ledger.PriceStatusResolved,
+		CreatedAt:            time.Now().UTC(),
+	}
+	require.NoError(t, repo.CreateTaxLot(ctx, lot))
+
+	// ResolvePendingPrice on a resolved lot must surface ErrLotNotFound
+	// so the caller can distinguish "CAS missed" from "rows updated."
+	err := repo.ResolvePendingPrice(ctx, lot.ID,
+		big.NewInt(999_000_000), ledger.CostBasisFMVAtTransfer)
+	require.ErrorIs(t, err, ledger.ErrLotNotFound,
+		"ResolvePendingPrice must return ErrLotNotFound on 0 rows affected")
+
+	// Also true for a lot that never existed.
+	err = repo.ResolvePendingPrice(ctx, uuid.New(),
+		big.NewInt(1_000), ledger.CostBasisFMVAtTransfer)
+	require.ErrorIs(t, err, ledger.ErrLotNotFound,
+		"ResolvePendingPrice must return ErrLotNotFound for missing lot")
+}
+
+// TestTaxLotRepo_MarkResolved_AlreadyResolved verifies the CAS-missed case
+// for MarkResolved returns ErrLotNotFound.
+func TestTaxLotRepo_MarkResolved_AlreadyResolved(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	ctx := context.Background()
+	require.NoError(t, testDB.Reset(ctx))
+
+	repo := NewTaxLotRepository(testDB.Pool)
+	_, walletID := seedUserAndWallet(t, ctx)
+
+	accountID := seedAccountForPendingTest(t, ctx, walletID, "MRR")
+	txID := seedTransactionForPendingTest(t, ctx, walletID)
+	lot := &ledger.TaxLot{
+		ID:                   uuid.New(),
+		TransactionID:        txID,
+		AccountID:            accountID,
+		Asset:                "MRR",
+		QuantityAcquired:     big.NewInt(1_000),
+		QuantityRemaining:    big.NewInt(1_000),
+		AcquiredAt:           time.Now().UTC(),
+		AutoCostBasisPerUnit: big.NewInt(50_000_000),
+		AutoCostBasisSource:  ledger.CostBasisFMVAtTransfer,
+		PriceStatus:          ledger.PriceStatusResolved,
+		CreatedAt:            time.Now().UTC(),
+	}
+	require.NoError(t, repo.CreateTaxLot(ctx, lot))
+
+	// Lot is already resolved — MarkResolved should surface ErrLotNotFound.
+	require.ErrorIs(t, repo.MarkResolved(ctx, lot.ID), ledger.ErrLotNotFound)
+}
+
+// TestTaxLotRepo_IncrementAttempt_OnNonPending verifies IncrementAttempt
+// returns ErrLotNotFound when the lot's status has shifted off 'pending'.
+func TestTaxLotRepo_IncrementAttempt_OnNonPending(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	ctx := context.Background()
+	require.NoError(t, testDB.Reset(ctx))
+
+	repo := NewTaxLotRepository(testDB.Pool)
+	_, walletID := seedUserAndWallet(t, ctx)
+
+	lot := seedPendingLot(t, ctx, repo, walletID, "IAT", time.Now().UTC())
+	require.NoError(t, repo.MarkUnpriceable(ctx, lot.ID))
+
+	err := repo.IncrementAttempt(ctx, lot.ID, 5, time.Now().UTC().Add(time.Hour))
+	require.ErrorIs(t, err, ledger.ErrLotNotFound,
+		"IncrementAttempt must return ErrLotNotFound when lot is no longer pending")
 }
 
 // TestTaxLotRepo_GetWAC_AllPending_NilWAC verifies that when every lot is

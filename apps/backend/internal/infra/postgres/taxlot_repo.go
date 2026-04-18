@@ -650,6 +650,12 @@ func (r *TaxLotRepository) ListPendingLotsByAssetIDAndTime(ctx context.Context, 
 
 // ResolvePendingPrice sets auto_cost_basis_per_unit and transitions
 // price_status to 'resolved'. Only affects rows where price_status='pending'.
+//
+// Returns ledger.ErrLotNotFound when 0 rows are updated — either the lot
+// does not exist, or its price_status is no longer 'pending' (typically a
+// concurrent resolver already won). Callers that expect idempotent /
+// concurrent behaviour (PriceResolvedHook) should treat ErrLotNotFound as
+// a benign no-op.
 func (r *TaxLotRepository) ResolvePendingPrice(ctx context.Context, lotID uuid.UUID, autoCostBasisPerUnit *big.Int, autoSource ledger.CostBasisSource) error {
 	query := `
 		UPDATE tax_lots
@@ -661,9 +667,12 @@ func (r *TaxLotRepository) ResolvePendingPrice(ctx context.Context, lotID uuid.U
 	`
 
 	q := r.getQueryer(ctx)
-	_, err := q.Exec(ctx, query, lotID, autoCostBasisPerUnit.String(), string(autoSource))
+	tag, err := q.Exec(ctx, query, lotID, autoCostBasisPerUnit.String(), string(autoSource))
 	if err != nil {
 		return fmt.Errorf("resolve pending price: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ledger.ErrLotNotFound
 	}
 	return nil
 }
@@ -707,6 +716,10 @@ func (r *TaxLotRepository) ResolvePendingDisposals(ctx context.Context, assetID 
 }
 
 // MarkUnpriceable transitions price_status to 'unpriceable' for a pending lot.
+//
+// Returns ledger.ErrLotNotFound when 0 rows are updated — either the lot does
+// not exist, or its price_status is no longer 'pending'. Callers may treat
+// ErrLotNotFound as a benign no-op (already resolved by a concurrent worker).
 func (r *TaxLotRepository) MarkUnpriceable(ctx context.Context, lotID uuid.UUID) error {
 	query := `
 		UPDATE tax_lots
@@ -716,15 +729,22 @@ func (r *TaxLotRepository) MarkUnpriceable(ctx context.Context, lotID uuid.UUID)
 	`
 
 	q := r.getQueryer(ctx)
-	_, err := q.Exec(ctx, query, lotID)
+	tag, err := q.Exec(ctx, query, lotID)
 	if err != nil {
 		return fmt.Errorf("mark unpriceable: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ledger.ErrLotNotFound
 	}
 	return nil
 }
 
 // MarkResolved transitions price_status to 'resolved' for any lot (pending or unpriceable).
 // Used when a manual price is applied by the user via PUT /lots/{id}/manual-price.
+//
+// Returns ledger.ErrLotNotFound when 0 rows are updated — either the lot does
+// not exist, or its price_status is already 'resolved' (a no-op from this
+// method's perspective).
 func (r *TaxLotRepository) MarkResolved(ctx context.Context, lotID uuid.UUID) error {
 	query := `
 		UPDATE tax_lots
@@ -734,9 +754,12 @@ func (r *TaxLotRepository) MarkResolved(ctx context.Context, lotID uuid.UUID) er
 	`
 
 	q := r.getQueryer(ctx)
-	_, err := q.Exec(ctx, query, lotID)
+	tag, err := q.Exec(ctx, query, lotID)
 	if err != nil {
 		return fmt.Errorf("mark resolved: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ledger.ErrLotNotFound
 	}
 	return nil
 }
@@ -780,6 +803,10 @@ func (r *TaxLotRepository) CountLotsByPriceStatus(ctx context.Context, userID uu
 
 // IncrementAttempt bumps the attempts counter and sets the next-retry time
 // for a pending lot.
+//
+// Returns ledger.ErrLotNotFound when 0 rows are updated — either the lot does
+// not exist, or its price_status is no longer 'pending'. The backfill worker
+// can interpret this as "another resolver already handled this lot."
 func (r *TaxLotRepository) IncrementAttempt(ctx context.Context, lotID uuid.UUID, attempts int, nextRetryAt time.Time) error {
 	query := `
 		UPDATE tax_lots
@@ -789,9 +816,12 @@ func (r *TaxLotRepository) IncrementAttempt(ctx context.Context, lotID uuid.UUID
 	`
 
 	q := r.getQueryer(ctx)
-	_, err := q.Exec(ctx, query, lotID, attempts, nextRetryAt)
+	tag, err := q.Exec(ctx, query, lotID, attempts, nextRetryAt)
 	if err != nil {
 		return fmt.Errorf("increment attempt: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ledger.ErrLotNotFound
 	}
 	return nil
 }

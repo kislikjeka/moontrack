@@ -152,8 +152,11 @@ func (s *Svc) SetManualPrice(ctx context.Context, userID uuid.UUID, lotID uuid.U
 		return fmt.Errorf("update override: %w", err)
 	}
 
-	// Transition price_status to 'resolved' (no-op if already resolved)
-	if err := s.repo.MarkResolved(txCtx, lotID); err != nil {
+	// Transition price_status to 'resolved'. If the lot is already resolved
+	// (user correcting a prior manual override, for example), MarkResolved
+	// updates zero rows and the repo surfaces ErrLotNotFound to indicate
+	// the CAS missed — that's a benign no-op here, so swallow it.
+	if err := s.repo.MarkResolved(txCtx, lotID); err != nil && !errors.Is(err, ledger.ErrLotNotFound) {
 		return fmt.Errorf("mark resolved: %w", err)
 	}
 
