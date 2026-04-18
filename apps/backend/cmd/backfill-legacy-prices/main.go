@@ -32,10 +32,37 @@ type lotRow struct {
 
 func main() {
 	dryRun := flag.Bool("dry-run", true, "Print affected rows without modifying data (default: true)")
+	force := flag.Bool("force", false, "Allow destructive mode without FEATURE_PRICE_FALLBACK=true (dangerous)")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Safety guard: in destructive mode, require the price-fallback worker to be
+	// enabled. Otherwise, flipping lots to "pending" strands them forever because
+	// nothing will re-resolve the prices.
+	//
+	// The --force flag lets an operator bypass the check when they know the
+	// worker is running elsewhere (e.g. the user has verified a separate
+	// deployment). We still print a clear warning so the override is logged.
+	if !*dryRun {
+		flag := os.Getenv("FEATURE_PRICE_FALLBACK")
+		if flag != "true" && !*force {
+			fmt.Fprintln(os.Stderr,
+				"ERROR: destructive mode requires FEATURE_PRICE_FALLBACK=true so the "+
+					"backfill worker will pick up flipped lots. Without it, lots flipped to "+
+					"'pending' will never be re-resolved and will remain stuck.")
+			fmt.Fprintln(os.Stderr,
+				"       Options: export FEATURE_PRICE_FALLBACK=true (recommended), OR "+
+					"re-run with --force if you have verified the worker is running elsewhere.")
+			os.Exit(2)
+		}
+		if *force && flag != "true" {
+			fmt.Fprintln(os.Stderr,
+				"WARN: --force supplied with FEATURE_PRICE_FALLBACK!=\"true\". Proceeding, "+
+					"but flipped lots will be stuck until a backfill worker starts.")
+		}
+	}
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
