@@ -501,7 +501,11 @@ func (r *TaxLotRepository) GetWAC(ctx context.Context, accountIDs []uuid.UUID) (
 	var positions []*ledger.PositionWAC
 	for rows.Next() {
 		var p ledger.PositionWAC
-		var totalQtyStr, wacStr string
+		var totalQtyStr string
+		// weighted_avg_cost can be NULL when all lots for the position are
+		// in pending price status (auto_cost_basis_per_unit IS NULL, so the
+		// view's SUM(qty * effective) evaluates to NULL).
+		var wacStr sql.NullString
 
 		if err := rows.Scan(&p.AccountID, &p.Asset, &totalQtyStr, &wacStr); err != nil {
 			return nil, fmt.Errorf("failed to scan position_wac row: %w", err)
@@ -513,11 +517,17 @@ func (r *TaxLotRepository) GetWAC(ctx context.Context, accountIDs []uuid.UUID) (
 		}
 		p.TotalQuantity = totalQty
 
-		wac, ok := new(big.Int).SetString(truncateDecimal(wacStr), 10)
-		if !ok {
-			return nil, fmt.Errorf("failed to parse weighted_avg_cost: %s", wacStr)
+		if wacStr.Valid {
+			wac, ok := new(big.Int).SetString(truncateDecimal(wacStr.String), 10)
+			if !ok {
+				return nil, fmt.Errorf("failed to parse weighted_avg_cost: %s", wacStr.String)
+			}
+			p.WeightedAvgCost = wac
+		} else {
+			// All lots pending — leave WeightedAvgCost nil so callers can
+			// detect the unresolved state.
+			p.WeightedAvgCost = nil
 		}
-		p.WeightedAvgCost = wac
 
 		positions = append(positions, &p)
 	}

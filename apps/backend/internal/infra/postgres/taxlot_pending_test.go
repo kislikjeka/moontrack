@@ -168,6 +168,94 @@ func TestTaxLotRepo_IncrementAttempt(t *testing.T) {
 	require.WithinDuration(t, nextRetry, *fetched.PriceNextRetryAt, time.Second)
 }
 
+// TestTaxLotRepo_GetWAC_MixedPendingAndResolved verifies that GetWAC does not
+// fail when some lots are pending (cost basis NULL in the materialized view).
+// Before the fix, scanning a NULL weighted_avg_cost into a string panicked.
+func TestTaxLotRepo_GetWAC_MixedPendingAndResolved(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	ctx := context.Background()
+	require.NoError(t, testDB.Reset(ctx))
+
+	repo := NewTaxLotRepository(testDB.Pool)
+	_, walletID := seedUserAndWallet(t, ctx)
+
+	// Seed one resolved + one pending lot for the same (account, asset).
+	accountID := seedAccountForPendingTest(t, ctx, walletID, "ETH")
+	txID := seedTransactionForPendingTest(t, ctx, walletID)
+
+	resolvedLot := &ledger.TaxLot{
+		ID:                   uuid.New(),
+		TransactionID:        txID,
+		AccountID:            accountID,
+		Asset:                "ETH",
+		QuantityAcquired:     big.NewInt(1_000),
+		QuantityRemaining:    big.NewInt(1_000),
+		AcquiredAt:           time.Now().UTC().Add(-time.Hour),
+		AutoCostBasisPerUnit: big.NewInt(200_000_000), // $2
+		AutoCostBasisSource:  ledger.CostBasisFMVAtTransfer,
+		PriceStatus:          ledger.PriceStatusResolved,
+		CreatedAt:            time.Now().UTC(),
+	}
+	require.NoError(t, repo.CreateTaxLot(ctx, resolvedLot))
+
+	pendingTxID := seedTransactionForPendingTest(t, ctx, walletID)
+	pendingLot := &ledger.TaxLot{
+		ID:                      uuid.New(),
+		TransactionID:           pendingTxID,
+		AccountID:               accountID,
+		Asset:                   "ETH",
+		QuantityAcquired:        big.NewInt(500),
+		QuantityRemaining:       big.NewInt(500),
+		AcquiredAt:              time.Now().UTC().Truncate(time.Minute),
+		AutoCostBasisPerUnit:    nil, // pending — NULL in DB
+		AutoCostBasisSource:     ledger.CostBasisFMVAtTransfer,
+		PriceStatus:             ledger.PriceStatusPending,
+		PriceResolutionAttempts: 0,
+		CreatedAt:               time.Now().UTC(),
+	}
+	require.NoError(t, repo.CreateTaxLot(ctx, pendingLot))
+
+	// Refresh the materialized view so the new lots are visible.
+	require.NoError(t, repo.RefreshWAC(ctx))
+
+	positions, err := repo.GetWAC(ctx, []uuid.UUID{accountID})
+	require.NoError(t, err, "GetWAC must not fail when a pending lot yields NULL weighted_avg_cost")
+	require.Len(t, positions, 1, "one (account, asset) position expected")
+
+	p := positions[0]
+	require.Equal(t, accountID, p.AccountID)
+	require.Equal(t, "ETH", p.Asset)
+	require.NotNil(t, p.TotalQuantity, "TotalQuantity must always be populated")
+	// Either WAC is resolved from the non-pending lots, or nil — both are
+	// acceptable. What must NOT happen is a scan failure or a panic.
+	if p.WeightedAvgCost != nil {
+		require.Equal(t, 1, p.WeightedAvgCost.Sign(), "resolved WAC must be positive")
+	}
+}
+
+// TestTaxLotRepo_GetWAC_AllPending_NilWAC verifies that when every lot is
+// pending, GetWAC still returns a row but with WeightedAvgCost == nil.
+func TestTaxLotRepo_GetWAC_AllPending_NilWAC(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	ctx := context.Background()
+	require.NoError(t, testDB.Reset(ctx))
+
+	repo := NewTaxLotRepository(testDB.Pool)
+	_, walletID := seedUserAndWallet(t, ctx)
+
+	lot := seedPendingLot(t, ctx, repo, walletID, "ZZZ", time.Now().UTC())
+	require.NoError(t, repo.RefreshWAC(ctx))
+
+	positions, err := repo.GetWAC(ctx, []uuid.UUID{lot.AccountID})
+	require.NoError(t, err, "GetWAC must tolerate NULL weighted_avg_cost")
+	require.Len(t, positions, 1)
+	require.Nil(t, positions[0].WeightedAvgCost, "WAC must be nil when all lots are pending")
+}
+
 // TestTaxLotRepo_CreateTaxLot_DefaultsToResolved verifies backward compat:
 // existing callers that don't set PriceStatus get 'resolved'.
 func TestTaxLotRepo_CreateTaxLot_DefaultsToResolved(t *testing.T) {

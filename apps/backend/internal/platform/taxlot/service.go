@@ -336,7 +336,13 @@ func (s *Service) GetWAC(ctx context.Context, userID uuid.UUID, walletID *uuid.U
 			entry.walletName = p.WalletName
 		}
 		entry.totalQty.Add(entry.totalQty, p.TotalQuantity)
-		entry.costSum.Add(entry.costSum, new(big.Int).Mul(p.TotalQuantity, p.WeightedAvgCost))
+		// Positions whose WAC is still unresolved (all underlying lots pending)
+		// have a nil WeightedAvgCost; they contribute to totalQty but not to
+		// costSum. Downstream aggregation returns an unresolved WAC when all
+		// contributing positions are pending.
+		if p.WeightedAvgCost != nil {
+			entry.costSum.Add(entry.costSum, new(big.Int).Mul(p.TotalQuantity, p.WeightedAvgCost))
+		}
 		agg[k] = entry
 	}
 
