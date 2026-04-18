@@ -3,6 +3,7 @@ package price_test
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"sync"
 	"testing"
@@ -80,18 +81,33 @@ func (m *memJobRepo) UnlockWithoutCounting(ctx context.Context, id uuid.UUID, ne
 func (m *memJobRepo) ReapStale(ctx context.Context, d time.Duration) (int, error) { return 0, nil }
 
 type memAssetLookup struct {
-	a asset.Asset
+	mu sync.Mutex
+	a  asset.Asset
 }
 
 func (m *memAssetLookup) GetAsset(ctx context.Context, id uuid.UUID) (*asset.Asset, error) {
-	return &m.a, nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a := m.a
+	return &a, nil
 }
 
 type memPriceRecorder struct {
+	mu       sync.Mutex
 	recorded []asset.PricePoint
+
+	// failErr, when non-nil, is returned from RecordPrice instead of
+	// appending to `recorded`. Use this to exercise the worker's
+	// "recorder failed" error path.
+	failErr error
 }
 
 func (m *memPriceRecorder) RecordPrice(ctx context.Context, p *asset.PricePoint) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.failErr != nil {
+		return m.failErr
+	}
 	m.recorded = append(m.recorded, *p)
 	return nil
 }
@@ -209,4 +225,69 @@ func TestWorker_TerminalAttempt_MarksFailed(t *testing.T) {
 	})
 	require.NoError(t, w.ProcessOne(ctx))
 	require.Equal(t, price.JobStatusFailed, jr.jobs[j.ID].Status)
+}
+
+// TestWorker_ProcessOne_RecordPriceFails_UnlocksWithoutCounting verifies that
+// when price_history write fails, the worker treats it as OUR fault (not the
+// provider's) and unlocks the job without incrementing attempts.
+func TestWorker_ProcessOne_RecordPriceFails_UnlocksWithoutCounting(t *testing.T) {
+	ctx := context.Background()
+	jr := newMemJobRepo()
+	aLookup := &memAssetLookup{a: asset.Asset{ID: uuid.New(), Symbol: "XTKN"}}
+	pr := &memPriceRecorder{failErr: errors.New("db write failure")}
+	hk := &memResolvedHook{}
+	resolver := price.NewResolver([]price.Provider{
+		&stubProv{hp: &price.HistoricalPrice{PriceUSD: big.NewInt(42), Timestamp: time.Now(), Confidence: 1}},
+	}, nil, logger.NewNoop())
+
+	at := time.Now().UTC().Truncate(time.Minute)
+	j, _ := jr.Enqueue(ctx, aLookup.a.ID, at)
+
+	w := price.NewBackfillWorker(price.WorkerDeps{
+		Jobs: jr, Resolver: resolver, AssetLookup: aLookup,
+		PriceRecorder: pr, OnResolved: hk.OnResolved, Logger: logger.NewNoop(),
+		RateLimitSleep: 1 * time.Millisecond,
+	})
+	require.NoError(t, w.ProcessOne(ctx))
+
+	got := jr.jobs[j.ID]
+	require.Equal(t, 0, got.Attempts, "recorder failure must NOT count as attempt")
+	require.Equal(t, price.JobStatusPending, got.Status, "job must be unlocked (back to pending)")
+	require.Len(t, pr.recorded, 0, "nothing should have been recorded")
+	require.Equal(t, 0, hk.called, "hook should not fire if price was not recorded")
+}
+
+// TestWorker_ProcessOne_HookFails_UnlocksWithoutCounting verifies that when
+// the OnResolved hook returns an error, the job is unlocked without being
+// counted as an attempt (same semantics as RecordPrice failure).
+func TestWorker_ProcessOne_HookFails_UnlocksWithoutCounting(t *testing.T) {
+	ctx := context.Background()
+	jr := newMemJobRepo()
+	aLookup := &memAssetLookup{a: asset.Asset{ID: uuid.New(), Symbol: "XTKN"}}
+	pr := &memPriceRecorder{}
+
+	resolver := price.NewResolver([]price.Provider{
+		&stubProv{hp: &price.HistoricalPrice{PriceUSD: big.NewInt(42), Timestamp: time.Now(), Confidence: 1}},
+	}, nil, logger.NewNoop())
+
+	hookErr := errors.New("hook processing failed")
+	failingHook := func(ctx context.Context, a uuid.UUID, t time.Time, p *big.Int, s ledger.CostBasisSource) error {
+		return hookErr
+	}
+
+	at := time.Now().UTC().Truncate(time.Minute)
+	j, _ := jr.Enqueue(ctx, aLookup.a.ID, at)
+
+	w := price.NewBackfillWorker(price.WorkerDeps{
+		Jobs: jr, Resolver: resolver, AssetLookup: aLookup,
+		PriceRecorder: pr, OnResolved: failingHook, Logger: logger.NewNoop(),
+		RateLimitSleep: 1 * time.Millisecond,
+	})
+	require.NoError(t, w.ProcessOne(ctx))
+
+	got := jr.jobs[j.ID]
+	require.Equal(t, 0, got.Attempts, "hook failure must NOT count as attempt")
+	require.Equal(t, price.JobStatusPending, got.Status, "job must be unlocked (back to pending)")
+	// Price was recorded before hook ran — that's expected; only the hook failed.
+	require.Len(t, pr.recorded, 1, "recorder should have been called before hook failure")
 }
