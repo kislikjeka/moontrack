@@ -2,10 +2,20 @@
 // whose auto_cost_basis_per_unit is NULL or zero (from the pre-Task-15 era where
 // prices were not resolved via the fallback provider pipeline).
 //
+// Flags:
+//
+//	-dry-run   bool    Print affected rows without modifying data (default: true).
+//	-force     bool    Allow destructive mode without FEATURE_PRICE_FALLBACK=true.
+//	                   Dangerous — only use when you have verified the backfill
+//	                   worker is running elsewhere. Otherwise flipped lots
+//	                   cannot be re-resolved and will be stuck in 'pending'.
+//
 // Usage:
 //
-//	go run ./cmd/backfill-legacy-prices            # dry-run (default, safe)
-//	go run ./cmd/backfill-legacy-prices -dry-run=false  # actually flip lots
+//	go run ./cmd/backfill-legacy-prices                    # dry-run (default, safe)
+//	FEATURE_PRICE_FALLBACK=true \
+//	   go run ./cmd/backfill-legacy-prices -dry-run=false  # actually flip lots
+//	go run ./cmd/backfill-legacy-prices -dry-run=false -force  # force override
 package main
 
 import (
@@ -31,6 +41,17 @@ type lotRow struct {
 }
 
 func main() {
+	flag.Usage = func() {
+		fmt.Fprintln(os.Stderr,
+			"backfill-legacy-prices: enqueue backfill jobs for legacy tax lots with\n"+
+				"auto_cost_basis_per_unit IS NULL OR = 0.\n\n"+
+				"Flags:")
+		flag.PrintDefaults()
+		fmt.Fprintln(os.Stderr,
+			"\nDestructive mode (-dry-run=false) requires either FEATURE_PRICE_FALLBACK=true\n"+
+				"(recommended) OR the -force flag (only safe if the backfill worker is known\n"+
+				"to be running elsewhere).")
+	}
 	dryRun := flag.Bool("dry-run", true, "Print affected rows without modifying data (default: true)")
 	force := flag.Bool("force", false, "Allow destructive mode without FEATURE_PRICE_FALLBACK=true (dangerous)")
 	flag.Parse()
