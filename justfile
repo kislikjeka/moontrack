@@ -126,8 +126,12 @@ test:
     @just frontend-test
     @echo "All tests passed"
 
-# Run backend tests
+# Run backend tests (with -race by default to catch data races in CI)
 backend-test:
+    cd apps/backend && go test ./... -v -short -race
+
+# Run backend tests without the race detector (fast path, if you need it)
+backend-test-fast:
     cd apps/backend && go test ./... -v -short
 
 # Run frontend tests
