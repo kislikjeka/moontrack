@@ -72,7 +72,8 @@ var _ sync.JobEnqueuer = (*fakeJobEnqueuer)(nil)
 // transfer has no USD price but has an on-chain contract address, the processor:
 // 1. Calls AssetUpserter.UpsertByOnChainIdentity with the correct chain + contract.
 // 2. Calls JobEnqueuer.Enqueue with the resulting asset UUID and the tx timestamp.
-// 3. Omits "usd_price" from the built transfer map (sets usd_price_pending instead).
+// 3. Omits "usd_price" from the built transfer map so downstream readers treat
+//    the transfer as pending (USDRate = nil).
 func TestZerionProcessor_MissingPrice_UpsertAndEnqueue(t *testing.T) {
 	ctx := context.Background()
 	log := logger.New("test", os.Stdout)
@@ -148,7 +149,8 @@ func TestZerionProcessor_MissingPrice_UpsertAndEnqueue(t *testing.T) {
 	assert.Equal(t, assetID, enqueuer.calls[0].assetID)
 	assert.Equal(t, txTime, enqueuer.calls[0].targetTime)
 
-	// 3. The transfer map for FOO should have usd_price_pending=true and no usd_price key
+	// 3. The transfer map for FOO must omit usd_price entirely so downstream
+	//    readers treat it as pending (USDRate = nil).
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
 	rawData := ledgerSvc.recordedTransactions[0].RawData
 	transfersIn := rawData["transfers_in"].([]map[string]interface{})
@@ -157,7 +159,6 @@ func TestZerionProcessor_MissingPrice_UpsertAndEnqueue(t *testing.T) {
 	assert.Equal(t, "FOO", fooTransfer["asset_symbol"])
 	_, hasPrice := fooTransfer["usd_price"]
 	assert.False(t, hasPrice, "usd_price key should be absent when no price available")
-	assert.Equal(t, true, fooTransfer["usd_price_pending"])
 }
 
 // TestZerionProcessor_MissingPrice_NativeToken verifies that when a transfer has
@@ -365,9 +366,8 @@ func TestZerionProcessor_IncomingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 // processor:
 //   1. Does NOT enqueue a backfill job (there is no asset row for the worker
 //      to resolve, so a pending lot would be stranded forever).
-//   2. Does NOT mark the transfer as usd_price_pending=true (same reason —
-//      downstream must treat this like a native-coin fallback so the lot
-//      never enters a pending state it cannot exit).
+//   2. Emits no usd_price key (same reason — downstream treats this like a
+//      native-coin fallback).
 //   3. Still allows the transfer to flow through to the ledger (no panic,
 //      no return error).
 func TestZerionProcessor_InvalidContractAddress_NoEnqueue(t *testing.T) {
@@ -435,17 +435,16 @@ func TestZerionProcessor_InvalidContractAddress_NoEnqueue(t *testing.T) {
 	assert.Len(t, enqueuer.calls, 0,
 		"Enqueue must NOT be called when upsert returns ErrInvalidContractAddress")
 
-	// The XYZ transfer must not have usd_price_pending=true (would strand
-	// the lot forever since no asset row exists).
+	// The XYZ transfer must emit no usd_price key — the downstream reader
+	// treats the absence as pending/unknown. Since no backfill job was
+	// enqueued (invalid contract), the lot will stay unpriced until the
+	// user supplies a manual price.
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
 	rawData := ledgerSvc.recordedTransactions[0].RawData
 	transfersIn := rawData["transfers_in"].([]map[string]interface{})
 	require.Len(t, transfersIn, 1)
 	xyz := transfersIn[0]
 	assert.Equal(t, "XYZ", xyz["asset_symbol"])
-	_, hasPending := xyz["usd_price_pending"]
-	assert.False(t, hasPending,
-		"usd_price_pending must NOT be set when upsert rejected the contract address")
 	_, hasPrice := xyz["usd_price"]
 	assert.False(t, hasPrice,
 		"usd_price must be absent (no price, no asset)")

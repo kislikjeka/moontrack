@@ -659,9 +659,11 @@ func (p *ZerionProcessor) buildSingleTransfer(ctx context.Context, t DecodedTran
 		// Price provided by Zerion — use it directly.
 		m["usd_price"] = t.USDPrice.String()
 	} else if t.ContractAddress != "" && chainID != "" {
-		// Zerion has no price for this token. Upsert the asset by on-chain identity
-		// and enqueue a backfill job so the price is resolved later.
-		upsertOK := false
+		// Zerion has no price for this token. Upsert the asset by on-chain
+		// identity and enqueue a backfill job so the price is resolved later.
+		// Downstream readers treat the absence of the usd_price key as a
+		// pending price (USDRate = nil, TaxLotHook creates a pending lot).
+		// We do not emit any separate marker — the worker will fill it in.
 		if p.assetUpsert != nil {
 			name := t.AssetName
 			if name == "" {
@@ -670,17 +672,15 @@ func (p *ZerionProcessor) buildSingleTransfer(ctx context.Context, t DecodedTran
 			a, _, err := p.assetUpsert.UpsertByOnChainIdentity(ctx, chainID, t.ContractAddress, t.AssetSymbol, name, t.Decimals)
 			switch {
 			case err == nil && a != nil:
-				upsertOK = true
 				if p.jobEnqueuer != nil {
 					_, _ = p.jobEnqueuer.Enqueue(ctx, a.ID, occurredAt)
 				}
 			case errors.Is(err, asset.ErrInvalidContractAddress):
 				// Zerion returned a contract address that failed our shape-check.
 				// We cannot create an asset row for it, so there is nothing the
-				// backfill worker could ever resolve. Treat it like the native-
-				// coin path: no enqueue, no pending flag — just proceed without
-				// a USD rate. Emit a WARN (sanitized) so the silent-dataloss
-				// pattern is observable in logs / metrics.
+				// backfill worker could ever resolve. Proceed without a USD
+				// rate; emit a WARN (sanitized) so the silent-dataloss pattern
+				// is observable in logs / metrics.
 				p.logger.Warn("invalid contract address from zerion, asset cannot be priced",
 					"chain_id", price.SanitizeLogField(chainID),
 					"contract_address", price.SanitizeLogField(t.ContractAddress),
@@ -695,17 +695,9 @@ func (p *ZerionProcessor) buildSingleTransfer(ctx context.Context, t DecodedTran
 				)
 			}
 		}
-		// Only mark as pending when the upsert succeeded and a backfill can
-		// meaningfully resolve the price. Without an asset row there is no
-		// way the worker could resolve, so a pending flag would strand the
-		// lot forever.
-		if upsertOK {
-			// Omit usd_price key — downstream reads absence as nil USDRate (pending lot).
-			m["usd_price_pending"] = true
-		}
 	}
-	// For native coins (ContractAddress == "") with no price: omit usd_price entirely.
-	// Downstream handles missing key as nil USDRate.
+	// For native coins (ContractAddress == "") with no price: omit usd_price
+	// entirely. Downstream handles the missing key as nil USDRate.
 
 	return m
 }
