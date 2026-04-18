@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -13,6 +14,73 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kislikjeka/moontrack/internal/platform/asset"
 )
+
+// evmChains is the set of chains whose contract addresses follow the EVM
+// 20-byte hex format (0x + 40 lowercase hex chars). We validate strictly to
+// prevent duplicate rows from homoglyph / trailing-whitespace attacks.
+var evmChains = map[string]struct{}{
+	"ethereum":  {},
+	"arbitrum":  {},
+	"optimism":  {},
+	"base":      {},
+	"polygon":   {},
+	"bnb-chain": {},
+	"avalanche": {},
+	"linea":     {},
+	"zksync":    {},
+	"scroll":    {},
+}
+
+// evmAddressRe matches a canonical lowercase EVM address.
+var evmAddressRe = regexp.MustCompile(`^0x[a-f0-9]{40}$`)
+
+// symbolCapBytes caps user/provider-supplied asset symbols.
+// Enforced at the trust boundary as defense-in-depth alongside the DB column width.
+const symbolCapBytes = 32
+
+// nameCapBytes caps user/provider-supplied asset names.
+const nameCapBytes = 128
+
+// normalizeContractAddress trims, lowercases, and (for EVM chains) shape-validates
+// a contract address. For Solana and unknown chains it only trims + lowercases.
+//
+// Returns asset.ErrInvalidContractAddress if the EVM shape check fails.
+//
+// Note: a single source of truth for contract-address normalization. All callers
+// that write to assets.contract_address should go through this function (or
+// through the repository methods that call it).
+func normalizeContractAddress(chainID, addr string) (string, error) {
+	addr = strings.ToLower(strings.TrimSpace(addr))
+	if addr == "" {
+		return "", nil
+	}
+	if _, ok := evmChains[chainID]; ok {
+		if !evmAddressRe.MatchString(addr) {
+			return "", fmt.Errorf("%w: %q on chain %q", asset.ErrInvalidContractAddress, addr, chainID)
+		}
+	}
+	// Solana / unknown chains: trim+lower only. (Solana addresses are base58 32..44
+	// chars; we don't enforce strictly — we only normalize.)
+	return addr, nil
+}
+
+// sanitizeProviderField strips ASCII control bytes and caps the length.
+// Symbols and names from 3rd-party providers are attacker-influenced.
+func sanitizeProviderField(s string, maxLen int) string {
+	if len(s) > maxLen {
+		s = s[:maxLen]
+	}
+	b := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '\r' || c == '\n' || c < 0x20 {
+			b = append(b, ' ')
+		} else {
+			b = append(b, c)
+		}
+	}
+	return string(b)
+}
 
 // AssetRepository handles asset persistence operations
 type AssetRepository struct {
@@ -350,14 +418,26 @@ func isAssetUniqueViolation(err error) bool {
 
 // UpsertByOnChainIdentity uses the partial unique index idx_assets_onchain_identity
 // to dedupe on (chain_id, contract_address).
+//
+// This is the trust boundary for provider-supplied identity. We normalize the
+// contract address (trim+lower, shape-check for EVM chains) and cap symbol/name
+// length + strip control bytes here so all callers get the same treatment.
 func (r *AssetRepository) UpsertByOnChainIdentity(
 	ctx context.Context,
 	chainID, contractAddress string,
 	symbol, name string,
 	decimals int,
 ) (*asset.Asset, bool, error) {
-	// Case-insensitive match on address — stored addresses are normalized to lowercase.
-	addrLower := strings.ToLower(contractAddress)
+	// Normalize & validate the address (single source of truth).
+	addrLower, err := normalizeContractAddress(chainID, contractAddress)
+	if err != nil {
+		return nil, false, err
+	}
+
+	// Cap + sanitize provider-supplied symbol/name. Defense in depth at the DB
+	// trust boundary, regardless of upstream limits.
+	symbol = sanitizeProviderField(symbol, symbolCapBytes)
+	name = sanitizeProviderField(name, nameCapBytes)
 
 	// Try to find an existing row first.
 	row := r.pool.QueryRow(ctx, `
