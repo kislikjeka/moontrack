@@ -25,6 +25,11 @@ const (
 	// large payloads (OOM / DoS vector). 1 MiB is well above legitimate response
 	// sizes for /simple/price, /coins/{id}/history, /coins/{id} and /search.
 	maxResponseBytes = 1 << 20 // 1 MiB
+
+	// errorBodyCap is a tighter cap for non-200 error bodies. Error diagnostics
+	// never need more than 8 KiB; using a smaller cap prevents OOM on error
+	// paths where the response body is only read for the error message.
+	errorBodyCap = 8 * 1024 // 8 KiB
 )
 
 // Client represents a CoinGecko API client
@@ -113,7 +118,7 @@ func (c *Client) GetCurrentPrices(ctx context.Context, assetIDs []string) (map[s
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, errorBodyCap))
 		c.logger.Error("API error", "status_code", resp.StatusCode)
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 	}
@@ -177,7 +182,7 @@ func (c *Client) GetHistoricalPrice(ctx context.Context, assetID string, date ti
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, errorBodyCap))
 		c.logger.Error("API error", "status_code", resp.StatusCode)
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 	}
@@ -277,7 +282,7 @@ func (c *Client) GetCoinDetails(ctx context.Context, coinID string) (*CoinDetail
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, errorBodyCap))
 		c.logger.Error("API error", "status_code", resp.StatusCode)
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 	}
@@ -340,7 +345,7 @@ func (c *Client) SearchCoins(ctx context.Context, query string) ([]SearchCoin, e
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, errorBodyCap))
 		c.logger.Error("API error", "status_code", resp.StatusCode)
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 	}

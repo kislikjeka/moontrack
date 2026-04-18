@@ -96,3 +96,70 @@ func TestClient_OversizedResponse_Search(t *testing.T) {
 	_, err := c.SearchCoins(context.Background(), "bitcoin")
 	require.Error(t, err, "oversized response must fail decode (not OOM)")
 }
+
+// writeOversizedErrorBody writes a 500 response with a 2 MiB body. This
+// simulates a hostile provider sending a huge error body on the non-200 path.
+func writeOversizedErrorBody(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusInternalServerError)
+	filler := make([]byte, 2<<20) // 2 MiB
+	for i := range filler {
+		filler[i] = 'x'
+	}
+	_, _ = w.Write(filler)
+}
+
+// TestClient_OversizedErrorBody_SimplePrice verifies that a 500 response with a
+// 2 MiB body does not OOM. The error message must be capped to errorBodyCap (8 KiB).
+func TestClient_OversizedErrorBody_SimplePrice(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeOversizedErrorBody(w)
+	}))
+	defer srv.Close()
+
+	c := newClient(t, srv)
+	_, err := c.GetCurrentPrices(context.Background(), []string{"bitcoin"})
+	require.Error(t, err)
+	// Error message must be capped: must not contain 2 MiB of 'x'.
+	require.Less(t, len(err.Error()), 1<<15, "error message must be capped well below 2 MiB")
+}
+
+// TestClient_OversizedErrorBody_Historical verifies the /coins/{id}/history
+// error path is capped.
+func TestClient_OversizedErrorBody_Historical(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeOversizedErrorBody(w)
+	}))
+	defer srv.Close()
+
+	c := newClient(t, srv)
+	_, err := c.GetHistoricalPrice(context.Background(), "bitcoin", time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
+	require.Error(t, err)
+	require.Less(t, len(err.Error()), 1<<15, "error message must be capped well below 2 MiB")
+}
+
+// TestClient_OversizedErrorBody_CoinDetails verifies the /coins/{id} error path
+// is capped.
+func TestClient_OversizedErrorBody_CoinDetails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeOversizedErrorBody(w)
+	}))
+	defer srv.Close()
+
+	c := newClient(t, srv)
+	_, err := c.GetCoinDetails(context.Background(), "bitcoin")
+	require.Error(t, err)
+	require.Less(t, len(err.Error()), 1<<15, "error message must be capped well below 2 MiB")
+}
+
+// TestClient_OversizedErrorBody_Search verifies the /search error path is capped.
+func TestClient_OversizedErrorBody_Search(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeOversizedErrorBody(w)
+	}))
+	defer srv.Close()
+
+	c := newClient(t, srv)
+	_, err := c.SearchCoins(context.Background(), "bitcoin")
+	require.Error(t, err)
+	require.Less(t, len(err.Error()), 1<<15, "error message must be capped well below 2 MiB")
+}
