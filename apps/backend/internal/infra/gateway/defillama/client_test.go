@@ -83,3 +83,50 @@ func TestClient_429(t *testing.T) {
 	_, err := c.GetCurrentPrice(context.Background(), "ethereum", "0x00")
 	require.ErrorIs(t, err, price.ErrRateLimited)
 }
+
+func TestClient_429_WithRetryAfterSeconds(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	c := defillama.NewClient(defillama.Config{BaseURL: srv.URL, MinConfidence: 0.9})
+	_, err := c.GetCurrentPrice(context.Background(), "ethereum", "0x00")
+	require.ErrorIs(t, err, price.ErrRateLimited)
+
+	var rle *price.RateLimitedError
+	require.ErrorAs(t, err, &rle)
+	require.Equal(t, 30*time.Second, rle.RetryAfter)
+}
+
+func TestClient_429_WithRetryAfterHTTPDate(t *testing.T) {
+	future := time.Now().UTC().Add(45 * time.Second).Truncate(time.Second)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", future.Format(http.TimeFormat))
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	c := defillama.NewClient(defillama.Config{BaseURL: srv.URL, MinConfidence: 0.9})
+	_, err := c.GetCurrentPrice(context.Background(), "ethereum", "0x00")
+
+	var rle *price.RateLimitedError
+	require.ErrorAs(t, err, &rle)
+	require.Greater(t, rle.RetryAfter, time.Duration(0))
+	require.LessOrEqual(t, rle.RetryAfter, 60*time.Second)
+}
+
+func TestClient_429_NoRetryAfterHeader(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	c := defillama.NewClient(defillama.Config{BaseURL: srv.URL, MinConfidence: 0.9})
+	_, err := c.GetCurrentPrice(context.Background(), "ethereum", "0x00")
+
+	var rle *price.RateLimitedError
+	require.ErrorAs(t, err, &rle)
+	require.Equal(t, time.Duration(0), rle.RetryAfter)
+}

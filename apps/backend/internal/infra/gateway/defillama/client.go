@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -15,6 +16,34 @@ import (
 )
 
 const priceScale = 8
+
+// maxResponseBytes bounds the size of a 3rd-party JSON response we will decode.
+// Protects against hostile or MITM'd providers returning arbitrarily large payloads
+// (OOM / DoS vector). 1 MiB is well above legitimate response sizes for this API.
+const maxResponseBytes = 1 << 20 // 1 MiB
+
+// parseRetryAfter parses an HTTP Retry-After header value. It accepts either
+// delta-seconds (e.g. "30") or an HTTP-date (e.g. "Wed, 21 Oct 2025 07:28:00 GMT").
+// Returns 0 if the value is empty, unparseable, negative, or in the past.
+func parseRetryAfter(v string) time.Duration {
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(v); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		d := time.Until(t)
+		if d <= 0 {
+			return 0
+		}
+		return d
+	}
+	return 0
+}
 
 // Config for the DefiLlama Coins API client.
 type Config struct {
@@ -91,17 +120,23 @@ func (c *Client) doCoins(ctx context.Context, path string) (*coinsResponse, erro
 
 	switch {
 	case resp.StatusCode == http.StatusTooManyRequests:
-		return nil, price.ErrRateLimited
+		return nil, &price.RateLimitedError{RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
 	case resp.StatusCode == http.StatusNotFound:
 		return nil, price.ErrNotFound
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		// Auth failures require operator intervention; treat as transient so we
+		// don't burn attempts while a human fixes the API key.
+		return nil, fmt.Errorf("%w: auth failure %d", price.ErrTransient, resp.StatusCode)
 	case resp.StatusCode >= 500:
 		return nil, price.ErrTransient
 	case resp.StatusCode >= 400:
-		return nil, fmt.Errorf("%w: status %d", price.ErrNotFound, resp.StatusCode)
+		// Unknown 4xx — don't assume it's NotFound; treat as transient.
+		return nil, fmt.Errorf("%w: unexpected 4xx %d", price.ErrTransient, resp.StatusCode)
 	}
 
 	var out coinsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	bodyReader := io.LimitReader(resp.Body, maxResponseBytes)
+	if err := json.NewDecoder(bodyReader).Decode(&out); err != nil {
 		return nil, fmt.Errorf("%w: decode: %v", price.ErrTransient, err)
 	}
 	return &out, nil

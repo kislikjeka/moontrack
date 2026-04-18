@@ -49,6 +49,54 @@ func TestClient_429_ReturnsErrRateLimited(t *testing.T) {
 	require.ErrorIs(t, err, price.ErrRateLimited)
 }
 
+func TestClient_429_TypedErrorWithSecondsRetryAfter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	c := geckoterminal.NewClient(geckoterminal.Config{BaseURL: srv.URL, HTTPClient: srv.Client()})
+	_, err := c.GetTokenPriceByAddress(context.Background(), "eth", "0x0")
+	require.ErrorIs(t, err, price.ErrRateLimited)
+
+	var rle *price.RateLimitedError
+	require.ErrorAs(t, err, &rle)
+	require.Equal(t, 30*time.Second, rle.RetryAfter)
+}
+
+func TestClient_429_TypedErrorWithHTTPDateRetryAfter(t *testing.T) {
+	future := time.Now().UTC().Add(45 * time.Second).Truncate(time.Second)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", future.Format(http.TimeFormat))
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	c := geckoterminal.NewClient(geckoterminal.Config{BaseURL: srv.URL, HTTPClient: srv.Client()})
+	_, err := c.GetTokenPriceByAddress(context.Background(), "eth", "0x0")
+
+	var rle *price.RateLimitedError
+	require.ErrorAs(t, err, &rle)
+	require.Greater(t, rle.RetryAfter, time.Duration(0))
+	// Should be close to 45s, allow slack for test scheduling.
+	require.LessOrEqual(t, rle.RetryAfter, 60*time.Second)
+}
+
+func TestClient_429_NoRetryAfterHeader(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	c := geckoterminal.NewClient(geckoterminal.Config{BaseURL: srv.URL, HTTPClient: srv.Client()})
+	_, err := c.GetTokenPriceByAddress(context.Background(), "eth", "0x0")
+
+	var rle *price.RateLimitedError
+	require.ErrorAs(t, err, &rle)
+	require.Equal(t, time.Duration(0), rle.RetryAfter)
+}
+
 func TestClient_404_ReturnsErrNotFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

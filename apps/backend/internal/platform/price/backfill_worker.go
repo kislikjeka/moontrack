@@ -39,6 +39,10 @@ type WorkerDeps struct {
 	RateLimitSleep time.Duration
 }
 
+// minRateLimitFloor is the lowest delay we will honor when a provider returns
+// a Retry-After header. Prevents hot-looping against a misconfigured upstream.
+const minRateLimitFloor = 5 * time.Second
+
 // BackfillWorker processes pending price backfill jobs one at a time.
 type BackfillWorker struct {
 	d WorkerDeps
@@ -96,8 +100,18 @@ func (w *BackfillWorker) ProcessOne(ctx context.Context) error {
 		return w.d.Jobs.MarkResolved(ctx, job.ID)
 
 	case errors.Is(rerr, ErrRateLimited):
-		// Don't count; retry after rate-limit sleep.
-		return w.d.Jobs.UnlockWithoutCounting(ctx, job.ID, time.Now().Add(w.d.RateLimitSleep))
+		// Don't count; retry after rate-limit sleep. Honor provider-supplied
+		// Retry-After hint when present. Clamp to a minimum floor so a
+		// misconfigured provider returning "Retry-After: 0" can't spin the worker.
+		delay := w.d.RateLimitSleep
+		var rle *RateLimitedError
+		if errors.As(rerr, &rle) && rle.RetryAfter > 0 {
+			delay = rle.RetryAfter
+		}
+		if delay < minRateLimitFloor {
+			delay = minRateLimitFloor
+		}
+		return w.d.Jobs.UnlockWithoutCounting(ctx, job.ID, time.Now().Add(delay))
 
 	case errors.Is(rerr, ErrTransient):
 		// Don't count; short backoff for transient errors.
