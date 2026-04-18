@@ -177,6 +177,35 @@ func TestSetManualPrice_Forbidden(t *testing.T) {
 	}
 }
 
+func TestSetManualPrice_OversizedBody(t *testing.T) {
+	svc := &mockSvc{}
+	h := lots.NewHandler(svc)
+
+	// Build a 128 KiB body. The reason field is sized well beyond the 64 KiB limit.
+	big := make([]byte, 128*1024)
+	for i := range big {
+		big[i] = 'a'
+	}
+	body := map[string]string{
+		"price_usd": "1.0",
+		"reason":    string(big),
+	}
+
+	lotID := uuid.New()
+	r := newRequest(t, lotID.String(), body)
+	w := httptest.NewRecorder()
+	h.SetManualPrice(w, r)
+
+	// Either 400 or 413 is acceptable per scope. In practice we get 413 because the
+	// MaxBytesReader error surfaces before validation.
+	if w.Code != http.StatusRequestEntityTooLarge && w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 or 413, got %d: %s", w.Code, w.Body.String())
+	}
+	if svc.called {
+		t.Fatal("service should NOT have been called on oversized body")
+	}
+}
+
 func TestSetManualPrice_InvalidLotID(t *testing.T) {
 	svc := &mockSvc{}
 	h := lots.NewHandler(svc)

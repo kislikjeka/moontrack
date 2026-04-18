@@ -5,11 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
 )
+
+// maxRequestBodyBytes caps the JSON body size accepted by the manual-price endpoint.
+// Defense-in-depth against memory-exhaustion DoS via slow/large POSTs.
+const maxRequestBodyBytes = 64 * 1024 // 64 KiB
 
 // Service is the interface the handler depends on.
 type Service interface {
@@ -48,8 +53,17 @@ func (h *Handler) SetManualPrice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Bound the request body. http.MaxBytesReader causes reads past the limit
+	// to return an error of the form "http: request body too large". We surface
+	// that as 413 Request Entity Too Large; anything else is 400 Bad Request.
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+
 	var req setManualPriceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if strings.Contains(err.Error(), "request body too large") {
+			respondError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
