@@ -139,7 +139,8 @@ func (w *BackfillWorker) Run(ctx context.Context, rate time.Duration) {
 			return
 		case <-ticker.C:
 			if err := w.ProcessOne(ctx); err != nil {
-				w.d.Logger.Warn("worker iteration error", "error", err.Error())
+				// Sanitize error: may wrap provider-supplied strings with control bytes.
+				w.d.Logger.Warn("worker iteration error", "error", sanitizeLogField(err.Error()))
 			}
 		}
 	}
