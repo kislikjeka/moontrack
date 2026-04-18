@@ -58,8 +58,7 @@ type WalletRepo interface {
 
 // AssetLookup resolves an asset UUID from a symbol (optionally chain-scoped).
 // Used to thread a manual-price lot's symbol back to the asset_id that
-// ResolvePendingDisposalsForUser expects. Optional: when nil, SetManualPrice
-// still resolves the lot itself but skips pending-disposal resolution.
+// ResolvePendingDisposalsForUser expects.
 //
 // Both methods are needed because GetTaxLotForUpdate does not currently
 // surface the lot's chain_id. When the chain is unknown we fall back to
@@ -73,33 +72,24 @@ type AssetLookup interface {
 
 // Svc provides business logic for the manual-price endpoint.
 type Svc struct {
-	repo       LotRepo
-	ledger     LedgerRepo
-	walletRepo WalletRepo
-	assetLookup AssetLookup // optional
-	log        *logger.Logger
+	repo        LotRepo
+	ledger      LedgerRepo
+	walletRepo  WalletRepo
+	assetLookup AssetLookup
+	log         *logger.Logger
 }
 
-// NewService creates a new lots.Svc.
-func NewService(repo LotRepo, ledger LedgerRepo, walletRepo WalletRepo) *Svc {
+// NewService creates a new lots.Svc. assetLookup is required so SetManualPrice
+// can resolve pending disposals sharing the same (asset, minute_bucket) as the
+// priced lot.
+func NewService(repo LotRepo, ledger LedgerRepo, walletRepo WalletRepo, assetLookup AssetLookup, log *logger.Logger) *Svc {
 	return &Svc{
-		repo:       repo,
-		ledger:     ledger,
-		walletRepo: walletRepo,
+		repo:        repo,
+		ledger:      ledger,
+		walletRepo:  walletRepo,
+		assetLookup: assetLookup,
+		log:         log,
 	}
-}
-
-// WithAssetLookup returns a copy of the service with asset-lookup wired in.
-// When present, SetManualPrice will also resolve pending disposals on the
-// same (asset, minute_bucket) as the priced lot.
-func (s *Svc) WithAssetLookup(lookup AssetLookup, log *logger.Logger) *Svc {
-	if s == nil {
-		return nil
-	}
-	cp := *s
-	cp.assetLookup = lookup
-	cp.log = log
-	return &cp
 }
 
 // SetManualPrice sets the cost basis override on a lot and transitions
@@ -191,9 +181,7 @@ func (s *Svc) SetManualPrice(ctx context.Context, userID uuid.UUID, lotID uuid.U
 	// Resilience: asset lookup is best-effort. The lot itself is already
 	// resolved — that is the user's primary intent — so a missing asset
 	// row must not fail the whole operation. Log a WARN and continue.
-	if s.assetLookup != nil {
-		s.resolvePendingDisposalsForLot(txCtx, userID, lot, costBasis)
-	}
+	s.resolvePendingDisposalsForLot(txCtx, userID, lot, costBasis)
 
 	return s.ledger.CommitTx(txCtx)
 }

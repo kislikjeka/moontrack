@@ -189,7 +189,7 @@ func TestSetManualPrice_ResolvesPendingDisposals(t *testing.T) {
 	walletRepo := &fakeWalletRepo{wallet: &wallet.Wallet{ID: walletID, UserID: userID}}
 	assetLookup := &fakeAssetLookup{a: &asset.Asset{ID: assetID, Symbol: "FOO"}}
 
-	svc := lots.NewService(lotRepo, ledgerRepo, walletRepo).WithAssetLookup(assetLookup, log)
+	svc := lots.NewService(lotRepo, ledgerRepo, walletRepo, assetLookup, log)
 
 	err := svc.SetManualPrice(ctx, userID, lotID, "1.23", "manual price")
 	if err != nil {
@@ -271,7 +271,7 @@ func TestSetManualPrice_AssetLookupFailure_DoesNotFail(t *testing.T) {
 	// Return nil, nil (not found) — asset lookup returns nothing.
 	assetLookup := &fakeAssetLookup{a: nil}
 
-	svc := lots.NewService(lotRepo, ledgerRepo, walletRepo).WithAssetLookup(assetLookup, log)
+	svc := lots.NewService(lotRepo, ledgerRepo, walletRepo, assetLookup, log)
 
 	err := svc.SetManualPrice(ctx, userID, lotID, "5.00", "test")
 	if err != nil {
@@ -283,50 +283,6 @@ func TestSetManualPrice_AssetLookupFailure_DoesNotFail(t *testing.T) {
 	}
 	if len(lotRepo.resolveDispCalls) != 0 {
 		t.Errorf("expected 0 ResolvePendingDisposals calls when asset lookup fails, got %d",
-			len(lotRepo.resolveDispCalls))
-	}
-}
-
-// TestSetManualPrice_NoAssetLookup_BackwardsCompat verifies that when the
-// service is constructed without WithAssetLookup (old wiring), it still
-// works for the lot-only case without touching pending disposals.
-func TestSetManualPrice_NoAssetLookup_BackwardsCompat(t *testing.T) {
-	ctx := context.Background()
-
-	userID := uuid.New()
-	walletID := uuid.New()
-	accountID := uuid.New()
-	lotID := uuid.New()
-
-	lotRepo := &fakeLotRepo{
-		lot: &ledger.TaxLot{
-			ID:                lotID,
-			TransactionID:     uuid.New(),
-			AccountID:         accountID,
-			Asset:             "BAR",
-			QuantityAcquired:  big.NewInt(100),
-			QuantityRemaining: big.NewInt(100),
-			AcquiredAt:        time.Now().UTC(),
-			PriceStatus:       ledger.PriceStatusUnpriceable,
-		},
-	}
-	ledgerRepo := &fakeLedgerRepo{
-		account: &ledger.Account{ID: accountID, WalletID: &walletID},
-	}
-	walletRepo := &fakeWalletRepo{wallet: &wallet.Wallet{ID: walletID, UserID: userID}}
-
-	// NO WithAssetLookup — pre-fix wiring.
-	svc := lots.NewService(lotRepo, ledgerRepo, walletRepo)
-
-	err := svc.SetManualPrice(ctx, userID, lotID, "10", "no lookup")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !lotRepo.markResolvedCalled {
-		t.Error("expected MarkResolved to be called")
-	}
-	if len(lotRepo.resolveDispCalls) != 0 {
-		t.Errorf("expected 0 ResolvePendingDisposals calls without lookup, got %d",
 			len(lotRepo.resolveDispCalls))
 	}
 }
@@ -374,7 +330,7 @@ func TestSetManualPrice_AmbiguousSymbol_SkipsDisposalResolution(t *testing.T) {
 		},
 	}
 
-	svc := lots.NewService(lotRepo, ledgerRepo, walletRepo).WithAssetLookup(assetLookup, log)
+	svc := lots.NewService(lotRepo, ledgerRepo, walletRepo, assetLookup, log)
 
 	err := svc.SetManualPrice(ctx, userID, lotID, "1.00", "manual price")
 	if err != nil {
@@ -440,7 +396,7 @@ func TestSetManualPrice_NoChainHint_UniqueSymbolResolves(t *testing.T) {
 		multi: []asset.Asset{{ID: assetID, Symbol: "UNIQ", ChainID: &ethChain}},
 	}
 
-	svc := lots.NewService(lotRepo, ledgerRepo, walletRepo).WithAssetLookup(assetLookup, log)
+	svc := lots.NewService(lotRepo, ledgerRepo, walletRepo, assetLookup, log)
 
 	err := svc.SetManualPrice(ctx, userID, lotID, "2.50", "manual price")
 	if err != nil {
