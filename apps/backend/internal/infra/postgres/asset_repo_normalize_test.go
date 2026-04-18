@@ -44,8 +44,14 @@ func TestNormalizeContractAddress_EVM_InvalidShape(t *testing.T) {
 }
 
 func TestNormalizeContractAddress_AllEVMChains(t *testing.T) {
-	chains := []string{"ethereum", "arbitrum", "optimism", "base", "polygon",
-		"bnb-chain", "avalanche", "linea", "zksync", "scroll"}
+	chains := []string{
+		// Historical set.
+		"ethereum", "arbitrum", "optimism", "base", "polygon",
+		"bnb-chain", "binance-smart-chain", "avalanche", "linea", "zksync", "scroll",
+		// Extended EVM chains Zerion also returns assets for.
+		"mantle", "blast", "celo", "gnosis", "xdai", "fantom",
+		"cronos", "moonbeam", "arbitrum-nova", "sonic", "unichain",
+	}
 	for _, chain := range chains {
 		_, err := normalizeContractAddress(chain, "0xabcdef0123456789abcdef0123456789abcdef01")
 		if err != nil {
@@ -58,22 +64,65 @@ func TestNormalizeContractAddress_AllEVMChains(t *testing.T) {
 	}
 }
 
-func TestNormalizeContractAddress_NonEVMChains(t *testing.T) {
-	// Solana / unknown chains only trim+lower; no shape check.
+// TestNormalizeContractAddress_MantlePassesRegex is an explicit regression
+// guard — Bug E added mantle (and other extended chains) to the EVM allow-
+// list. Without that, mantle addresses bypassed the shape check and ended
+// up in the database un-normalized, opening dedupe gaps.
+func TestNormalizeContractAddress_MantlePassesRegex(t *testing.T) {
+	addr := "0xabcdef0123456789abcdef0123456789abcdef01"
+	got, err := normalizeContractAddress("mantle", addr)
+	if err != nil {
+		t.Fatalf("mantle address rejected: %v", err)
+	}
+	if got != addr {
+		t.Fatalf("mantle normalization mismatch: got %q, want %q", got, addr)
+	}
+	// Case folding must still happen on EVM chains so we dedupe correctly.
+	got, err = normalizeContractAddress("mantle", "0xABCDEF0123456789ABCDEF0123456789ABCDEF01")
+	if err != nil {
+		t.Fatalf("uppercase mantle address rejected: %v", err)
+	}
+	if got != addr {
+		t.Fatalf("mantle uppercase must fold: got %q, want %q", got, addr)
+	}
+	// Invalid shape on mantle must still reject.
+	_, err = normalizeContractAddress("mantle", "not-an-addr")
+	if !errors.Is(err, asset.ErrInvalidContractAddress) {
+		t.Fatalf("mantle: expected ErrInvalidContractAddress, got %v", err)
+	}
+}
+
+func TestNormalizeContractAddress_NonEVMChains_PreservesCase(t *testing.T) {
+	// Solana / Tron / Aptos / Sui addresses are case-sensitive (base58 or
+	// mixed-case account IDs). We must TrimSpace only — lowercasing corrupts
+	// the address and causes duplicate rows for the "same" token under two
+	// different on-chain identities.
 	got, err := normalizeContractAddress("solana", "  SomeBase58Addr123  ")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != "somebase58addr123" {
-		t.Fatalf("got %q, want %q", got, "somebase58addr123")
+	if got != "SomeBase58Addr123" {
+		t.Fatalf("solana address case must be preserved: got %q, want %q",
+			got, "SomeBase58Addr123")
 	}
 
-	got, err = normalizeContractAddress("cosmos-hub", " ADDR ")
+	// A realistic Solana mint (USDC on mainnet) — must not be folded.
+	usdcMint := "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+	got, err = normalizeContractAddress("solana", usdcMint)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != "addr" {
-		t.Fatalf("got %q, want %q", got, "addr")
+	if got != usdcMint {
+		t.Fatalf("real Solana mint mis-normalized: got %q, want %q", got, usdcMint)
+	}
+
+	// Unknown / cosmos-style chain: also case-preserving.
+	got, err = normalizeContractAddress("cosmos-hub", " ABC123 ")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "ABC123" {
+		t.Fatalf("got %q, want %q", got, "ABC123")
 	}
 }
 

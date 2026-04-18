@@ -19,17 +19,42 @@ import (
 // evmChains is the set of chains whose contract addresses follow the EVM
 // 20-byte hex format (0x + 40 lowercase hex chars). We validate strictly to
 // prevent duplicate rows from homoglyph / trailing-whitespace attacks.
+//
+// Chain IDs correspond to the canonical strings Zerion emits in its
+// /wallets/{address}/transactions/ feed (see supportedEVMChains in
+// internal/platform/wallet/model.go for the sync-side set). This list
+// intentionally covers more chains than wallet.supportedEVMChains because
+// Zerion can return assets from chains we don't actively sync — we must
+// still normalize and dedupe their on-chain identities correctly.
+//
+// Notably both gnosis and xdai are accepted (xdai is Zerion's historical
+// alias; gnosis is the current one) and binance-smart-chain is also
+// accepted since it's the Zerion-canonical name (bnb-chain is an older
+// alias used in some paths).
 var evmChains = map[string]struct{}{
-	"ethereum":  {},
-	"arbitrum":  {},
-	"optimism":  {},
-	"base":      {},
-	"polygon":   {},
-	"bnb-chain": {},
-	"avalanche": {},
-	"linea":     {},
-	"zksync":    {},
-	"scroll":    {},
+	"ethereum":            {},
+	"arbitrum":            {},
+	"optimism":            {},
+	"base":                {},
+	"polygon":             {},
+	"bnb-chain":           {},
+	"binance-smart-chain": {},
+	"avalanche":           {},
+	"linea":               {},
+	"zksync":              {},
+	"scroll":              {},
+	// Extended EVM-family chains — Zerion returns assets on these too.
+	"mantle":        {},
+	"blast":         {},
+	"celo":          {},
+	"gnosis":        {},
+	"xdai":          {}, // historical alias for gnosis
+	"fantom":        {},
+	"cronos":        {},
+	"moonbeam":      {},
+	"arbitrum-nova": {},
+	"sonic":         {},
+	"unichain":      {},
 }
 
 // evmAddressRe matches a canonical lowercase EVM address.
@@ -42,26 +67,38 @@ const symbolCapBytes = 32
 // nameCapBytes caps user/provider-supplied asset names.
 const nameCapBytes = 128
 
-// normalizeContractAddress trims, lowercases, and (for EVM chains) shape-validates
-// a contract address. For Solana and unknown chains it only trims + lowercases.
+// normalizeContractAddress trims and (for EVM chains) lowercases + shape-
+// validates a contract address. For non-EVM chains (Solana, Aptos, Tron,
+// Sui, …) it only trims; case is preserved because those address schemes
+// are case-sensitive.
+//
+// Case-sensitivity matters: Solana addresses are base58 (alphabet
+// 1-9,A-H,J-N,P-Z,a-k,m-z — I/O/l/0 are excluded). Lowercasing a mixed-
+// case base58 address corrupts it, breaks lookups, and creates duplicate
+// rows for the "same" token under two different on-chain identities.
+// Tron base58 (TRC-20), Aptos account IDs, and Sui object IDs have
+// similar case-sensitive properties.
 //
 // Returns asset.ErrInvalidContractAddress if the EVM shape check fails.
 //
-// Note: a single source of truth for contract-address normalization. All callers
-// that write to assets.contract_address should go through this function (or
-// through the repository methods that call it).
+// Note: a single source of truth for contract-address normalization. All
+// callers that write to assets.contract_address should go through this
+// function (or through the repository methods that call it).
 func normalizeContractAddress(chainID, addr string) (string, error) {
-	addr = strings.ToLower(strings.TrimSpace(addr))
+	addr = strings.TrimSpace(addr)
 	if addr == "" {
 		return "", nil
 	}
 	if _, ok := evmChains[chainID]; ok {
+		// EVM: canonicalize to lowercase hex, then shape-validate.
+		addr = strings.ToLower(addr)
 		if !evmAddressRe.MatchString(addr) {
 			return "", fmt.Errorf("%w: %q on chain %q", asset.ErrInvalidContractAddress, addr, chainID)
 		}
+		return addr, nil
 	}
-	// Solana / unknown chains: trim+lower only. (Solana addresses are base58 32..44
-	// chars; we don't enforce strictly — we only normalize.)
+	// Non-EVM chains (Solana, Tron, Aptos, Sui, …): preserve case — their
+	// address schemes are case-sensitive. TrimSpace only.
 	return addr, nil
 }
 
