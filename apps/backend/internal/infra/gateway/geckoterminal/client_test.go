@@ -108,6 +108,43 @@ func TestClient_404_ReturnsErrNotFound(t *testing.T) {
 	require.ErrorIs(t, err, price.ErrNotFound)
 }
 
+func TestClient_401_ReturnsErrTransient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	c := geckoterminal.NewClient(geckoterminal.Config{BaseURL: srv.URL, HTTPClient: srv.Client()})
+	_, err := c.GetTokenPriceByAddress(context.Background(), "eth", "0x0")
+	require.ErrorIs(t, err, price.ErrTransient)
+	require.NotErrorIs(t, err, price.ErrNotFound)
+}
+
+func TestClient_403_ReturnsErrTransient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	c := geckoterminal.NewClient(geckoterminal.Config{BaseURL: srv.URL, HTTPClient: srv.Client()})
+	_, err := c.GetTokenPriceByAddress(context.Background(), "eth", "0x0")
+	require.ErrorIs(t, err, price.ErrTransient)
+	require.NotErrorIs(t, err, price.ErrNotFound)
+}
+
+func TestClient_418_Unknown4xx_ReturnsErrTransient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}))
+	defer srv.Close()
+
+	c := geckoterminal.NewClient(geckoterminal.Config{BaseURL: srv.URL, HTTPClient: srv.Client()})
+	_, err := c.GetTokenPriceByAddress(context.Background(), "eth", "0x0")
+	require.ErrorIs(t, err, price.ErrTransient)
+	// Critically, must NOT be classified as NotFound (which would burn attempts).
+	require.NotErrorIs(t, err, price.ErrNotFound)
+}
+
 func TestClient_GetHistoricalPrice_PicksNearestMinute(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Contains(t, r.URL.Path, "/ohlcv/minute")

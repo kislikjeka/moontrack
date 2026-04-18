@@ -73,6 +73,42 @@ func TestClient_Empty_ReturnsNotFound(t *testing.T) {
 	require.ErrorIs(t, err, price.ErrNotFound)
 }
 
+func TestClient_401_ReturnsErrTransient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	c := defillama.NewClient(defillama.Config{BaseURL: srv.URL, MinConfidence: 0.9})
+	_, err := c.GetCurrentPrice(context.Background(), "ethereum", "0x00")
+	require.ErrorIs(t, err, price.ErrTransient)
+	require.NotErrorIs(t, err, price.ErrNotFound)
+}
+
+func TestClient_403_ReturnsErrTransient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	c := defillama.NewClient(defillama.Config{BaseURL: srv.URL, MinConfidence: 0.9})
+	_, err := c.GetCurrentPrice(context.Background(), "ethereum", "0x00")
+	require.ErrorIs(t, err, price.ErrTransient)
+	require.NotErrorIs(t, err, price.ErrNotFound)
+}
+
+func TestClient_418_Unknown4xx_ReturnsErrTransient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}))
+	defer srv.Close()
+
+	c := defillama.NewClient(defillama.Config{BaseURL: srv.URL, MinConfidence: 0.9})
+	_, err := c.GetCurrentPrice(context.Background(), "ethereum", "0x00")
+	require.ErrorIs(t, err, price.ErrTransient)
+	require.NotErrorIs(t, err, price.ErrNotFound)
+}
+
 func TestClient_429(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
