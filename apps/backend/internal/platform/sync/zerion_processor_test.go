@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/internal/platform/price"
 	"github.com/kislikjeka/moontrack/internal/platform/sync"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/pkg/logger"
@@ -518,4 +519,31 @@ func TestZerionProcessor_DeFiClaim(t *testing.T) {
 	rawData := ledgerSvc.recordedTransactions[0].RawData
 	assert.Equal(t, "Aave V3", rawData["protocol"])
 	assert.Equal(t, "AAVE", rawData["asset"])
+}
+
+// TestZerionProcessor_SanitizeLogField_StripsUTF8LineSeparators verifies that
+// the sanitizer used by zerion_processor for log fields (price.SanitizeLogField)
+// strips Unicode line separators that would otherwise allow log-line forging.
+// Regression guard: zerion_processor previously used a byte-walking sanitizer
+// that only stripped ASCII control chars, leaving U+2028/U+2029/U+0085
+// exploitable in structured-log parsers.
+func TestZerionProcessor_SanitizeLogField_StripsUTF8LineSeparators(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+	}{
+		{"U+2028 LINE SEPARATOR", "bad\u2028line"},
+		{"U+2029 PARAGRAPH SEPARATOR", "bad\u2029line"},
+		{"U+0085 NEL", "bad\u0085line"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := price.SanitizeLogField(tc.in)
+			for _, r := range got {
+				if r == 0x2028 || r == 0x2029 || r == 0x85 {
+					t.Fatalf("%s: forbidden rune U+%04X found in sanitized output %q", tc.name, r, got)
+				}
+			}
+		})
+	}
 }

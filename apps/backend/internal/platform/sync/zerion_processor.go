@@ -494,15 +494,15 @@ func (p *ZerionProcessor) ensureBackfillJob(ctx context.Context, t *DecodedTrans
 		_, _ = p.jobEnqueuer.Enqueue(ctx, a.ID, occurredAt)
 	case errors.Is(err, asset.ErrInvalidContractAddress):
 		p.logger.Warn("invalid contract address from zerion, asset cannot be priced",
-			"chain_id", sanitizeForLog(chainID),
-			"contract_address", sanitizeForLog(t.ContractAddress),
-			"asset_symbol", sanitizeForLog(t.AssetSymbol),
+			"chain_id", price.SanitizeLogField(chainID),
+			"contract_address", price.SanitizeLogField(t.ContractAddress),
+			"asset_symbol", price.SanitizeLogField(t.AssetSymbol),
 		)
 	case err != nil:
 		p.logger.Warn("asset upsert failed during sync",
-			"chain_id", sanitizeForLog(chainID),
-			"contract_address", sanitizeForLog(t.ContractAddress),
-			"error", sanitizeForLog(err.Error()),
+			"chain_id", price.SanitizeLogField(chainID),
+			"contract_address", price.SanitizeLogField(t.ContractAddress),
+			"error", price.SanitizeLogField(err.Error()),
 		)
 	}
 }
@@ -682,16 +682,16 @@ func (p *ZerionProcessor) buildSingleTransfer(ctx context.Context, t DecodedTran
 				// a USD rate. Emit a WARN (sanitized) so the silent-dataloss
 				// pattern is observable in logs / metrics.
 				p.logger.Warn("invalid contract address from zerion, asset cannot be priced",
-					"chain_id", sanitizeForLog(chainID),
-					"contract_address", sanitizeForLog(t.ContractAddress),
-					"asset_symbol", sanitizeForLog(t.AssetSymbol),
+					"chain_id", price.SanitizeLogField(chainID),
+					"contract_address", price.SanitizeLogField(t.ContractAddress),
+					"asset_symbol", price.SanitizeLogField(t.AssetSymbol),
 				)
 			default:
 				// Any other error (DB-level, etc.). Log WARN, no enqueue.
 				p.logger.Warn("asset upsert failed during sync",
-					"chain_id", sanitizeForLog(chainID),
-					"contract_address", sanitizeForLog(t.ContractAddress),
-					"error", sanitizeForLog(err.Error()),
+					"chain_id", price.SanitizeLogField(chainID),
+					"contract_address", price.SanitizeLogField(t.ContractAddress),
+					"error", price.SanitizeLogField(err.Error()),
 				)
 			}
 		}
@@ -708,27 +708,6 @@ func (p *ZerionProcessor) buildSingleTransfer(ctx context.Context, t DecodedTran
 	// Downstream handles missing key as nil USDRate.
 
 	return m
-}
-
-// sanitizeForLog strips ASCII control chars and caps length so chain- or
-// provider-supplied strings (chain_id, contract_address, symbol) cannot
-// forge log lines when structured logs are parsed downstream. Defense in
-// depth alongside the log_util sanitizer in internal/platform/price.
-func sanitizeForLog(s string) string {
-	const maxLen = 256
-	if len(s) > maxLen {
-		s = s[:maxLen]
-	}
-	b := make([]byte, 0, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == '\r' || c == '\n' || c < 0x20 || c == 0x7F {
-			b = append(b, ' ')
-		} else {
-			b = append(b, c)
-		}
-	}
-	return string(b)
 }
 
 
