@@ -162,6 +162,25 @@ func TestClient_GetHistoricalPrice_PicksNearestMinute(t *testing.T) {
 	require.Equal(t, ts, hp.Timestamp)
 }
 
+// TestClient_429_RetryAfterIsClampedToTenMinutes verifies that a hostile or
+// buggy upstream advertising a huge Retry-After (e.g. 86400s = 1 day) is
+// clamped to 10 minutes so the worker doesn't stall for an absurd duration.
+func TestClient_429_RetryAfterIsClampedToTenMinutes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "3600") // 1 hour — way over the 10-min cap
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	c := geckoterminal.NewClient(geckoterminal.Config{BaseURL: srv.URL, HTTPClient: srv.Client()})
+	_, err := c.GetTokenPriceByAddress(context.Background(), "eth", "0x0")
+
+	var rle *price.RateLimitedError
+	require.ErrorAs(t, err, &rle)
+	require.Equal(t, 10*time.Minute, rle.RetryAfter,
+		"Retry-After should be clamped to 10 minutes")
+}
+
 // TestClient_OversizedResponse verifies that a hostile provider returning a huge
 // body causes ErrTransient (from truncated-JSON decode failure) rather than OOM.
 func TestClient_OversizedResponse(t *testing.T) {

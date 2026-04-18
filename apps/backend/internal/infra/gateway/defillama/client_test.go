@@ -167,6 +167,25 @@ func TestClient_429_NoRetryAfterHeader(t *testing.T) {
 	require.Equal(t, time.Duration(0), rle.RetryAfter)
 }
 
+// TestClient_429_RetryAfterIsClampedToTenMinutes verifies that a hostile or
+// buggy upstream advertising a huge Retry-After (e.g. 86400s = 1 day) is
+// clamped to 10 minutes so the worker doesn't stall for an absurd duration.
+func TestClient_429_RetryAfterIsClampedToTenMinutes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "3600") // 1 hour — way over the 10-min cap
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	c := defillama.NewClient(defillama.Config{BaseURL: srv.URL, MinConfidence: 0.9})
+	_, err := c.GetCurrentPrice(context.Background(), "ethereum", "0x00")
+
+	var rle *price.RateLimitedError
+	require.ErrorAs(t, err, &rle)
+	require.Equal(t, 10*time.Minute, rle.RetryAfter,
+		"Retry-After should be clamped to 10 minutes")
+}
+
 // TestClient_OversizedResponse verifies that a hostile provider returning a huge
 // body causes ErrTransient (from truncated-JSON decode failure) rather than OOM.
 func TestClient_OversizedResponse(t *testing.T) {

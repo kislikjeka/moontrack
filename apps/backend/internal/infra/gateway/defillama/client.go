@@ -37,29 +37,6 @@ const minConfidenceFloor = 0.5
 // the floor.
 const safeMinConfidenceDefault = 0.9
 
-// parseRetryAfter parses an HTTP Retry-After header value. It accepts either
-// delta-seconds (e.g. "30") or an HTTP-date (e.g. "Wed, 21 Oct 2025 07:28:00 GMT").
-// Returns 0 if the value is empty, unparseable, negative, or in the past.
-func parseRetryAfter(v string) time.Duration {
-	if v == "" {
-		return 0
-	}
-	if secs, err := strconv.Atoi(v); err == nil {
-		if secs <= 0 {
-			return 0
-		}
-		return time.Duration(secs) * time.Second
-	}
-	if t, err := http.ParseTime(v); err == nil {
-		d := time.Until(t)
-		if d <= 0 {
-			return 0
-		}
-		return d
-	}
-	return 0
-}
-
 // Config for the DefiLlama Coins API client.
 type Config struct {
 	BaseURL       string
@@ -145,7 +122,7 @@ func (c *Client) doCoins(ctx context.Context, path string) (*coinsResponse, erro
 
 	switch {
 	case resp.StatusCode == http.StatusTooManyRequests:
-		return nil, &price.RateLimitedError{RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
+		return nil, &price.RateLimitedError{RetryAfter: price.ParseRetryAfter(resp.Header.Get("Retry-After"))}
 	case resp.StatusCode == http.StatusNotFound:
 		return nil, price.ErrNotFound
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
