@@ -124,3 +124,26 @@ func TestClient_GetHistoricalPrice_PicksNearestMinute(t *testing.T) {
 	require.Equal(t, "100040000", hp.PriceUSD.String())
 	require.Equal(t, ts, hp.Timestamp)
 }
+
+// TestClient_OversizedResponse verifies that a hostile provider returning a huge
+// body causes ErrTransient (from truncated-JSON decode failure) rather than OOM.
+func TestClient_OversizedResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Start a valid-looking JSON opening, then dump 2 MiB of filler. io.LimitReader
+		// will truncate to 1 MiB; the decoder will fail on unterminated JSON.
+		_, _ = w.Write([]byte(`{"data":[{"attributes":{"address":"`))
+		filler := make([]byte, 2<<20)
+		for i := range filler {
+			filler[i] = 'a'
+		}
+		_, _ = w.Write(filler)
+		_, _ = w.Write([]byte(`","price_usd":"1.0"}}]}`))
+	}))
+	defer srv.Close()
+
+	c := geckoterminal.NewClient(geckoterminal.Config{BaseURL: srv.URL, HTTPClient: srv.Client()})
+	_, err := c.GetTokenPriceByAddress(context.Background(), "eth", "0x0")
+	require.Error(t, err)
+	require.ErrorIs(t, err, price.ErrTransient)
+}
