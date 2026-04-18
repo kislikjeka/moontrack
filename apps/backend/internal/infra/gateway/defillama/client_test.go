@@ -190,6 +190,39 @@ func TestClient_OversizedResponse(t *testing.T) {
 	require.ErrorIs(t, err, price.ErrTransient)
 }
 
+// TestClient_MinConfidenceFloor verifies that a configured MinConfidence below
+// the floor is overridden to the safe default. Low confidence prices must still
+// be rejected when the config would otherwise disable the gate.
+func TestClient_MinConfidenceFloor(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return a coin with confidence 0.3 — below the safe default 0.9 but
+		// above the bogus operator value 0.01.
+		_, _ = w.Write([]byte(`{"coins":{"ethereum:0xaa":{"price":1.0,"timestamp":1,"confidence":0.3}}}`))
+	}))
+	defer srv.Close()
+
+	// Attempt to disable the gate via misconfiguration.
+	c := defillama.NewClient(defillama.Config{BaseURL: srv.URL, MinConfidence: 0.01})
+	_, err := c.GetCurrentPrice(context.Background(), "ethereum", "0xaa")
+	// Because the floor overrode 0.01 -> 0.9, confidence 0.3 must be rejected.
+	require.ErrorIs(t, err, price.ErrLowConfidence)
+}
+
+// TestClient_MinConfidenceAboveFloorIsHonored confirms the floor only overrides
+// values below it — an operator value >= 0.5 is kept intact.
+func TestClient_MinConfidenceAboveFloorIsHonored(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"coins":{"ethereum:0xbb":{"price":1.0,"timestamp":1,"confidence":0.7}}}`))
+	}))
+	defer srv.Close()
+
+	// 0.6 is above the floor (0.5) and below the test value 0.7 — should accept.
+	c := defillama.NewClient(defillama.Config{BaseURL: srv.URL, MinConfidence: 0.6})
+	p, err := c.GetCurrentPrice(context.Background(), "ethereum", "0xbb")
+	require.NoError(t, err)
+	require.NotNil(t, p)
+}
+
 // TestClient_OversizedHistoricalResponse verifies bounding on historical endpoint too.
 func TestClient_OversizedHistoricalResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

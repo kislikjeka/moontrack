@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -21,6 +22,20 @@ const priceScale = 8
 // Protects against hostile or MITM'd providers returning arbitrarily large payloads
 // (OOM / DoS vector). 1 MiB is well above legitimate response sizes for this API.
 const maxResponseBytes = 1 << 20 // 1 MiB
+
+// minConfidenceFloor is the lowest MinConfidence value we will honor from
+// configuration. Below this floor, we override to the safe default.
+//
+// Rationale: DefiLlama's confidence field reflects oracle liquidity / freshness.
+// A deployment-time misconfiguration such as DEFILLAMA_MIN_CONFIDENCE=0.01
+// effectively disables the gate and lets low-quality prices enter the ledger.
+// We enforce a hard lower bound at the client level so no runtime configuration
+// can silently bypass the gate.
+const minConfidenceFloor = 0.5
+
+// safeMinConfidenceDefault is what we reset to if the caller's value is below
+// the floor.
+const safeMinConfidenceDefault = 0.9
 
 // parseRetryAfter parses an HTTP Retry-After header value. It accepts either
 // delta-seconds (e.g. "30") or an HTTP-date (e.g. "Wed, 21 Oct 2025 07:28:00 GMT").
@@ -76,7 +91,17 @@ func NewClient(cfg Config) *Client {
 	}
 	mc := cfg.MinConfidence
 	if mc == 0 {
-		mc = 0.9
+		mc = safeMinConfidenceDefault
+	}
+	// Enforce a hard floor: below minConfidenceFloor we refuse the operator's
+	// value and fall back to the safe default. This guards against
+	// misconfigurations like DEFILLAMA_MIN_CONFIDENCE=0.01 that would silently
+	// let low-quality prices enter the ledger. Logged at WARN so the override
+	// is discoverable in ops logs.
+	if mc < minConfidenceFloor {
+		log.Printf("WARN defillama: configured MinConfidence=%.3f is below floor %.2f; overriding to %.2f",
+			mc, minConfidenceFloor, safeMinConfidenceDefault)
+		mc = safeMinConfidenceDefault
 	}
 	return &Client{baseURL: base, http: hc, minConfidence: mc}
 }
