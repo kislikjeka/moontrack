@@ -155,8 +155,7 @@ func (f *fakeAssetLookup) GetAssetsBySymbol(_ context.Context, symbol string) ([
 
 // TestSetManualPrice_ResolvesPendingDisposals verifies that when a user
 // manually prices a pending lot, the service also resolves pending disposals
-// sharing the same (asset, minute_bucket). This is BUG 2 from the cycle-2
-// missing-price review.
+// sharing the same (asset, minute_bucket).
 func TestSetManualPrice_ResolvesPendingDisposals(t *testing.T) {
 	ctx := context.Background()
 	log := logger.New("test", os.Stdout)

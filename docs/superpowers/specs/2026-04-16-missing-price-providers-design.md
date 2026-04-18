@@ -1,7 +1,7 @@
 # Missing-Price Providers: Fallback Pricing for Long-Tail Tokens
 
 **Date:** 2026-04-16
-**Status:** Design approved, pending implementation plan
+**Status:** Fully deployed — as of 2026-04-16 this design is the sole production path. The `FEATURE_PRICE_FALLBACK` flag and the staged-rollout described in the "Rollout" section below are historical; the worker runs unconditionally and the flag has been removed from the codebase.
 **Author:** brainstorm session, kislikjeka
 
 ## Problem
