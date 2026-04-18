@@ -437,6 +437,80 @@ func (s *Service) GetCurrentPriceByCoinGeckoID(ctx context.Context, coinGeckoID 
 	return nil, ErrPriceUnavailable
 }
 
+// GetCurrentPriceByCoinGeckoIDNoFallback is the same as GetCurrentPriceByCoinGeckoID
+// but without the stale-cache fallback on the final layer. This lets callers
+// (e.g. the price backfill worker) distinguish a provider rate-limit / transient
+// error from a "no price available" outcome instead of silently masking it.
+//
+// Returns the wrapped provider error (use errors.As to detect coingecko.RateLimitError).
+func (s *Service) GetCurrentPriceByCoinGeckoIDNoFallback(ctx context.Context, coinGeckoID string) (*big.Int, error) {
+	// Layer 1: Redis cache (60s TTL)
+	if s.cache != nil {
+		price, found, err := s.cache.Get(ctx, coinGeckoID)
+		if err == nil && found {
+			return price, nil
+		}
+	}
+
+	// Layer 2: price_history (last 5 minutes)
+	a, err := s.repo.GetByCoinGeckoID(ctx, coinGeckoID)
+	if err == nil && a != nil && s.priceRepo != nil {
+		pricePoint, err := s.priceRepo.GetRecentPrice(ctx, a.ID, 5*time.Minute)
+		if err == nil && pricePoint != nil {
+			if s.cache != nil {
+				_ = s.cache.Set(ctx, coinGeckoID, pricePoint.PriceUSD, string(pricePoint.Source))
+			}
+			return pricePoint.PriceUSD, nil
+		}
+	}
+
+	// Layer 3: Provider API. Unlike GetCurrentPriceByCoinGeckoID, we do NOT
+	// fall back to stale cache on error — the caller wants the signal.
+	if s.priceProvider == nil {
+		return nil, ErrPriceUnavailable
+	}
+	if !s.circuitBreaker.CanAttempt() {
+		s.logger.Warn("circuit breaker open", "asset_id", coinGeckoID)
+		return nil, ErrPriceUnavailable
+	}
+
+	prices, err := s.priceProvider.GetCurrentPrices(ctx, []string{coinGeckoID})
+	if err != nil {
+		s.circuitBreaker.RecordFailure()
+		// Wrap with %w so errors.As can recover the underlying provider error
+		// (notably coingecko.RateLimitError).
+		return nil, fmt.Errorf("failed to fetch current price: %w", err)
+	}
+	price, found := prices[coinGeckoID]
+	if !found {
+		return nil, ErrPriceUnavailable
+	}
+
+	if s.cache != nil {
+		_ = s.cache.Set(ctx, coinGeckoID, price, "coingecko")
+		_ = s.cache.SetStale(ctx, coinGeckoID, price, "coingecko")
+	}
+	if a != nil && s.priceRepo != nil {
+		_ = s.priceRepo.RecordPrice(ctx, &PricePoint{
+			Time:     time.Now(),
+			AssetID:  a.ID,
+			PriceUSD: price,
+			Source:   PriceSourceCoinGecko,
+		})
+	}
+
+	s.circuitBreaker.RecordSuccess()
+	return price, nil
+}
+
+// GetHistoricalPriceByCoinGeckoIDNoFallback is equivalent to GetHistoricalPriceByCoinGeckoID
+// with the same no-stale-fallback semantics. Historical lookup already has no
+// stale fallback, but this variant is exposed for symmetry with the current-price
+// API and documents the intent for callers that must propagate rate-limit signals.
+func (s *Service) GetHistoricalPriceByCoinGeckoIDNoFallback(ctx context.Context, coinGeckoID string, date time.Time) (*big.Int, error) {
+	return s.GetHistoricalPriceByCoinGeckoID(ctx, coinGeckoID, date)
+}
+
 // GetHistoricalPriceByCoinGeckoID fetches the USD price for an asset on a specific date
 // This method is useful for transaction handlers that work with CoinGecko IDs
 func (s *Service) GetHistoricalPriceByCoinGeckoID(ctx context.Context, coinGeckoID string, date time.Time) (*big.Int, error) {
