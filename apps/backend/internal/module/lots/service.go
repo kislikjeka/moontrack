@@ -58,10 +58,17 @@ type WalletRepo interface {
 
 // AssetLookup resolves an asset UUID from a symbol (optionally chain-scoped).
 // Used to thread a manual-price lot's symbol back to the asset_id that
-// ResolvePendingDisposals expects. Optional: when nil, SetManualPrice still
-// resolves the lot itself but skips pending-disposal resolution.
+// ResolvePendingDisposalsForUser expects. Optional: when nil, SetManualPrice
+// still resolves the lot itself but skips pending-disposal resolution.
+//
+// Both methods are needed because GetTaxLotForUpdate does not currently
+// surface the lot's chain_id. When the chain is unknown we fall back to
+// GetAssetsBySymbol (plural) and accept the lookup only when exactly one
+// asset matches — otherwise the symbol is ambiguous across chains and we
+// can't safely scope ResolvePendingDisposalsForUser.
 type AssetLookup interface {
 	GetAssetBySymbol(ctx context.Context, symbol string, chainID *string) (*asset.Asset, error)
+	GetAssetsBySymbol(ctx context.Context, symbol string) ([]asset.Asset, error)
 }
 
 // Svc provides business logic for the manual-price endpoint.
@@ -191,14 +198,23 @@ func (s *Svc) SetManualPrice(ctx context.Context, userID uuid.UUID, lotID uuid.U
 	return s.ledger.CommitTx(txCtx)
 }
 
-// resolvePendingDisposalsForLot looks up the asset UUID for lot's symbol
-// (scoped by the lot's chain when non-empty) and calls
-// ResolvePendingDisposalsForUser on the matching minute bucket. The
+// resolvePendingDisposalsForLot looks up the asset UUID for lot's symbol and
+// calls ResolvePendingDisposalsForUser on the matching minute bucket. The
 // user-scoped variant is required here — this path is driven by a single
 // user's manual-price action, so mutating disposals belonging to other
 // tenants with overlapping (asset, minute) would be a data-integrity bug.
 // Best-effort: any error is logged and swallowed, because the manual-price
 // operation's primary job (resolving the lot) has already succeeded.
+//
+// Chain disambiguation: TaxLot.ChainID is NOT currently populated by
+// GetTaxLotForUpdate (the tax_lots table has no chain_id column; chain
+// lives on the lot's account). When lot.ChainID is empty we fall back to
+// GetAssetsBySymbol and only proceed when exactly one asset matches the
+// symbol. If the symbol exists on multiple chains we log a WARN and skip
+// disposal resolution — without the chain we cannot pick the right
+// asset_id, and guessing risks paying out proceeds against the wrong
+// token. The user's primary intent (resolving the lot's cost basis) has
+// already succeeded regardless.
 //
 // The time argument passed to the repo is lot.AcquiredAt. Resolution is
 // bucketed on lot_disposals.disposed_at (see
@@ -207,17 +223,8 @@ func (s *Svc) SetManualPrice(ctx context.Context, userID uuid.UUID, lotID uuid.U
 // affected — typically same-tx acquire+dispose events (e.g. a flash mint
 // that is immediately spent). Disposals at unrelated times remain pending.
 func (s *Svc) resolvePendingDisposalsForLot(ctx context.Context, userID uuid.UUID, lot *ledger.TaxLot, priceUSD *big.Int) {
-	var chainPtr *string
-	if lot.ChainID != "" {
-		chain := lot.ChainID
-		chainPtr = &chain
-	}
-	a, err := s.assetLookup.GetAssetBySymbol(ctx, lot.Asset, chainPtr)
+	a, err := s.resolveAssetForLot(ctx, lot)
 	if err != nil || a == nil {
-		if s.log != nil {
-			s.log.Warn("manual price: asset lookup failed, skipping pending disposal resolution",
-				"lot_id", lot.ID.String(), "symbol", lot.Asset, "error", err)
-		}
 		return
 	}
 	n, err := s.repo.ResolvePendingDisposalsForUser(ctx, userID, a.ID, lot.AcquiredAt, priceUSD)
@@ -231,6 +238,64 @@ func (s *Svc) resolvePendingDisposalsForLot(ctx context.Context, userID uuid.UUI
 	if n > 0 && s.log != nil {
 		s.log.Info("manual price: resolved pending disposals",
 			"lot_id", lot.ID.String(), "asset_id", a.ID.String(), "count", n)
+	}
+}
+
+// resolveAssetForLot maps lot.Asset (symbol) + lot.ChainID to a concrete
+// asset row. When ChainID is non-empty it takes the chain-scoped fast path.
+// When empty (today this is always — tax_lots has no chain_id column) it
+// falls back to GetAssetsBySymbol and returns the unique match, or nil +
+// a WARN log when the symbol is ambiguous or missing.
+//
+// Returns (nil, nil) when we chose to skip resolution; returns (nil, err)
+// only for unexpected errors — but callers treat both as "skip and log".
+func (s *Svc) resolveAssetForLot(ctx context.Context, lot *ledger.TaxLot) (*asset.Asset, error) {
+	if lot.ChainID != "" {
+		chain := lot.ChainID
+		a, err := s.assetLookup.GetAssetBySymbol(ctx, lot.Asset, &chain)
+		if err != nil || a == nil {
+			if s.log != nil {
+				s.log.Warn("manual price: asset lookup failed, skipping pending disposal resolution",
+					"lot_id", lot.ID.String(), "symbol", lot.Asset, "chain_id", chain, "error", err)
+			}
+			return nil, nil
+		}
+		return a, nil
+	}
+
+	// Lot has no chain hint. Enumerate and require exactly one match.
+	all, err := s.assetLookup.GetAssetsBySymbol(ctx, lot.Asset)
+	if err != nil {
+		if s.log != nil {
+			s.log.Warn("manual price: asset lookup failed, skipping pending disposal resolution",
+				"lot_id", lot.ID.String(), "symbol", lot.Asset, "error", err)
+		}
+		return nil, nil
+	}
+	switch len(all) {
+	case 0:
+		if s.log != nil {
+			s.log.Warn("manual price: no asset matches lot symbol, skipping pending disposal resolution",
+				"lot_id", lot.ID.String(), "symbol", lot.Asset)
+		}
+		return nil, nil
+	case 1:
+		a := all[0]
+		return &a, nil
+	default:
+		chains := make([]string, 0, len(all))
+		for _, a := range all {
+			if a.ChainID != nil {
+				chains = append(chains, *a.ChainID)
+			} else {
+				chains = append(chains, "native")
+			}
+		}
+		if s.log != nil {
+			s.log.Warn("manual price: symbol ambiguous across chains, skipping pending disposal resolution",
+				"lot_id", lot.ID.String(), "symbol", lot.Asset, "chains", chains)
+		}
+		return nil, nil
 	}
 }
 

@@ -110,6 +110,14 @@ type fakeAssetLookup struct {
 	a     *asset.Asset
 	err   error
 	calls []assetLookupCall
+
+	// multi drives the plural GetAssetsBySymbol path. When non-nil it
+	// supersedes `a` and is returned verbatim (useful for exercising the
+	// "ambiguous symbol" and "exactly one match" branches).
+	multi    []asset.Asset
+	multiErr error
+
+	pluralCalls []string
 }
 
 type assetLookupCall struct {
@@ -123,6 +131,22 @@ func (f *fakeAssetLookup) GetAssetBySymbol(_ context.Context, symbol string, cha
 		return nil, f.err
 	}
 	return f.a, nil
+}
+
+func (f *fakeAssetLookup) GetAssetsBySymbol(_ context.Context, symbol string) ([]asset.Asset, error) {
+	f.pluralCalls = append(f.pluralCalls, symbol)
+	if f.multiErr != nil {
+		return nil, f.multiErr
+	}
+	if f.multi != nil {
+		return f.multi, nil
+	}
+	// Default: mirror the singular fake. Return a single-element slice when
+	// `a` is set, else an empty slice.
+	if f.a != nil {
+		return []asset.Asset{*f.a}, nil
+	}
+	return nil, nil
 }
 
 // -----------------------------------------------------------------------------
@@ -304,5 +328,143 @@ func TestSetManualPrice_NoAssetLookup_BackwardsCompat(t *testing.T) {
 	if len(lotRepo.resolveDispCalls) != 0 {
 		t.Errorf("expected 0 ResolvePendingDisposals calls without lookup, got %d",
 			len(lotRepo.resolveDispCalls))
+	}
+}
+
+// TestSetManualPrice_AmbiguousSymbol_SkipsDisposalResolution verifies that
+// when the lot has no chain hint (ChainID == ""), and the symbol exists on
+// more than one chain, the service skips pending-disposal resolution rather
+// than silently picking a wrong asset_id and paying out proceeds against it.
+// The lot itself must still be priced/resolved — that is the user's primary
+// intent.
+func TestSetManualPrice_AmbiguousSymbol_SkipsDisposalResolution(t *testing.T) {
+	ctx := context.Background()
+	log := logger.New("test", os.Stdout)
+
+	userID := uuid.New()
+	walletID := uuid.New()
+	accountID := uuid.New()
+	lotID := uuid.New()
+
+	lotRepo := &fakeLotRepo{
+		lot: &ledger.TaxLot{
+			ID:                lotID,
+			TransactionID:     uuid.New(),
+			AccountID:         accountID,
+			Asset:             "USDT", // intentionally multi-chain symbol
+			QuantityAcquired:  big.NewInt(1_000),
+			QuantityRemaining: big.NewInt(1_000),
+			AcquiredAt:        time.Now().UTC().Truncate(time.Minute),
+			PriceStatus:       ledger.PriceStatusPending,
+			// ChainID left empty — simulates today's reality where
+			// GetTaxLotForUpdate does not populate it.
+		},
+	}
+	ledgerRepo := &fakeLedgerRepo{
+		account: &ledger.Account{ID: accountID, WalletID: &walletID},
+	}
+	walletRepo := &fakeWalletRepo{wallet: &wallet.Wallet{ID: walletID, UserID: userID}}
+
+	ethChain := "ethereum"
+	bnbChain := "binance-smart-chain"
+	assetLookup := &fakeAssetLookup{
+		multi: []asset.Asset{
+			{ID: uuid.New(), Symbol: "USDT", ChainID: &ethChain},
+			{ID: uuid.New(), Symbol: "USDT", ChainID: &bnbChain},
+		},
+	}
+
+	svc := lots.NewService(lotRepo, ledgerRepo, walletRepo).WithAssetLookup(assetLookup, log)
+
+	err := svc.SetManualPrice(ctx, userID, lotID, "1.00", "manual price")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Lot-side resolution still happened (primary intent).
+	if !lotRepo.markResolvedCalled {
+		t.Error("expected MarkResolved to be called despite ambiguous symbol")
+	}
+
+	// Plural lookup consulted since ChainID is empty.
+	if len(assetLookup.pluralCalls) != 1 {
+		t.Fatalf("expected 1 GetAssetsBySymbol call, got %d", len(assetLookup.pluralCalls))
+	}
+	if assetLookup.pluralCalls[0] != "USDT" {
+		t.Errorf("expected GetAssetsBySymbol with USDT, got %s", assetLookup.pluralCalls[0])
+	}
+
+	// Disposal resolution must NOT have been called — we can't pick the right asset.
+	if len(lotRepo.resolveDispCalls) != 0 {
+		t.Errorf("expected 0 ResolvePendingDisposalsForUser calls on ambiguous symbol, got %d",
+			len(lotRepo.resolveDispCalls))
+	}
+}
+
+// TestSetManualPrice_NoChainHint_UniqueSymbolResolves verifies the fallback:
+// when the lot has no ChainID but the symbol is unique across chains, the
+// service uses GetAssetsBySymbol and still resolves the matching pending
+// disposals for the user.
+func TestSetManualPrice_NoChainHint_UniqueSymbolResolves(t *testing.T) {
+	ctx := context.Background()
+	log := logger.New("test", os.Stdout)
+
+	userID := uuid.New()
+	walletID := uuid.New()
+	accountID := uuid.New()
+	lotID := uuid.New()
+	assetID := uuid.New()
+	acquiredAt := time.Now().UTC().Truncate(time.Minute)
+
+	lotRepo := &fakeLotRepo{
+		lot: &ledger.TaxLot{
+			ID:                lotID,
+			TransactionID:     uuid.New(),
+			AccountID:         accountID,
+			Asset:             "UNIQ",
+			QuantityAcquired:  big.NewInt(500),
+			QuantityRemaining: big.NewInt(500),
+			AcquiredAt:        acquiredAt,
+			PriceStatus:       ledger.PriceStatusPending,
+			// ChainID intentionally empty — exercises the plural fallback.
+		},
+		resolveDispCount: 2,
+	}
+	ledgerRepo := &fakeLedgerRepo{
+		account: &ledger.Account{ID: accountID, WalletID: &walletID},
+	}
+	walletRepo := &fakeWalletRepo{wallet: &wallet.Wallet{ID: walletID, UserID: userID}}
+
+	ethChain := "ethereum"
+	assetLookup := &fakeAssetLookup{
+		multi: []asset.Asset{{ID: assetID, Symbol: "UNIQ", ChainID: &ethChain}},
+	}
+
+	svc := lots.NewService(lotRepo, ledgerRepo, walletRepo).WithAssetLookup(assetLookup, log)
+
+	err := svc.SetManualPrice(ctx, userID, lotID, "2.50", "manual price")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(assetLookup.pluralCalls) != 1 {
+		t.Fatalf("expected 1 GetAssetsBySymbol call, got %d", len(assetLookup.pluralCalls))
+	}
+	if len(lotRepo.resolveDispCalls) != 1 {
+		t.Fatalf("expected 1 ResolvePendingDisposalsForUser call, got %d", len(lotRepo.resolveDispCalls))
+	}
+	call := lotRepo.resolveDispCalls[0]
+	if call.userID != userID {
+		t.Errorf("expected user_id %s, got %s", userID, call.userID)
+	}
+	if call.assetID != assetID {
+		t.Errorf("expected asset_id %s, got %s", assetID, call.assetID)
+	}
+	if !call.at.Equal(acquiredAt) {
+		t.Errorf("expected at %v, got %v", acquiredAt, call.at)
+	}
+	// 2.50 USD scaled 10^8 = 250_000_000
+	if call.proceeds.String() != "250000000" {
+		t.Errorf("expected proceeds 250000000, got %s", call.proceeds.String())
 	}
 }
