@@ -252,6 +252,119 @@ func TestTaxLotRepo_ResolvePendingDisposals(t *testing.T) {
 	require.Equal(t, int64(0), n)
 }
 
+// TestTaxLotRepo_ResolvePendingDisposalsForUser verifies tenant isolation:
+// when two users each have a pending disposal for the same (asset, minute),
+// resolving for user A MUST leave user B's disposal untouched.
+//
+// This guards against a cross-tenant contamination bug where the user-less
+// variant (ResolvePendingDisposals) would mutate every matching row
+// regardless of wallet ownership.
+func TestTaxLotRepo_ResolvePendingDisposalsForUser(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	ctx := context.Background()
+	require.NoError(t, testDB.Reset(ctx))
+
+	repo := NewTaxLotRepository(testDB.Pool)
+
+	// Shared asset row.
+	assetID := uuid.New()
+	_, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO assets (id, symbol, name, coingecko_id, decimals, asset_type, chain_id)
+		VALUES ($1, 'SHR', 'Shared', NULL, 8, 'crypto', NULL)
+	`, assetID)
+	require.NoError(t, err)
+
+	// Seed user A + wallet + account + lot + pending disposal.
+	userA, walletA := seedUserAndWallet(t, ctx)
+	accountA := seedAccountForPendingTest(t, ctx, walletA, "SHR")
+	txA := seedTransactionForPendingTest(t, ctx, walletA)
+
+	disposedAt := time.Now().UTC().Truncate(time.Minute)
+
+	lotA := &ledger.TaxLot{
+		ID:                   uuid.New(),
+		TransactionID:        txA,
+		AccountID:            accountA,
+		Asset:                "SHR",
+		QuantityAcquired:     big.NewInt(1_000),
+		QuantityRemaining:    big.NewInt(500),
+		AcquiredAt:           disposedAt.Add(-time.Hour),
+		AutoCostBasisPerUnit: big.NewInt(50_000_000),
+		AutoCostBasisSource:  ledger.CostBasisFMVAtTransfer,
+		PriceStatus:          ledger.PriceStatusResolved,
+		CreatedAt:            time.Now().UTC(),
+	}
+	require.NoError(t, repo.CreateTaxLot(ctx, lotA))
+
+	dispA := &ledger.LotDisposal{
+		ID:               uuid.New(),
+		TransactionID:    txA,
+		LotID:            lotA.ID,
+		QuantityDisposed: big.NewInt(500),
+		ProceedsPerUnit:  nil,
+		ProceedsStatus:   ledger.ProceedsStatusPending,
+		DisposalType:     ledger.DisposalTypeSale,
+		DisposedAt:       disposedAt,
+		CreatedAt:        time.Now().UTC(),
+	}
+	require.NoError(t, repo.CreateDisposal(ctx, dispA))
+
+	// Seed user B with the same asset + minute bucket — but different user.
+	_, walletB := seedUserAndWallet(t, ctx)
+	accountB := seedAccountForPendingTest(t, ctx, walletB, "SHR")
+	txB := seedTransactionForPendingTest(t, ctx, walletB)
+
+	lotB := &ledger.TaxLot{
+		ID:                   uuid.New(),
+		TransactionID:        txB,
+		AccountID:            accountB,
+		Asset:                "SHR",
+		QuantityAcquired:     big.NewInt(2_000),
+		QuantityRemaining:    big.NewInt(1_000),
+		AcquiredAt:           disposedAt.Add(-time.Hour),
+		AutoCostBasisPerUnit: big.NewInt(50_000_000),
+		AutoCostBasisSource:  ledger.CostBasisFMVAtTransfer,
+		PriceStatus:          ledger.PriceStatusResolved,
+		CreatedAt:            time.Now().UTC(),
+	}
+	require.NoError(t, repo.CreateTaxLot(ctx, lotB))
+
+	dispB := &ledger.LotDisposal{
+		ID:               uuid.New(),
+		TransactionID:    txB,
+		LotID:            lotB.ID,
+		QuantityDisposed: big.NewInt(1_000),
+		ProceedsPerUnit:  nil,
+		ProceedsStatus:   ledger.ProceedsStatusPending,
+		DisposalType:     ledger.DisposalTypeSale,
+		DisposedAt:       disposedAt,
+		CreatedAt:        time.Now().UTC(),
+	}
+	require.NoError(t, repo.CreateDisposal(ctx, dispB))
+
+	// Resolve for user A only.
+	n, err := repo.ResolvePendingDisposalsForUser(ctx, userA, assetID, disposedAt, big.NewInt(99_000_000))
+	require.NoError(t, err)
+	require.Equal(t, int64(1), n, "only user A's disposal should be resolved")
+
+	// User A's disposal must now be resolved.
+	fetchedA, err := repo.GetDisposalsByTransaction(ctx, txA)
+	require.NoError(t, err)
+	require.Len(t, fetchedA, 1)
+	require.Equal(t, ledger.ProceedsStatusResolved, fetchedA[0].ProceedsStatus)
+	require.NotNil(t, fetchedA[0].ProceedsPerUnit)
+	require.Equal(t, "99000000", fetchedA[0].ProceedsPerUnit.String())
+
+	// User B's disposal MUST remain pending — the whole point of the fix.
+	fetchedB, err := repo.GetDisposalsByTransaction(ctx, txB)
+	require.NoError(t, err)
+	require.Len(t, fetchedB, 1)
+	require.Equal(t, ledger.ProceedsStatusPending, fetchedB[0].ProceedsStatus, "user B's disposal must not be touched")
+	require.Nil(t, fetchedB[0].ProceedsPerUnit, "user B's proceeds must still be nil")
+}
+
 // TestTaxLotRepo_ClearOverride_RefusesWhenAutoIsNull verifies that clearing an
 // override on a lot whose auto_cost_basis_per_unit is NULL returns
 // ErrCannotClearOverrideOnPendingAuto (instead of silently leaving the lot

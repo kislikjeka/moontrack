@@ -37,7 +37,10 @@ type LotRepo interface {
 	UpdateOverride(ctx context.Context, lotID uuid.UUID, costBasis *big.Int, reason string) error
 	MarkResolved(ctx context.Context, lotID uuid.UUID) error
 	CreateOverrideHistory(ctx context.Context, history *ledger.LotOverrideHistory) error
-	ResolvePendingDisposals(ctx context.Context, assetID uuid.UUID, at time.Time, proceedsPerUnit *big.Int) (int64, error)
+	// ResolvePendingDisposalsForUser is used by SetManualPrice. It MUST filter
+	// by user_id so a user's manual price cannot mutate another user's
+	// pending disposals sharing the same (asset_id, minute_bucket).
+	ResolvePendingDisposalsForUser(ctx context.Context, userID uuid.UUID, assetID uuid.UUID, at time.Time, proceedsPerUnit *big.Int) (int64, error)
 }
 
 // LedgerRepo is the subset of ledger.Repository used for transactions and account lookups.
@@ -163,13 +166,14 @@ func (s *Svc) SetManualPrice(ctx context.Context, userID uuid.UUID, lotID uuid.U
 	// Also resolve pending disposals on the same (asset, minute_bucket).
 	// User expectation is that PnL materializes immediately when they
 	// supply a price — not only the lot's cost basis. Mirror the logic in
-	// PriceResolvedHook (price_resolved_hook.go:56-63).
+	// PriceResolvedHook (price_resolved_hook.go:56-63), but scoped to the
+	// calling user to prevent cross-tenant contamination.
 	//
 	// Resilience: asset lookup is best-effort. The lot itself is already
 	// resolved — that is the user's primary intent — so a missing asset
 	// row must not fail the whole operation. Log a WARN and continue.
 	if s.assetLookup != nil {
-		s.resolvePendingDisposalsForLot(txCtx, lot, costBasis)
+		s.resolvePendingDisposalsForLot(txCtx, userID, lot, costBasis)
 	}
 
 	return s.ledger.CommitTx(txCtx)
@@ -177,10 +181,20 @@ func (s *Svc) SetManualPrice(ctx context.Context, userID uuid.UUID, lotID uuid.U
 
 // resolvePendingDisposalsForLot looks up the asset UUID for lot's symbol
 // (scoped by the lot's chain when non-empty) and calls
-// ResolvePendingDisposals on the matching minute bucket. Best-effort: any
-// error is logged and swallowed, because the manual-price operation's
-// primary job (resolving the lot) has already succeeded.
-func (s *Svc) resolvePendingDisposalsForLot(ctx context.Context, lot *ledger.TaxLot, priceUSD *big.Int) {
+// ResolvePendingDisposalsForUser on the matching minute bucket. The
+// user-scoped variant is required here — this path is driven by a single
+// user's manual-price action, so mutating disposals belonging to other
+// tenants with overlapping (asset, minute) would be a data-integrity bug.
+// Best-effort: any error is logged and swallowed, because the manual-price
+// operation's primary job (resolving the lot) has already succeeded.
+//
+// The time argument passed to the repo is lot.AcquiredAt. Resolution is
+// bucketed on lot_disposals.disposed_at (see
+// TaxLotRepository.ResolvePendingDisposalsForUser), so only disposals whose
+// disposed_at falls in the same minute as the lot's acquisition are
+// affected — typically same-tx acquire+dispose events (e.g. a flash mint
+// that is immediately spent). Disposals at unrelated times remain pending.
+func (s *Svc) resolvePendingDisposalsForLot(ctx context.Context, userID uuid.UUID, lot *ledger.TaxLot, priceUSD *big.Int) {
 	var chainPtr *string
 	if lot.ChainID != "" {
 		chain := lot.ChainID
@@ -194,7 +208,7 @@ func (s *Svc) resolvePendingDisposalsForLot(ctx context.Context, lot *ledger.Tax
 		}
 		return
 	}
-	n, err := s.repo.ResolvePendingDisposals(ctx, a.ID, lot.AcquiredAt, priceUSD)
+	n, err := s.repo.ResolvePendingDisposalsForUser(ctx, userID, a.ID, lot.AcquiredAt, priceUSD)
 	if err != nil {
 		if s.log != nil {
 			s.log.Warn("manual price: resolve pending disposals failed",

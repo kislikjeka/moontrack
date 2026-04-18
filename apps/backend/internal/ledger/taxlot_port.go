@@ -63,7 +63,20 @@ type TaxLotRepository interface {
 	// bucket whose lot is scoped to the asset identified by assetID. Only
 	// affects rows with proceeds_status='pending'. Returns the number of
 	// rows updated so callers can report resolution progress.
+	//
+	// NOTE: This variant is global (no user_id filter) and is intended only
+	// for the backfill hook where a resolved price applies across all tenants
+	// for the same (asset_id, minute_bucket). Per-user flows (e.g. manual
+	// price overrides) MUST use ResolvePendingDisposalsForUser to avoid
+	// cross-tenant contamination.
 	ResolvePendingDisposals(ctx context.Context, assetID uuid.UUID, at time.Time, proceedsPerUnit *big.Int) (int64, error)
+
+	// ResolvePendingDisposalsForUser is the user-scoped variant of
+	// ResolvePendingDisposals. It only touches disposals whose owning account
+	// belongs to userID, preventing one tenant's manual price from mutating
+	// another tenant's pending disposals that happen to share the same
+	// (asset_id, minute_bucket).
+	ResolvePendingDisposalsForUser(ctx context.Context, userID uuid.UUID, assetID uuid.UUID, at time.Time, proceedsPerUnit *big.Int) (int64, error)
 
 	// MarkUnpriceable transitions price_status to 'unpriceable' for a pending lot.
 	MarkUnpriceable(ctx context.Context, lotID uuid.UUID) error

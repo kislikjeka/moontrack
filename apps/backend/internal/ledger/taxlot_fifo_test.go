@@ -251,6 +251,15 @@ func (m *mockTaxLotRepo) ResolvePendingDisposals(_ context.Context, assetID uuid
 	return updated, nil
 }
 
+// ResolvePendingDisposalsForUser mirrors ResolvePendingDisposals for the
+// mock. The in-memory model has no user/wallet ownership map, so the mock
+// simply delegates to the global variant. Tests that care about tenant
+// scoping live under internal/infra/postgres where the SQL predicate can
+// actually be exercised end-to-end.
+func (m *mockTaxLotRepo) ResolvePendingDisposalsForUser(ctx context.Context, _ uuid.UUID, assetID uuid.UUID, at time.Time, proceeds *big.Int) (int64, error) {
+	return m.ResolvePendingDisposals(ctx, assetID, at, proceeds)
+}
+
 func (m *mockTaxLotRepo) MarkUnpriceable(_ context.Context, _ uuid.UUID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

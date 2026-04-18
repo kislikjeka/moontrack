@@ -36,9 +36,10 @@ type fakeLotRepo struct {
 }
 
 type resolveDispCall struct {
-	assetID   uuid.UUID
-	at        time.Time
-	proceeds  *big.Int
+	userID   uuid.UUID
+	assetID  uuid.UUID
+	at       time.Time
+	proceeds *big.Int
 }
 
 func (r *fakeLotRepo) GetTaxLotForUpdate(_ context.Context, id uuid.UUID) (*ledger.TaxLot, error) {
@@ -71,10 +72,11 @@ func (r *fakeLotRepo) CreateOverrideHistory(_ context.Context, _ *ledger.LotOver
 	return nil
 }
 
-func (r *fakeLotRepo) ResolvePendingDisposals(_ context.Context, assetID uuid.UUID, at time.Time, proceeds *big.Int) (int64, error) {
+func (r *fakeLotRepo) ResolvePendingDisposalsForUser(_ context.Context, userID uuid.UUID, assetID uuid.UUID, at time.Time, proceeds *big.Int) (int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.resolveDispCalls = append(r.resolveDispCalls, resolveDispCall{
+		userID:   userID,
 		assetID:  assetID,
 		at:       at,
 		proceeds: new(big.Int).Set(proceeds),
@@ -192,11 +194,16 @@ func TestSetManualPrice_ResolvesPendingDisposals(t *testing.T) {
 		t.Errorf("expected chainID ethereum, got %v", assetLookup.calls[0].chainID)
 	}
 
-	// ResolvePendingDisposals called with the resolved asset UUID + lot time.
+	// ResolvePendingDisposalsForUser called with the calling user, resolved
+	// asset UUID, and lot time. The user_id predicate is what prevents
+	// cross-tenant contamination — so assert it explicitly.
 	if len(lotRepo.resolveDispCalls) != 1 {
-		t.Fatalf("expected 1 ResolvePendingDisposals call, got %d", len(lotRepo.resolveDispCalls))
+		t.Fatalf("expected 1 ResolvePendingDisposalsForUser call, got %d", len(lotRepo.resolveDispCalls))
 	}
 	call := lotRepo.resolveDispCalls[0]
+	if call.userID != userID {
+		t.Errorf("expected user_id %s, got %s", userID, call.userID)
+	}
 	if call.assetID != assetID {
 		t.Errorf("expected asset_id %s, got %s", assetID, call.assetID)
 	}

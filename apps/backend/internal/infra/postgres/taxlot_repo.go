@@ -684,6 +684,11 @@ func (r *TaxLotRepository) ResolvePendingPrice(ctx context.Context, lotID uuid.U
 //
 // Uses IS NOT DISTINCT FROM for chain_id comparison so chain-less assets match
 // chain-less accounts.
+//
+// This is the global (no user_id filter) variant. Only the backfill hook
+// (PriceResolvedHook) should use it, since a resolved spot price applies to
+// all tenants for the same (asset_id, minute_bucket). Per-user paths MUST use
+// ResolvePendingDisposalsForUser to avoid cross-tenant contamination.
 func (r *TaxLotRepository) ResolvePendingDisposals(ctx context.Context, assetID uuid.UUID, at time.Time, proceedsPerUnit *big.Int) (int64, error) {
 	if proceedsPerUnit == nil {
 		return 0, fmt.Errorf("ResolvePendingDisposals: nil proceedsPerUnit")
@@ -711,6 +716,45 @@ func (r *TaxLotRepository) ResolvePendingDisposals(ctx context.Context, assetID 
 	tag, err := q.Exec(ctx, query, proceedsPerUnit.String(), assetID, minStart, minEnd)
 	if err != nil {
 		return 0, fmt.Errorf("resolve pending disposals: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// ResolvePendingDisposalsForUser is the user-scoped variant of
+// ResolvePendingDisposals. It adds an accounts.user_id predicate so a single
+// user's manual-price override cannot mutate another user's pending disposals
+// that happen to share the same (asset_id, minute_bucket).
+func (r *TaxLotRepository) ResolvePendingDisposalsForUser(ctx context.Context, userID uuid.UUID, assetID uuid.UUID, at time.Time, proceedsPerUnit *big.Int) (int64, error) {
+	if proceedsPerUnit == nil {
+		return 0, fmt.Errorf("ResolvePendingDisposalsForUser: nil proceedsPerUnit")
+	}
+
+	minStart := at.UTC().Truncate(time.Minute)
+	minEnd := minStart.Add(time.Minute)
+
+	// Scope accounts to the user via wallets.user_id. The accounts table
+	// itself has no user_id column — ownership flows through wallet_id.
+	query := `
+		UPDATE lot_disposals ld
+		SET proceeds_per_unit = $1,
+		    proceeds_status = 'resolved'
+		FROM tax_lots tl, accounts acc, wallets w, assets ass
+		WHERE ld.lot_id = tl.id
+		  AND tl.account_id = acc.id
+		  AND acc.wallet_id = w.id
+		  AND w.user_id = $2
+		  AND ass.symbol = tl.asset
+		  AND ass.chain_id IS NOT DISTINCT FROM acc.chain_id
+		  AND ass.id = $3
+		  AND ld.proceeds_status = 'pending'
+		  AND ld.disposed_at >= $4
+		  AND ld.disposed_at < $5
+	`
+
+	q := r.getQueryer(ctx)
+	tag, err := q.Exec(ctx, query, proceedsPerUnit.String(), userID, assetID, minStart, minEnd)
+	if err != nil {
+		return 0, fmt.Errorf("resolve pending disposals for user: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }
