@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"time"
 
@@ -39,6 +40,12 @@ func NewPriceResolvedHook(repo TaxLotRepository, log *logger.Logger) PriceResolv
 		}
 		for _, lot := range lots {
 			if err := repo.ResolvePendingPrice(ctx, lot.ID, price, source); err != nil {
+				// A concurrent invocation may have already flipped the lot to resolved,
+				// in which case the repo's price_status='pending' guard returns ErrLotNotFound.
+				// Treat that as a successful no-op — the other caller won.
+				if errors.Is(err, ErrLotNotFound) {
+					continue
+				}
 				return err
 			}
 			hlog.Info("resolved pending lot",
