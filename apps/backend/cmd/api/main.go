@@ -313,8 +313,11 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Wire price fallback providers, backfill worker, and resolved hook (feature-flagged).
-	if os.Getenv("FEATURE_PRICE_FALLBACK") == "true" {
+	// Wire price fallback providers, backfill worker, and resolved hook.
+	// This pipeline is always-on — every sync that produces an unpriced asset
+	// enqueues a backfill job, and the worker resolves it from
+	// CoinGecko / GeckoTerminal / DefiLlama in priority order.
+	{
 		gtBaseURL := os.Getenv("GECKOTERMINAL_BASE_URL")
 		if gtBaseURL == "" {
 			gtBaseURL = "https://api.geckoterminal.com/api/v2"
