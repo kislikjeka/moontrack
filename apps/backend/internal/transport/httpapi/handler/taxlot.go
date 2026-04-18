@@ -93,6 +93,10 @@ type DisposalDetailResponse struct {
 	LotID            string `json:"lot_id"`
 	QuantityDisposed string `json:"quantity_disposed"`
 	ProceedsPerUnit  string `json:"proceeds_per_unit"`
+	// ProceedsStatus is "resolved", "pending" or "unpriceable". Clients
+	// should treat the disposal as having no proceeds-driven PnL unless
+	// ProceedsStatus == "resolved".
+	ProceedsStatus   string `json:"proceeds_status"`
 	DisposalType     string `json:"disposal_type"`
 	DisposedAt       string `json:"disposed_at"`
 	LotAsset         string `json:"lot_asset"`
@@ -100,6 +104,9 @@ type DisposalDetailResponse struct {
 	LotCostBasis     string `json:"lot_cost_basis_per_unit"`
 	LotAutoSource    string `json:"lot_auto_cost_basis_source"`
 	RealizedGainLoss string `json:"realized_gain_loss"`
+	// PnLExcluded is true when RealizedGainLoss is not meaningful (e.g.,
+	// the disposal is still pending price resolution).
+	PnLExcluded bool `json:"pnl_excluded"`
 }
 
 // --- Request types ---
@@ -301,11 +308,16 @@ func (h *TaxLotHandler) GetTransactionLots(w http.ResponseWriter, r *http.Reques
 	disposals := make([]DisposalDetailResponse, 0, len(impact.Disposals))
 	for _, d := range impact.Disposals {
 		decimals := h.resolveDecimals(r.Context(), d.LotAsset)
+		status := string(d.ProceedsStatus)
+		if status == "" {
+			status = "resolved"
+		}
 		disposals = append(disposals, DisposalDetailResponse{
 			ID:               d.ID.String(),
 			LotID:            d.LotID.String(),
 			QuantityDisposed: money.FromBaseUnits(d.QuantityDisposed, decimals),
 			ProceedsPerUnit:  money.FormatUSD(d.ProceedsPerUnit),
+			ProceedsStatus:   status,
 			DisposalType:     string(d.DisposalType),
 			DisposedAt:       d.DisposedAt.Format("2006-01-02T15:04:05Z07:00"),
 			LotAsset:         d.LotAsset,
@@ -313,6 +325,7 @@ func (h *TaxLotHandler) GetTransactionLots(w http.ResponseWriter, r *http.Reques
 			LotCostBasis:     money.FormatUSD(d.LotEffectiveCostBasisPerUnit),
 			LotAutoSource:    string(d.LotAutoSource),
 			RealizedGainLoss: money.FormatUSD(d.RealizedGainLoss),
+			PnLExcluded:      d.RealizedGainLoss == nil || status != "resolved",
 		})
 	}
 

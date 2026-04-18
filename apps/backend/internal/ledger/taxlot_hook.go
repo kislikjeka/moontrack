@@ -81,10 +81,12 @@ func NewTaxLotHook(repo TaxLotRepository, ledgerRepo Repository, log *logger.Log
 		// --- Process disposals ---
 		for _, d := range disposals {
 			dt := classifyDisposalType(tx, d.entry)
+			// When no USD rate is available, pass nil so DisposeFIFO records
+			// the disposal with proceeds_status='pending'. The PriceResolvedHook
+			// backfills proceeds_per_unit once the price is resolved. Previously
+			// this substituted 0, permanently freezing proceeds at $0 and
+			// corrupting PnL reads with no re-resolution path.
 			proceedsPerUnit := d.entry.USDRate
-			if proceedsPerUnit == nil {
-				proceedsPerUnit = big.NewInt(0)
-			}
 
 			lotDisposals, err := DisposeFIFO(
 				ctx, repo,

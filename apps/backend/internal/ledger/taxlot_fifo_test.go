@@ -165,6 +165,29 @@ func (m *mockTaxLotRepo) ResolvePendingPrice(_ context.Context, lotID uuid.UUID,
 	return ErrLotNotFound
 }
 
+func (m *mockTaxLotRepo) ResolvePendingDisposals(_ context.Context, assetID uuid.UUID, at time.Time, proceeds *big.Int) (int64, error) {
+	var updated int64
+	// Build a lotID -> asset UUID map if tests registered one; fall back
+	// to permissive matching when no mapping is registered.
+	for _, d := range m.disposals {
+		if d.ProceedsStatus != ProceedsStatusPending {
+			continue
+		}
+		// Scope by minute bucket.
+		if !d.DisposedAt.Truncate(time.Minute).Equal(at.Truncate(time.Minute)) {
+			continue
+		}
+		owner, ok := m.lotAssetIDs[d.LotID]
+		if ok && owner != assetID {
+			continue
+		}
+		d.ProceedsPerUnit = new(big.Int).Set(proceeds)
+		d.ProceedsStatus = ProceedsStatusResolved
+		updated++
+	}
+	return updated, nil
+}
+
 func (m *mockTaxLotRepo) MarkUnpriceable(_ context.Context, _ uuid.UUID) error {
 	return nil
 }

@@ -58,6 +58,13 @@ type TaxLotRepository interface {
 	// price_status to 'resolved'. Only affects rows where price_status='pending'.
 	ResolvePendingPrice(ctx context.Context, lotID uuid.UUID, autoCostBasisPerUnit *big.Int, autoSource CostBasisSource) error
 
+	// ResolvePendingDisposals sets proceeds_per_unit and transitions
+	// proceeds_status to 'resolved' for every disposal in the given minute
+	// bucket whose lot is scoped to the asset identified by assetID. Only
+	// affects rows with proceeds_status='pending'. Returns the number of
+	// rows updated so callers can report resolution progress.
+	ResolvePendingDisposals(ctx context.Context, assetID uuid.UUID, at time.Time, proceedsPerUnit *big.Int) (int64, error)
+
 	// MarkUnpriceable transitions price_status to 'unpriceable' for a pending lot.
 	MarkUnpriceable(ctx context.Context, lotID uuid.UUID) error
 

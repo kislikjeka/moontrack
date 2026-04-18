@@ -266,9 +266,23 @@ func (r *TaxLotRepository) CreateDisposal(ctx context.Context, d *ledger.LotDisp
 		INSERT INTO lot_disposals (
 			id, transaction_id, lot_id,
 			quantity_disposed, proceeds_per_unit, disposal_type,
-			disposed_at, created_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+			disposed_at, created_at, proceeds_status
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 	`
+
+	// Nullable *big.Int -> *string.
+	var proceeds *string
+	if d.ProceedsPerUnit != nil {
+		s := d.ProceedsPerUnit.String()
+		proceeds = &s
+	}
+
+	// Default to 'resolved' to preserve backwards compat when callers don't
+	// set the status explicitly (e.g., legacy tests).
+	status := d.ProceedsStatus
+	if status == "" {
+		status = ledger.ProceedsStatusResolved
+	}
 
 	q := r.getQueryer(ctx)
 	_, err := q.Exec(ctx, query,
@@ -276,10 +290,11 @@ func (r *TaxLotRepository) CreateDisposal(ctx context.Context, d *ledger.LotDisp
 		d.TransactionID,
 		d.LotID,
 		d.QuantityDisposed.String(),
-		d.ProceedsPerUnit.String(),
+		proceeds,
 		string(d.DisposalType),
 		d.DisposedAt,
 		d.CreatedAt,
+		string(status),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create disposal: %w", err)
@@ -292,7 +307,7 @@ func (r *TaxLotRepository) GetDisposalsByTransaction(ctx context.Context, txID u
 	query := `
 		SELECT id, transaction_id, lot_id,
 		       quantity_disposed, proceeds_per_unit, disposal_type,
-		       disposed_at, created_at
+		       disposed_at, created_at, proceeds_status
 		FROM lot_disposals
 		WHERE transaction_id = $1
 		ORDER BY created_at ASC
@@ -313,7 +328,7 @@ func (r *TaxLotRepository) GetDisposalsByLot(ctx context.Context, lotID uuid.UUI
 	query := `
 		SELECT id, transaction_id, lot_id,
 		       quantity_disposed, proceeds_per_unit, disposal_type,
-		       disposed_at, created_at
+		       disposed_at, created_at, proceeds_status
 		FROM lot_disposals
 		WHERE lot_id = $1
 		ORDER BY created_at ASC
@@ -653,6 +668,44 @@ func (r *TaxLotRepository) ResolvePendingPrice(ctx context.Context, lotID uuid.U
 	return nil
 }
 
+// ResolvePendingDisposals sets proceeds_per_unit and transitions
+// proceeds_status='resolved' for every pending disposal in the minute bucket
+// containing at, scoped to the given asset UUID (via the lot -> account ->
+// asset chain). Returns the number of rows updated.
+//
+// Uses IS NOT DISTINCT FROM for chain_id comparison so chain-less assets match
+// chain-less accounts.
+func (r *TaxLotRepository) ResolvePendingDisposals(ctx context.Context, assetID uuid.UUID, at time.Time, proceedsPerUnit *big.Int) (int64, error) {
+	if proceedsPerUnit == nil {
+		return 0, fmt.Errorf("ResolvePendingDisposals: nil proceedsPerUnit")
+	}
+
+	minStart := at.UTC().Truncate(time.Minute)
+	minEnd := minStart.Add(time.Minute)
+
+	query := `
+		UPDATE lot_disposals ld
+		SET proceeds_per_unit = $1,
+		    proceeds_status = 'resolved'
+		FROM tax_lots tl, accounts acc, assets ass
+		WHERE ld.lot_id = tl.id
+		  AND tl.account_id = acc.id
+		  AND ass.symbol = tl.asset
+		  AND ass.chain_id IS NOT DISTINCT FROM acc.chain_id
+		  AND ass.id = $2
+		  AND ld.proceeds_status = 'pending'
+		  AND ld.disposed_at >= $3
+		  AND ld.disposed_at < $4
+	`
+
+	q := r.getQueryer(ctx)
+	tag, err := q.Exec(ctx, query, proceedsPerUnit.String(), assetID, minStart, minEnd)
+	if err != nil {
+		return 0, fmt.Errorf("resolve pending disposals: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // MarkUnpriceable transitions price_status to 'unpriceable' for a pending lot.
 func (r *TaxLotRepository) MarkUnpriceable(ctx context.Context, lotID uuid.UUID) error {
 	query := `
@@ -854,7 +907,9 @@ func (r *TaxLotRepository) collectTaxLots(rows pgx.Rows) ([]*ledger.TaxLot, erro
 // scanDisposal scans a single lot disposal from a pgx.Row.
 func (r *TaxLotRepository) scanDisposal(row pgx.Row) (*ledger.LotDisposal, error) {
 	var d ledger.LotDisposal
-	var qtyDisposedStr, proceedsStr string
+	var qtyDisposedStr string
+	var proceedsStr sql.NullString // nullable since migration 000026
+	var proceedsStatus string
 
 	err := row.Scan(
 		&d.ID,
@@ -865,6 +920,7 @@ func (r *TaxLotRepository) scanDisposal(row pgx.Row) (*ledger.LotDisposal, error
 		&d.DisposalType,
 		&d.DisposedAt,
 		&d.CreatedAt,
+		&proceedsStatus,
 	)
 	if err != nil {
 		return nil, err
@@ -876,11 +932,17 @@ func (r *TaxLotRepository) scanDisposal(row pgx.Row) (*ledger.LotDisposal, error
 	}
 	d.QuantityDisposed = qtyDisposed
 
-	proceeds, ok := new(big.Int).SetString(proceedsStr, 10)
-	if !ok {
-		return nil, fmt.Errorf("failed to parse proceeds_per_unit: %s", proceedsStr)
+	if proceedsStr.Valid {
+		proceeds, ok := new(big.Int).SetString(proceedsStr.String, 10)
+		if !ok {
+			return nil, fmt.Errorf("failed to parse proceeds_per_unit: %s", proceedsStr.String)
+		}
+		d.ProceedsPerUnit = proceeds
+	} else {
+		d.ProceedsPerUnit = nil
 	}
-	d.ProceedsPerUnit = proceeds
+
+	d.ProceedsStatus = ledger.ProceedsStatus(proceedsStatus)
 
 	return &d, nil
 }

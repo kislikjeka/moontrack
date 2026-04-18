@@ -37,6 +37,15 @@ func DisposeFIFO(
 
 	var disposals []*LotDisposal
 
+	// Capture proceeds status once: if the caller passed nil we record the
+	// disposal as pending and let the PriceResolvedHook backfill it later.
+	var proceedsStatus ProceedsStatus
+	if proceedsPerUnit == nil {
+		proceedsStatus = ProceedsStatusPending
+	} else {
+		proceedsStatus = ProceedsStatusResolved
+	}
+
 	for _, lot := range lots {
 		if remaining.Sign() <= 0 {
 			break
@@ -50,12 +59,18 @@ func DisposeFIFO(
 			disposeQty.Set(remaining)
 		}
 
+		var proceedsCopy *big.Int
+		if proceedsPerUnit != nil {
+			proceedsCopy = new(big.Int).Set(proceedsPerUnit)
+		}
+
 		disposal := &LotDisposal{
 			ID:               uuid.New(),
 			TransactionID:    transactionID,
 			LotID:            lot.ID,
 			QuantityDisposed: disposeQty,
-			ProceedsPerUnit:  new(big.Int).Set(proceedsPerUnit),
+			ProceedsPerUnit:  proceedsCopy,
+			ProceedsStatus:   proceedsStatus,
 			DisposalType:     disposalType,
 			DisposedAt:       disposedAt,
 			CreatedAt:        time.Now(),

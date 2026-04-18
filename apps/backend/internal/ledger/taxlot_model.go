@@ -84,16 +84,34 @@ func (l *TaxLot) IsOpen() bool {
 	return l.QuantityRemaining != nil && l.QuantityRemaining.Sign() > 0
 }
 
+// ProceedsStatus describes the resolution state of a disposal's proceeds_per_unit.
+type ProceedsStatus string
+
+const (
+	// ProceedsStatusResolved means proceeds_per_unit is a known USD rate.
+	ProceedsStatusResolved ProceedsStatus = "resolved"
+	// ProceedsStatusPending means no price was available at disposal time;
+	// the price-backfill worker will fill it in asynchronously.
+	ProceedsStatusPending ProceedsStatus = "pending"
+	// ProceedsStatusUnpriceable means all attempts to resolve the price
+	// have been exhausted.
+	ProceedsStatusUnpriceable ProceedsStatus = "unpriceable"
+)
+
 // LotDisposal records the consumption of a tax lot during a disposal event.
 type LotDisposal struct {
 	ID               uuid.UUID
 	TransactionID    uuid.UUID
 	LotID            uuid.UUID
 	QuantityDisposed *big.Int
-	ProceedsPerUnit  *big.Int // USD rate scaled 10^8
-	DisposalType     DisposalType
-	DisposedAt       time.Time
-	CreatedAt        time.Time
+	// ProceedsPerUnit is the USD rate scaled 10^8. It may be nil while the
+	// disposal is in ProceedsStatusPending — callers performing PnL must
+	// check ProceedsStatus and skip unresolved disposals.
+	ProceedsPerUnit *big.Int
+	ProceedsStatus  ProceedsStatus
+	DisposalType    DisposalType
+	DisposedAt      time.Time
+	CreatedAt       time.Time
 }
 
 // PositionWAC represents the weighted average cost for an (account, asset) position.

@@ -237,8 +237,11 @@ func (s *Service) GetLotImpactByTransaction(ctx context.Context, userID, txID uu
 		}
 
 		// Compute realized gain/loss: (proceeds - cost) * qty / 10^decimals
-		// Both prices are USD scaled 10^8, qty is in base units, result is USD scaled 10^8
-		if d.ProceedsPerUnit != nil && lot.EffectiveCostBasisPerUnit() != nil {
+		// Both prices are USD scaled 10^8, qty is in base units, result is USD scaled 10^8.
+		// Skip pending disposals — their proceeds are still unresolved and
+		// reporting a PnL of (0 - cost) would be wrong.
+		proceedsResolved := d.ProceedsPerUnit != nil && d.ProceedsStatus != ledger.ProceedsStatusPending
+		if proceedsResolved && lot.EffectiveCostBasisPerUnit() != nil {
 			decimals := money.GetDecimals(lot.Asset)
 			priceDiff := new(big.Int).Sub(d.ProceedsPerUnit, lot.EffectiveCostBasisPerUnit())
 			gainLoss := new(big.Int).Mul(priceDiff, d.QuantityDisposed)

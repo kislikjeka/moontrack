@@ -80,6 +80,66 @@ func TestTaxLotHook_CreatesPendingLot(t *testing.T) {
 	}
 }
 
+// TestTaxLotHook_DisposalWithoutRate_CreatesPendingDisposal verifies that when
+// an asset is disposed of without a USD rate on the ledger entry, the hook
+// creates a LotDisposal with ProceedsStatus=pending and ProceedsPerUnit=nil
+// instead of silently freezing proceeds at $0.
+func TestTaxLotHook_DisposalWithoutRate_CreatesPendingDisposal(t *testing.T) {
+	walletAcctID := uuid.New()
+	expenseAcctID := uuid.New()
+
+	// Pre-seed a lot on the wallet.
+	existingLot := &TaxLot{
+		ID:                   uuid.New(),
+		TransactionID:        uuid.New(),
+		AccountID:            walletAcctID,
+		Asset:                "ETH",
+		QuantityAcquired:     big.NewInt(1000),
+		QuantityRemaining:    big.NewInt(1000),
+		AcquiredAt:           time.Now().Add(-time.Hour),
+		AutoCostBasisPerUnit: big.NewInt(100_000_000),
+		AutoCostBasisSource:  CostBasisFMVAtTransfer,
+		PriceStatus:          PriceStatusResolved,
+		CreatedAt:            time.Now(),
+	}
+
+	taxLotRepo := &mockTaxLotRepo{lots: []*TaxLot{existingLot}}
+	ledgerRepo := &mockLedgerRepo{accounts: map[uuid.UUID]*Account{
+		walletAcctID:  walletAccount(walletAcctID),
+		expenseAcctID: expenseAccount(expenseAcctID),
+	}}
+
+	hook := NewTaxLotHook(taxLotRepo, ledgerRepo, newTestLogger())
+
+	tx := &Transaction{
+		ID:   uuid.New(),
+		Type: TxTypeTransferOut,
+		Entries: []*Entry{
+			makeEntryNilRate(expenseAcctID, Debit, EntryTypeExpense, 500, "ETH"),
+			makeEntryNilRate(walletAcctID, Credit, EntryTypeAssetDecrease, 500, "ETH"),
+		},
+	}
+
+	if err := hook(context.Background(), tx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(taxLotRepo.disposals) != 1 {
+		t.Fatalf("expected 1 disposal, got %d", len(taxLotRepo.disposals))
+	}
+	d := taxLotRepo.disposals[0]
+
+	if d.ProceedsPerUnit != nil {
+		t.Errorf("expected nil ProceedsPerUnit for pending disposal, got %s", d.ProceedsPerUnit)
+	}
+	if d.ProceedsStatus != ProceedsStatusPending {
+		t.Errorf("expected ProceedsStatus %q, got %q", ProceedsStatusPending, d.ProceedsStatus)
+	}
+	if d.QuantityDisposed.Cmp(big.NewInt(500)) != 0 {
+		t.Errorf("expected QuantityDisposed 500, got %s", d.QuantityDisposed)
+	}
+}
+
 // TestWeightedAvgCostBasis_SkipsPendingLots verifies that when weightedAvgCostBasis
 // encounters a disposal consuming a pending source lot (EffectiveCostBasisPerUnit()
 // returns nil), it does not panic on Mul(nil, ...) and computes the WAC from the

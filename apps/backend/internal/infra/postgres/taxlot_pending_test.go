@@ -168,6 +168,88 @@ func TestTaxLotRepo_IncrementAttempt(t *testing.T) {
 	require.WithinDuration(t, nextRetry, *fetched.PriceNextRetryAt, time.Second)
 }
 
+// TestTaxLotRepo_ResolvePendingDisposals verifies end-to-end that:
+//  1. CreateDisposal accepts a nil ProceedsPerUnit with ProceedsStatusPending.
+//  2. ResolvePendingDisposals fills in proceeds_per_unit and flips the status,
+//     scoped by the asset UUID so cross-chain collisions cannot leak.
+func TestTaxLotRepo_ResolvePendingDisposals(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	ctx := context.Background()
+	require.NoError(t, testDB.Reset(ctx))
+
+	repo := NewTaxLotRepository(testDB.Pool)
+	_, walletID := seedUserAndWallet(t, ctx)
+
+	// Create an asset row that matches the seeded account's (symbol, chain_id)
+	// so ResolvePendingDisposals can resolve via the JOIN.
+	assetID := uuid.New()
+	_, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO assets (id, symbol, name, coingecko_id, decimals, asset_type, chain_id)
+		VALUES ($1, 'TKN', 'Token', NULL, 8, 'crypto', NULL)
+	`, assetID)
+	require.NoError(t, err)
+
+	// Seed a lot the disposal can reference.
+	accountID := seedAccountForPendingTest(t, ctx, walletID, "TKN")
+	txID := seedTransactionForPendingTest(t, ctx, walletID)
+
+	lot := &ledger.TaxLot{
+		ID:                   uuid.New(),
+		TransactionID:        txID,
+		AccountID:            accountID,
+		Asset:                "TKN",
+		QuantityAcquired:     big.NewInt(1_000),
+		QuantityRemaining:    big.NewInt(500),
+		AcquiredAt:           time.Now().UTC().Add(-time.Hour),
+		AutoCostBasisPerUnit: big.NewInt(50_000_000),
+		AutoCostBasisSource:  ledger.CostBasisFMVAtTransfer,
+		PriceStatus:          ledger.PriceStatusResolved,
+		CreatedAt:            time.Now().UTC(),
+	}
+	require.NoError(t, repo.CreateTaxLot(ctx, lot))
+
+	disposedAt := time.Now().UTC().Truncate(time.Minute)
+	disposal := &ledger.LotDisposal{
+		ID:               uuid.New(),
+		TransactionID:    txID,
+		LotID:            lot.ID,
+		QuantityDisposed: big.NewInt(500),
+		ProceedsPerUnit:  nil, // pending — no price at disposal time
+		ProceedsStatus:   ledger.ProceedsStatusPending,
+		DisposalType:     ledger.DisposalTypeSale,
+		DisposedAt:       disposedAt,
+		CreatedAt:        time.Now().UTC(),
+	}
+	require.NoError(t, repo.CreateDisposal(ctx, disposal))
+
+	// Before resolution — the fetched disposal must have nil proceeds and pending status.
+	fetched, err := repo.GetDisposalsByTransaction(ctx, txID)
+	require.NoError(t, err)
+	require.Len(t, fetched, 1)
+	require.Nil(t, fetched[0].ProceedsPerUnit)
+	require.Equal(t, ledger.ProceedsStatusPending, fetched[0].ProceedsStatus)
+
+	// Resolve.
+	n, err := repo.ResolvePendingDisposals(ctx, assetID, disposedAt, big.NewInt(75_000_000))
+	require.NoError(t, err)
+	require.Equal(t, int64(1), n)
+
+	// After resolution.
+	fetched, err = repo.GetDisposalsByTransaction(ctx, txID)
+	require.NoError(t, err)
+	require.Len(t, fetched, 1)
+	require.NotNil(t, fetched[0].ProceedsPerUnit)
+	require.Equal(t, "75000000", fetched[0].ProceedsPerUnit.String())
+	require.Equal(t, ledger.ProceedsStatusResolved, fetched[0].ProceedsStatus)
+
+	// A second call is a no-op (no pending disposals left).
+	n, err = repo.ResolvePendingDisposals(ctx, assetID, disposedAt, big.NewInt(123))
+	require.NoError(t, err)
+	require.Equal(t, int64(0), n)
+}
+
 // TestTaxLotRepo_ClearOverride_RefusesWhenAutoIsNull verifies that clearing an
 // override on a lot whose auto_cost_basis_per_unit is NULL returns
 // ErrCannotClearOverrideOnPendingAuto (instead of silently leaving the lot

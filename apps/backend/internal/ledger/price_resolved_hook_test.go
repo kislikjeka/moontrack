@@ -96,6 +96,65 @@ func TestPriceResolvedHook_NoMatchingLots(t *testing.T) {
 	}
 }
 
+// TestPriceResolvedHook_ResolvesPendingDisposals verifies that when a disposal
+// was created without a USD rate (proceeds_status='pending'), the hook fills in
+// proceeds_per_unit and flips it to 'resolved' after the price is known.
+func TestPriceResolvedHook_ResolvesPendingDisposals(t *testing.T) {
+	ctx := context.Background()
+	at := time.Now().UTC().Truncate(time.Minute)
+
+	assetID := uuid.New()
+
+	// Seed a lot the disposal references.
+	lot := &TaxLot{
+		ID:                   uuid.New(),
+		TransactionID:        uuid.New(),
+		AccountID:            uuid.New(),
+		Asset:                "TOKEN",
+		QuantityAcquired:     big.NewInt(1000),
+		QuantityRemaining:    big.NewInt(500),
+		AcquiredAt:           at.Add(-time.Hour),
+		AutoCostBasisPerUnit: big.NewInt(50_000_000),
+		AutoCostBasisSource:  CostBasisFMVAtTransfer,
+		PriceStatus:          PriceStatusResolved,
+		CreatedAt:            time.Now(),
+	}
+
+	pendingDisposal := &LotDisposal{
+		ID:               uuid.New(),
+		TransactionID:    uuid.New(),
+		LotID:            lot.ID,
+		QuantityDisposed: big.NewInt(500),
+		ProceedsPerUnit:  nil,
+		ProceedsStatus:   ProceedsStatusPending,
+		DisposalType:     DisposalTypeSale,
+		DisposedAt:       at,
+		CreatedAt:        time.Now(),
+	}
+
+	repo := &mockTaxLotRepo{
+		lots:        []*TaxLot{lot},
+		disposals:   []*LotDisposal{pendingDisposal},
+		lotAssetIDs: map[uuid.UUID]uuid.UUID{lot.ID: assetID},
+	}
+	hook := NewPriceResolvedHook(repo, newTestLogger())
+
+	price := big.NewInt(200_000_000) // $2
+	if err := hook(ctx, assetID, at, price, CostBasisFMVAtTransfer); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if pendingDisposal.ProceedsStatus != ProceedsStatusResolved {
+		t.Errorf("expected disposal to be resolved, got %q", pendingDisposal.ProceedsStatus)
+	}
+	if pendingDisposal.ProceedsPerUnit == nil {
+		t.Fatal("expected ProceedsPerUnit to be populated after resolution")
+	}
+	if pendingDisposal.ProceedsPerUnit.Cmp(price) != 0 {
+		t.Errorf("expected ProceedsPerUnit %s, got %s", price, pendingDisposal.ProceedsPerUnit)
+	}
+}
+
 // TestPriceResolvedHook_OnlyTouchesLotsForAssetID verifies that when two pending
 // lots share a symbol but map to different asset UUIDs (same token on two
 // chains, e.g. USDT on Ethereum vs USDT on BNB), the hook only resolves the
