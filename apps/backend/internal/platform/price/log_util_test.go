@@ -56,3 +56,46 @@ func TestSanitizeLogField_Empty(t *testing.T) {
 		t.Fatal("expected empty input to pass through")
 	}
 }
+
+// TestSanitizeLogField_StripsUTF8LineSeparators verifies that the Unicode
+// line separators that pass through a pure ASCII-byte filter (and would
+// otherwise let a malicious provider forge log lines in JSON parsers that
+// treat them as line breaks) are stripped.
+func TestSanitizeLogField_StripsUTF8LineSeparators(t *testing.T) {
+	cases := map[string]string{
+		"U+2028 LINE SEPARATOR":      "malicious\u2028injected",
+		"U+2029 PARAGRAPH SEPARATOR": "oops\u2029line2",
+		"U+0085 NEL":                 "look\u0085line2",
+		"U+007F DEL":                 "zap\u007fchar",
+		"U+0099 C1 control":          "hi\u0099ctrl",
+	}
+	for name, in := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := sanitizeLogField(in)
+			for _, r := range got {
+				if r == 0x2028 || r == 0x2029 || r == 0x85 || r == 0x7F || (r >= 0x80 && r < 0xA0) {
+					t.Fatalf("%s: forbidden rune U+%04X left in %q", name, r, got)
+				}
+			}
+		})
+	}
+}
+
+// TestSanitizeLogField_PreservesSafeUnicode verifies non-control Unicode
+// (Cyrillic, CJK, emoji) is NOT stripped — only the genuinely dangerous
+// line-separating and control runes are.
+func TestSanitizeLogField_PreservesSafeUnicode(t *testing.T) {
+	in := "приветmir世界🌍"
+	got := sanitizeLogField(in)
+	if got != in {
+		t.Fatalf("expected %q preserved, got %q", in, got)
+	}
+}
+
+// TestSanitizeLogField_Exported verifies the public alias is equivalent.
+func TestSanitizeLogField_Exported(t *testing.T) {
+	in := "ok\u2028bad"
+	if sanitizeLogField(in) != SanitizeLogField(in) {
+		t.Fatal("exported SanitizeLogField should equal sanitizeLogField")
+	}
+}

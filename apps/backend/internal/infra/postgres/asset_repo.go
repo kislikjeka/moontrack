@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -64,20 +65,41 @@ func normalizeContractAddress(chainID, addr string) (string, error) {
 	return addr, nil
 }
 
-// sanitizeProviderField strips ASCII control bytes and caps the length.
-// Symbols and names from 3rd-party providers are attacker-influenced.
+// sanitizeProviderField strips control / line-separating runes and caps the
+// length. Symbols and names from 3rd-party providers are attacker-influenced,
+// so in addition to the historical ASCII-control handling we also strip
+// UTF-8 line separators (U+2028, U+2029), NEL (U+0085), DEL (U+007F) and
+// C1 controls (0x80..0x9F) — all of which can forge log lines when the
+// value is emitted into a structured log.
+//
+// We walk the input rune-by-rune (via utf8.DecodeRuneInString) rather than
+// byte-by-byte so multi-byte line separators are actually recognized. The
+// cap is applied byte-wise but snapped to a rune boundary so a truncated
+// tail never leaves a dangling partial sequence.
 func sanitizeProviderField(s string, maxLen int) string {
 	if len(s) > maxLen {
-		s = s[:maxLen]
+		cut := maxLen
+		for cut > 0 && cut < len(s) && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+		s = s[:cut]
 	}
 	b := make([]byte, 0, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == '\r' || c == '\n' || c < 0x20 {
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		switch {
+		case r == utf8.RuneError && size <= 1:
 			b = append(b, ' ')
-		} else {
-			b = append(b, c)
+		case r < 0x20, // C0 controls incl. \t, \n, \r
+			r == 0x7F,                   // DEL
+			r == 0x85,                   // NEL
+			r >= 0x80 && r < 0xA0,       // C1 controls
+			r == 0x2028, r == 0x2029:    // LINE/PARAGRAPH SEPARATOR
+			b = append(b, ' ')
+		default:
+			b = utf8.AppendRune(b, r)
 		}
+		i += size
 	}
 	return string(b)
 }

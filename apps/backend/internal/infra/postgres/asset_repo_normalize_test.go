@@ -105,6 +105,41 @@ func TestSanitizeProviderField_CapsAndStripsControl(t *testing.T) {
 	}
 }
 
+// TestSanitizeProviderField_StripsUTF8LineSeparators verifies UTF-8 line
+// separators (U+2028, U+2029), NEL (U+0085), DEL (U+007F), and C1 controls
+// are all stripped. These bytes pass through a naive byte-wise control
+// filter and can forge log lines in downstream JSON parsers.
+func TestSanitizeProviderField_StripsUTF8LineSeparators(t *testing.T) {
+	cases := map[string]string{
+		"U+2028": "malicious\u2028injected",
+		"U+2029": "oops\u2029line2",
+		"U+0085": "look\u0085line2",
+		"U+007F": "zap\u007fchar",
+		"U+0099": "hi\u0099ctrl",
+	}
+	for name, in := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := sanitizeProviderField(in, 500)
+			for _, r := range got {
+				if r == 0x2028 || r == 0x2029 || r == 0x85 || r == 0x7F || (r >= 0x80 && r < 0xA0) {
+					t.Fatalf("%s: forbidden rune U+%04X left in %q", name, r, got)
+				}
+			}
+		})
+	}
+}
+
+// TestSanitizeProviderField_PreservesSafeUnicode guards against regression:
+// non-control Unicode (Cyrillic, CJK, emoji) must not be stripped so that
+// legitimate provider-supplied symbol/name values continue to round-trip.
+func TestSanitizeProviderField_PreservesSafeUnicode(t *testing.T) {
+	in := "привет世界🌍"
+	got := sanitizeProviderField(in, 500)
+	if got != in {
+		t.Fatalf("expected %q preserved, got %q", in, got)
+	}
+}
+
 func TestSanitizeProviderField_Truncate10kSymbol(t *testing.T) {
 	in := strings.Repeat("A", 10000)
 	got := sanitizeProviderField(in, symbolCapBytes)
