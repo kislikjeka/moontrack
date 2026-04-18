@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/big"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,21 +12,36 @@ import (
 )
 
 // mockTaxLotRepo is a simple in-memory mock of TaxLotRepository for FIFO tests.
+//
+// The `mu` mutex guards all reads and writes so the mock is safe to use from
+// tests that exercise concurrency (e.g. PriceResolvedHook contention).
 type mockTaxLotRepo struct {
+	mu        sync.Mutex
 	lots      []*TaxLot
 	disposals []*LotDisposal
 
 	// lotAssetIDs optionally associates a lot with a concrete asset UUID.
 	// Used by PriceResolvedHook tests that exercise the UUID-keyed variant.
 	lotAssetIDs map[uuid.UUID]uuid.UUID
+
+	// failResolveOn lets tests inject a deterministic error on the Nth
+	// call (1-indexed) to ResolvePendingPrice. Zero means never fail.
+	failResolveOn   int
+	resolveCalls    int
+	failResolveErr  error
+	resolveCallback func(lotID uuid.UUID)
 }
 
 func (m *mockTaxLotRepo) CreateTaxLot(_ context.Context, lot *TaxLot) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.lots = append(m.lots, lot)
 	return nil
 }
 
 func (m *mockTaxLotRepo) GetTaxLot(_ context.Context, id uuid.UUID) (*TaxLot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, l := range m.lots {
 		if l.ID == id {
 			return l, nil
@@ -35,6 +51,8 @@ func (m *mockTaxLotRepo) GetTaxLot(_ context.Context, id uuid.UUID) (*TaxLot, er
 }
 
 func (m *mockTaxLotRepo) GetTaxLotForUpdate(_ context.Context, id uuid.UUID) (*TaxLot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, l := range m.lots {
 		if l.ID == id {
 			return l, nil
@@ -44,6 +62,8 @@ func (m *mockTaxLotRepo) GetTaxLotForUpdate(_ context.Context, id uuid.UUID) (*T
 }
 
 func (m *mockTaxLotRepo) GetOpenLotsFIFO(_ context.Context, accountID uuid.UUID, asset string) ([]*TaxLot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var open []*TaxLot
 	for _, l := range m.lots {
 		if l.AccountID == accountID && l.Asset == asset && l.IsOpen() {
@@ -57,6 +77,8 @@ func (m *mockTaxLotRepo) GetOpenLotsFIFO(_ context.Context, accountID uuid.UUID,
 }
 
 func (m *mockTaxLotRepo) UpdateLotRemaining(_ context.Context, lotID uuid.UUID, newRemaining *big.Int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, l := range m.lots {
 		if l.ID == lotID {
 			l.QuantityRemaining = new(big.Int).Set(newRemaining)
@@ -67,10 +89,14 @@ func (m *mockTaxLotRepo) UpdateLotRemaining(_ context.Context, lotID uuid.UUID, 
 }
 
 func (m *mockTaxLotRepo) GetLotsByAccount(_ context.Context, _ uuid.UUID, _ string) ([]*TaxLot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return nil, nil
 }
 
 func (m *mockTaxLotRepo) GetLotsByTransaction(_ context.Context, txID uuid.UUID) ([]*TaxLot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var result []*TaxLot
 	for _, l := range m.lots {
 		if l.TransactionID == txID {
@@ -81,43 +107,63 @@ func (m *mockTaxLotRepo) GetLotsByTransaction(_ context.Context, txID uuid.UUID)
 }
 
 func (m *mockTaxLotRepo) CreateDisposal(_ context.Context, disposal *LotDisposal) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.disposals = append(m.disposals, disposal)
 	return nil
 }
 
 func (m *mockTaxLotRepo) GetDisposalsByTransaction(_ context.Context, _ uuid.UUID) ([]*LotDisposal, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return nil, nil
 }
 
 func (m *mockTaxLotRepo) GetDisposalsByLot(_ context.Context, _ uuid.UUID) ([]*LotDisposal, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return nil, nil
 }
 
 func (m *mockTaxLotRepo) UpdateOverride(_ context.Context, _ uuid.UUID, _ *big.Int, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return nil
 }
 
 func (m *mockTaxLotRepo) ClearOverride(_ context.Context, _ uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return nil
 }
 
 func (m *mockTaxLotRepo) CreateOverrideHistory(_ context.Context, _ *LotOverrideHistory) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return nil
 }
 
 func (m *mockTaxLotRepo) GetOverrideHistory(_ context.Context, _ uuid.UUID) ([]*LotOverrideHistory, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return nil, nil
 }
 
 func (m *mockTaxLotRepo) RefreshWAC(_ context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return nil
 }
 
 func (m *mockTaxLotRepo) GetWAC(_ context.Context, _ []uuid.UUID) ([]*PositionWAC, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return nil, nil
 }
 
 func (m *mockTaxLotRepo) ListPendingLotsByAssetAndTime(_ context.Context, asset string, at time.Time) ([]*TaxLot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var result []*TaxLot
 	for _, l := range m.lots {
 		if l.Asset == asset && l.PriceStatus == PriceStatusPending &&
@@ -132,6 +178,8 @@ func (m *mockTaxLotRepo) ListPendingLotsByAssetAndTime(_ context.Context, asset 
 // when lot.AccountID's first byte matches a mock marker, treat this as the
 // owning asset UUID. Tests drive the mapping directly via lotAssetIDs.
 func (m *mockTaxLotRepo) ListPendingLotsByAssetIDAndTime(_ context.Context, assetID uuid.UUID, at time.Time) ([]*TaxLot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var result []*TaxLot
 	for _, l := range m.lots {
 		owner, ok := m.lotAssetIDs[l.ID]
@@ -154,6 +202,19 @@ func (m *mockTaxLotRepo) ListPendingLotsByAssetIDAndTime(_ context.Context, asse
 }
 
 func (m *mockTaxLotRepo) ResolvePendingPrice(_ context.Context, lotID uuid.UUID, autoCostBasisPerUnit *big.Int, autoSource CostBasisSource) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.resolveCalls++
+	if m.failResolveOn > 0 && m.resolveCalls == m.failResolveOn {
+		err := m.failResolveErr
+		if err == nil {
+			err = ErrLotNotFound
+		}
+		return err
+	}
+	if m.resolveCallback != nil {
+		m.resolveCallback(lotID)
+	}
 	for _, l := range m.lots {
 		if l.ID == lotID && l.PriceStatus == PriceStatusPending {
 			l.AutoCostBasisPerUnit = new(big.Int).Set(autoCostBasisPerUnit)
@@ -166,6 +227,8 @@ func (m *mockTaxLotRepo) ResolvePendingPrice(_ context.Context, lotID uuid.UUID,
 }
 
 func (m *mockTaxLotRepo) ResolvePendingDisposals(_ context.Context, assetID uuid.UUID, at time.Time, proceeds *big.Int) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var updated int64
 	// Build a lotID -> asset UUID map if tests registered one; fall back
 	// to permissive matching when no mapping is registered.
@@ -189,18 +252,26 @@ func (m *mockTaxLotRepo) ResolvePendingDisposals(_ context.Context, assetID uuid
 }
 
 func (m *mockTaxLotRepo) MarkUnpriceable(_ context.Context, _ uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return nil
 }
 
 func (m *mockTaxLotRepo) MarkResolved(_ context.Context, _ uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return nil
 }
 
 func (m *mockTaxLotRepo) IncrementAttempt(_ context.Context, _ uuid.UUID, _ int, _ time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return nil
 }
 
 func (m *mockTaxLotRepo) CountLotsByPriceStatus(_ context.Context, _ uuid.UUID) (int, int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return 0, 0, nil
 }
 
