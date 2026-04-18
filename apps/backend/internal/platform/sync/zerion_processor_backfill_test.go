@@ -2,6 +2,7 @@ package sync_test
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"os"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/platform/asset"
 	"github.com/kislikjeka/moontrack/internal/platform/price"
 	"github.com/kislikjeka/moontrack/internal/platform/sync"
+	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
@@ -26,6 +28,8 @@ import (
 type fakeAssetUpserter struct {
 	calls []assetUpsertCall
 	asset *asset.Asset
+	// err, when set, is returned from UpsertByOnChainIdentity with asset=nil.
+	err error
 }
 
 type assetUpsertCall struct {
@@ -36,6 +40,9 @@ type assetUpsertCall struct {
 
 func (f *fakeAssetUpserter) UpsertByOnChainIdentity(ctx context.Context, chainID, contractAddress, symbol, name string, decimals int) (*asset.Asset, bool, error) {
 	f.calls = append(f.calls, assetUpsertCall{chainID: chainID, contractAddress: contractAddress, symbol: symbol})
+	if f.err != nil {
+		return nil, false, f.err
+	}
 	return f.asset, true, nil
 }
 
@@ -214,4 +221,232 @@ func TestZerionProcessor_MissingPrice_NativeToken(t *testing.T) {
 	// No upsert/enqueue for native tokens without contract address
 	assert.Len(t, upsert.calls, 0, "UpsertByOnChainIdentity should NOT be called for native coins")
 	assert.Len(t, enqueuer.calls, 0, "Enqueue should NOT be called for native coins")
+}
+
+// TestZerionProcessor_OutgoingOnly_MissingPrice_EnqueuesJob verifies that a
+// standalone transfer_out of an unpriced token (no matching incoming transfer)
+// still enqueues a price-backfill job. Prior to the fix, the enqueue lived
+// only in buildSingleTransfer (used by swaps) — standalone transfer_out went
+// through buildTransferOutData and dropped the job, so the pending disposal
+// was stuck at proceeds_status='pending' indefinitely.
+func TestZerionProcessor_OutgoingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
+	ctx := context.Background()
+	log := logger.New("test", os.Stdout)
+
+	assetID := uuid.New()
+	contractAddr := "0xbad1234567890123456789012345678901234567"
+	txTime := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
+
+	upsert := &fakeAssetUpserter{
+		asset: &asset.Asset{ID: assetID, Symbol: "BAD", Name: "Bad Token"},
+	}
+	enqueuer := &fakeJobEnqueuer{}
+
+	walletRepo := new(MockWalletRepository)
+	ledgerSvc := new(MockLedgerService)
+
+	// detectInternalTransfer calls GetWalletsByAddressAndUserID for the
+	// counterparty to see if it belongs to the same user. Return empty so
+	// it's treated as an external transfer.
+	walletRepo.On("GetWalletsByAddressAndUserID", ctx, mock.Anything, mock.Anything).
+		Return([]*wallet.Wallet{}, nil)
+
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferOut, "zerion",
+		mock.Anything, mock.Anything, mock.Anything).
+		Return(&ledger.Transaction{ID: uuid.New()}, nil)
+
+	processor := sync.NewZerionProcessor(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
+	userID := uuid.New()
+	walletAddr := "0x1111111111111111111111111111111111111111"
+	w := newTestWallet(userID, walletAddr)
+
+	// Outgoing-only: one OUT transfer, no matching IN transfer.
+	tx := sync.DecodedTransaction{
+		ID:            "zerion-tx-out-only-nopri",
+		TxHash:        "0xdeadbeef3",
+		ChainID:       "ethereum",
+		OperationType: sync.OpSend, // classifies to TransferOut
+		Transfers: []sync.DecodedTransfer{
+			{
+				AssetSymbol:     "BAD",
+				ContractAddress: contractAddr,
+				Decimals:        18,
+				Amount:          big.NewInt(5000000000000000000),
+				Direction:       sync.DirectionOut,
+				Sender:          walletAddr,
+				Recipient:       "0xcounterparty",
+				USDPrice:        nil, // no price
+			},
+		},
+		MinedAt: txTime,
+		Status:  "confirmed",
+	}
+
+	_, err := processor.ProcessTransaction(ctx, w, tx)
+	require.NoError(t, err)
+
+	// Upsert must fire so the asset lands in the assets table.
+	require.Len(t, upsert.calls, 1, "UpsertByOnChainIdentity should be called for outgoing unpriced transfer")
+	assert.Equal(t, "ethereum", upsert.calls[0].chainID)
+	assert.Equal(t, contractAddr, upsert.calls[0].contractAddress)
+	assert.Equal(t, "BAD", upsert.calls[0].symbol)
+
+	// Enqueue must fire with the resolved asset UUID and the tx timestamp.
+	require.Len(t, enqueuer.calls, 1, "Enqueue should be called for outgoing unpriced transfer")
+	assert.Equal(t, assetID, enqueuer.calls[0].assetID)
+	assert.Equal(t, txTime, enqueuer.calls[0].targetTime)
+}
+
+// TestZerionProcessor_IncomingOnly_MissingPrice_EnqueuesJob is the symmetric
+// case: transfer_in of an unpriced token also needs to enqueue a job. Prior
+// to the fix, buildTransferInData silently dropped the price without
+// registering the asset / enqueuing a job.
+func TestZerionProcessor_IncomingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
+	ctx := context.Background()
+	log := logger.New("test", os.Stdout)
+
+	assetID := uuid.New()
+	contractAddr := "0xcafe1234567890123456789012345678901234ab"
+	txTime := time.Date(2024, 7, 1, 9, 0, 0, 0, time.UTC)
+
+	upsert := &fakeAssetUpserter{
+		asset: &asset.Asset{ID: assetID, Symbol: "CAFE", Name: "Cafe Token"},
+	}
+	enqueuer := &fakeJobEnqueuer{}
+
+	walletRepo := new(MockWalletRepository)
+	ledgerSvc := new(MockLedgerService)
+
+	walletRepo.On("GetWalletsByAddressAndUserID", ctx, mock.Anything, mock.Anything).
+		Return([]*wallet.Wallet{}, nil)
+
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "zerion",
+		mock.Anything, mock.Anything, mock.Anything).
+		Return(&ledger.Transaction{ID: uuid.New()}, nil)
+
+	processor := sync.NewZerionProcessor(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
+	userID := uuid.New()
+	walletAddr := "0x2222222222222222222222222222222222222222"
+	w := newTestWallet(userID, walletAddr)
+
+	tx := sync.DecodedTransaction{
+		ID:            "zerion-tx-in-only-nopri",
+		TxHash:        "0xbeefcafe",
+		ChainID:       "ethereum",
+		OperationType: sync.OpReceive,
+		Transfers: []sync.DecodedTransfer{
+			{
+				AssetSymbol:     "CAFE",
+				ContractAddress: contractAddr,
+				Decimals:        18,
+				Amount:          big.NewInt(1000000000000000000),
+				Direction:       sync.DirectionIn,
+				Sender:          "0xsender",
+				Recipient:       walletAddr,
+				USDPrice:        nil,
+			},
+		},
+		MinedAt: txTime,
+		Status:  "confirmed",
+	}
+
+	_, err := processor.ProcessTransaction(ctx, w, tx)
+	require.NoError(t, err)
+
+	require.Len(t, upsert.calls, 1, "UpsertByOnChainIdentity should be called for incoming unpriced transfer")
+	require.Len(t, enqueuer.calls, 1, "Enqueue should be called for incoming unpriced transfer")
+	assert.Equal(t, assetID, enqueuer.calls[0].assetID)
+	assert.Equal(t, txTime, enqueuer.calls[0].targetTime)
+}
+
+// TestZerionProcessor_InvalidContractAddress_NoEnqueue verifies that when
+// AssetUpserter returns asset.ErrInvalidContractAddress (Zerion emitted a
+// malformed/bogus contract address that fails our shape check), the
+// processor:
+//   1. Does NOT enqueue a backfill job (there is no asset row for the worker
+//      to resolve, so a pending lot would be stranded forever).
+//   2. Does NOT mark the transfer as usd_price_pending=true (same reason —
+//      downstream must treat this like a native-coin fallback so the lot
+//      never enters a pending state it cannot exit).
+//   3. Still allows the transfer to flow through to the ledger (no panic,
+//      no return error).
+func TestZerionProcessor_InvalidContractAddress_NoEnqueue(t *testing.T) {
+	ctx := context.Background()
+	log := logger.New("test", os.Stdout)
+
+	// Upserter returns ErrInvalidContractAddress (wrapped to mirror the real
+	// repository implementation which wraps with %w).
+	upsert := &fakeAssetUpserter{
+		err: fmt.Errorf("normalize: %w", asset.ErrInvalidContractAddress),
+	}
+	enqueuer := &fakeJobEnqueuer{}
+
+	walletRepo := new(MockWalletRepository)
+	ledgerSvc := new(MockLedgerService)
+
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeSwap, "zerion",
+		mock.Anything, mock.Anything, mock.Anything).
+		Return(&ledger.Transaction{ID: uuid.New()}, nil)
+
+	processor := sync.NewZerionProcessor(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
+	userID := uuid.New()
+	walletAddr := "0x1111111111111111111111111111111111111111"
+	w := newTestWallet(userID, walletAddr)
+
+	// Swap with a bogus contract address that the repo will reject.
+	tx := sync.DecodedTransaction{
+		ID:            "zerion-tx-invalid-contract",
+		TxHash:        "0xdeadbeef3",
+		ChainID:       "ethereum",
+		OperationType: sync.OpTrade,
+		Transfers: []sync.DecodedTransfer{
+			{
+				AssetSymbol:     "ETH",
+				ContractAddress: "",
+				Decimals:        18,
+				Amount:          big.NewInt(1000000000000000000),
+				Direction:       sync.DirectionOut,
+				Sender:          walletAddr,
+				Recipient:       "0xrouter",
+				USDPrice:        big.NewInt(250000000000),
+			},
+			{
+				AssetSymbol:     "XYZ",
+				ContractAddress: "0xGHIJ000000000000000000000000000000000000", // invalid (non-hex)
+				Decimals:        18,
+				Amount:          big.NewInt(5000000000000000000),
+				Direction:       sync.DirectionIn,
+				Sender:          "0xrouter",
+				Recipient:       walletAddr,
+				USDPrice:        nil,
+			},
+		},
+		MinedAt: time.Now(),
+		Status:  "confirmed",
+	}
+
+	// Must not panic / error out of the processor.
+	_, err := processor.ProcessTransaction(ctx, w, tx)
+	require.NoError(t, err)
+
+	// Upsert was attempted once...
+	require.Len(t, upsert.calls, 1)
+	// ...but no job was enqueued.
+	assert.Len(t, enqueuer.calls, 0,
+		"Enqueue must NOT be called when upsert returns ErrInvalidContractAddress")
+
+	// The XYZ transfer must not have usd_price_pending=true (would strand
+	// the lot forever since no asset row exists).
+	require.Len(t, ledgerSvc.recordedTransactions, 1)
+	rawData := ledgerSvc.recordedTransactions[0].RawData
+	transfersIn := rawData["transfers_in"].([]map[string]interface{})
+	require.Len(t, transfersIn, 1)
+	xyz := transfersIn[0]
+	assert.Equal(t, "XYZ", xyz["asset_symbol"])
+	_, hasPending := xyz["usd_price_pending"]
+	assert.False(t, hasPending,
+		"usd_price_pending must NOT be set when upsert rejected the contract address")
+	_, hasPrice := xyz["usd_price"]
+	assert.False(t, hasPrice,
+		"usd_price must be absent (no price, no asset)")
 }

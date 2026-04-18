@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -87,9 +88,9 @@ func (p *ZerionProcessor) ProcessTransaction(ctx context.Context, w *wallet.Wall
 
 	switch txType {
 	case ledger.TxTypeTransferIn:
-		data = p.buildTransferInData(w, tx)
+		data = p.buildTransferInData(ctx, w, tx)
 	case ledger.TxTypeTransferOut:
-		data = p.buildTransferOutData(w, tx)
+		data = p.buildTransferOutData(ctx, w, tx)
 	case ledger.TxTypeSwap:
 		data = p.buildSwapData(ctx, w, tx)
 	case ledger.TxTypeInternalTransfer:
@@ -391,7 +392,7 @@ func (p *ZerionProcessor) calcLPAmounts(transfers []DecodedTransfer, dir Transfe
 
 // --- Raw data builders ---
 
-func (p *ZerionProcessor) buildTransferInData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+func (p *ZerionProcessor) buildTransferInData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 	// TransferInHandler expects flat fields, not a transfers array.
 	// Find the primary "in" transfer.
@@ -414,12 +415,16 @@ func (p *ZerionProcessor) buildTransferInData(w *wallet.Wallet, tx DecodedTransa
 		data["unique_id"] = tx.ID
 		if t.USDPrice != nil {
 			data["usd_rate"] = t.USDPrice.String()
+		} else {
+			// No Zerion price: register the asset + enqueue a backfill job
+			// so the price is resolved later.
+			p.ensureBackfillJob(ctx, t, tx.ChainID, tx.MinedAt)
 		}
 	}
 	return data
 }
 
-func (p *ZerionProcessor) buildTransferOutData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+func (p *ZerionProcessor) buildTransferOutData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 	// TransferOutHandler expects flat fields, not a transfers array.
 	// Find the primary "out" transfer.
@@ -442,6 +447,14 @@ func (p *ZerionProcessor) buildTransferOutData(w *wallet.Wallet, tx DecodedTrans
 		data["unique_id"] = tx.ID
 		if t.USDPrice != nil {
 			data["usd_rate"] = t.USDPrice.String()
+		} else {
+			// Outgoing unpriced transfer: enqueue a backfill job so the
+			// pending disposal's proceeds_per_unit gets filled in later.
+			// Prior to this fix, outgoing-only transfers never enqueued
+			// (enqueue only lived in buildSingleTransfer, used by swaps),
+			// so the disposal was stuck at proceeds_status='pending'
+			// indefinitely when no matching incoming transfer existed.
+			p.ensureBackfillJob(ctx, t, tx.ChainID, tx.MinedAt)
 		}
 	}
 	// Map fee fields to gas fields expected by TransferOutHandler
@@ -452,6 +465,46 @@ func (p *ZerionProcessor) buildTransferOutData(w *wallet.Wallet, tx DecodedTrans
 		data["gas_usd_rate"] = feeRate
 	}
 	return data
+}
+
+// ensureBackfillJob upserts an asset by on-chain identity (if we have a
+// contract address) and enqueues a price-backfill job keyed on
+// (asset_id, target_time). Repo's Enqueue is idempotent on that pair, so
+// it's safe to call for every unpriced transfer direction. Silent no-op
+// when the transfer has no contract address (native coin) — we can't
+// upsert a chain-scoped asset identity without one.
+//
+// Upsert failures are logged at WARN (sanitized fields) rather than
+// swallowed silently, so the silent-dataloss pattern caught in Bug C is
+// observable in logs and metrics.
+func (p *ZerionProcessor) ensureBackfillJob(ctx context.Context, t *DecodedTransfer, chainID string, occurredAt time.Time) {
+	if t == nil || t.ContractAddress == "" || chainID == "" {
+		return
+	}
+	if p.assetUpsert == nil || p.jobEnqueuer == nil {
+		return
+	}
+	name := t.AssetName
+	if name == "" {
+		name = t.AssetSymbol
+	}
+	a, _, err := p.assetUpsert.UpsertByOnChainIdentity(ctx, chainID, t.ContractAddress, t.AssetSymbol, name, t.Decimals)
+	switch {
+	case err == nil && a != nil:
+		_, _ = p.jobEnqueuer.Enqueue(ctx, a.ID, occurredAt)
+	case errors.Is(err, asset.ErrInvalidContractAddress):
+		p.logger.Warn("invalid contract address from zerion, asset cannot be priced",
+			"chain_id", sanitizeForLog(chainID),
+			"contract_address", sanitizeForLog(t.ContractAddress),
+			"asset_symbol", sanitizeForLog(t.AssetSymbol),
+		)
+	case err != nil:
+		p.logger.Warn("asset upsert failed during sync",
+			"chain_id", sanitizeForLog(chainID),
+			"contract_address", sanitizeForLog(t.ContractAddress),
+			"error", sanitizeForLog(err.Error()),
+		)
+	}
 }
 
 func (p *ZerionProcessor) buildSwapData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
@@ -608,24 +661,76 @@ func (p *ZerionProcessor) buildSingleTransfer(ctx context.Context, t DecodedTran
 	} else if t.ContractAddress != "" && chainID != "" {
 		// Zerion has no price for this token. Upsert the asset by on-chain identity
 		// and enqueue a backfill job so the price is resolved later.
+		upsertOK := false
 		if p.assetUpsert != nil {
 			name := t.AssetName
 			if name == "" {
 				name = t.AssetSymbol
 			}
 			a, _, err := p.assetUpsert.UpsertByOnChainIdentity(ctx, chainID, t.ContractAddress, t.AssetSymbol, name, t.Decimals)
-			if err == nil && a != nil && p.jobEnqueuer != nil {
-				_, _ = p.jobEnqueuer.Enqueue(ctx, a.ID, occurredAt)
+			switch {
+			case err == nil && a != nil:
+				upsertOK = true
+				if p.jobEnqueuer != nil {
+					_, _ = p.jobEnqueuer.Enqueue(ctx, a.ID, occurredAt)
+				}
+			case errors.Is(err, asset.ErrInvalidContractAddress):
+				// Zerion returned a contract address that failed our shape-check.
+				// We cannot create an asset row for it, so there is nothing the
+				// backfill worker could ever resolve. Treat it like the native-
+				// coin path: no enqueue, no pending flag — just proceed without
+				// a USD rate. Emit a WARN (sanitized) so the silent-dataloss
+				// pattern is observable in logs / metrics.
+				p.logger.Warn("invalid contract address from zerion, asset cannot be priced",
+					"chain_id", sanitizeForLog(chainID),
+					"contract_address", sanitizeForLog(t.ContractAddress),
+					"asset_symbol", sanitizeForLog(t.AssetSymbol),
+				)
+			default:
+				// Any other error (DB-level, etc.). Log WARN, no enqueue.
+				p.logger.Warn("asset upsert failed during sync",
+					"chain_id", sanitizeForLog(chainID),
+					"contract_address", sanitizeForLog(t.ContractAddress),
+					"error", sanitizeForLog(err.Error()),
+				)
 			}
 		}
-		// Omit usd_price key — downstream reads absence as nil USDRate (pending lot).
-		m["usd_price_pending"] = true
+		// Only mark as pending when the upsert succeeded and a backfill can
+		// meaningfully resolve the price. Without an asset row there is no
+		// way the worker could resolve, so a pending flag would strand the
+		// lot forever.
+		if upsertOK {
+			// Omit usd_price key — downstream reads absence as nil USDRate (pending lot).
+			m["usd_price_pending"] = true
+		}
 	}
 	// For native coins (ContractAddress == "") with no price: omit usd_price entirely.
 	// Downstream handles missing key as nil USDRate.
 
 	return m
 }
+
+// sanitizeForLog strips ASCII control chars and caps length so chain- or
+// provider-supplied strings (chain_id, contract_address, symbol) cannot
+// forge log lines when structured logs are parsed downstream. Defense in
+// depth alongside the log_util sanitizer in internal/platform/price.
+func sanitizeForLog(s string) string {
+	const maxLen = 256
+	if len(s) > maxLen {
+		s = s[:maxLen]
+	}
+	b := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '\r' || c == '\n' || c < 0x20 || c == 0x7F {
+			b = append(b, ' ')
+		} else {
+			b = append(b, c)
+		}
+	}
+	return string(b)
+}
+
 
 // --- Lending data builders ---
 
