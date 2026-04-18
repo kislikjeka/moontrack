@@ -73,7 +73,7 @@ func TestResolver_ReturnsNotFoundWhenAllMiss(t *testing.T) {
 }
 
 func TestResolver_PreservesRateLimitedError(t *testing.T) {
-	// If all providers are rate-limited, the resolver should return ErrRateLimited
+	// If ALL providers are rate-limited, the resolver should return ErrRateLimited
 	// (not ErrNotFound), so the worker reschedules instead of counting an attempt.
 	r := price.NewResolver([]price.Provider{
 		&stubProvider{name: price.SourceCoinGecko, err: price.ErrRateLimited},
@@ -81,6 +81,61 @@ func TestResolver_PreservesRateLimitedError(t *testing.T) {
 
 	_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
 	require.ErrorIs(t, err, price.ErrRateLimited)
+}
+
+func TestResolver_PreservesRateLimitedErrorWithRetryAfter(t *testing.T) {
+	// The typed *RateLimitedError (with RetryAfter) must survive the resolver
+	// when rate-limit is the winning classification.
+	rle := &price.RateLimitedError{RetryAfter: 17 * time.Second}
+	r := price.NewResolver([]price.Provider{
+		&stubProvider{name: price.SourceCoinGecko, err: rle},
+	}, nil, logger.NewNoop())
+
+	_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	require.ErrorIs(t, err, price.ErrRateLimited)
+
+	var got *price.RateLimitedError
+	require.ErrorAs(t, err, &got)
+	require.Equal(t, 17*time.Second, got.RetryAfter)
+}
+
+func TestResolver_NotFoundBeatsRateLimited(t *testing.T) {
+	// Provider A is rate-limited, provider B says NotFound. The lot's fate is
+	// sealed for now — provider B positively answered "no data", so the worker
+	// should count an attempt (return ErrNotFound), not reschedule on A's 429.
+	r := price.NewResolver([]price.Provider{
+		&stubProvider{name: price.SourceCoinGecko, err: price.ErrRateLimited},
+		&stubProvider{name: price.SourceDefiLlama, err: price.ErrNotFound},
+	}, nil, logger.NewNoop())
+
+	_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	require.ErrorIs(t, err, price.ErrNotFound)
+	// Must NOT be rate-limited.
+	require.False(t, errors.Is(err, price.ErrRateLimited),
+		"NotFound from a later provider must win over earlier rate-limit")
+}
+
+func TestResolver_TransientBeatsRateLimited(t *testing.T) {
+	// If no provider answered NotFound but one hit a transient (5xx), we prefer
+	// Transient over RateLimited so the worker uses the transient backoff.
+	r := price.NewResolver([]price.Provider{
+		&stubProvider{name: price.SourceCoinGecko, err: price.ErrRateLimited},
+		&stubProvider{name: price.SourceDefiLlama, err: price.ErrTransient},
+	}, nil, logger.NewNoop())
+
+	_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	require.ErrorIs(t, err, price.ErrTransient)
+}
+
+func TestResolver_NotFoundBeatsRateLimited_Current(t *testing.T) {
+	r := price.NewResolver([]price.Provider{
+		&stubProvider{name: price.SourceCoinGecko, err: price.ErrRateLimited},
+		&stubProvider{name: price.SourceDefiLlama, err: price.ErrNotFound},
+	}, nil, logger.NewNoop())
+
+	_, _, err := r.ResolveCurrent(context.Background(), asset.Asset{})
+	require.ErrorIs(t, err, price.ErrNotFound)
+	require.False(t, errors.Is(err, price.ErrRateLimited))
 }
 
 func TestResolver_WrapsUnexpectedError(t *testing.T) {
