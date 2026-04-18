@@ -721,9 +721,16 @@ func (r *TaxLotRepository) ResolvePendingDisposals(ctx context.Context, assetID 
 }
 
 // ResolvePendingDisposalsForUser is the user-scoped variant of
-// ResolvePendingDisposals. It adds an accounts.user_id predicate so a single
-// user's manual-price override cannot mutate another user's pending disposals
-// that happen to share the same (asset_id, minute_bucket).
+// ResolvePendingDisposals. It adds an accounts.wallet_id -> wallets.user_id
+// predicate so a single user's manual-price override cannot mutate another
+// user's pending disposals that happen to share the same
+// (asset_id, minute_bucket).
+//
+// Time semantics: callers pass an 'at' timestamp; the SQL filters
+// lot_disposals.disposed_at within [truncate(at,minute), +1 minute). Callers
+// wanting to resolve disposals tied to a specific acquisition event should
+// pass the lot's acquired_at — this will only match disposals whose own
+// disposed_at falls in the same minute (typically same-tx burn/spend).
 func (r *TaxLotRepository) ResolvePendingDisposalsForUser(ctx context.Context, userID uuid.UUID, assetID uuid.UUID, at time.Time, proceedsPerUnit *big.Int) (int64, error) {
 	if proceedsPerUnit == nil {
 		return 0, fmt.Errorf("ResolvePendingDisposalsForUser: nil proceedsPerUnit")

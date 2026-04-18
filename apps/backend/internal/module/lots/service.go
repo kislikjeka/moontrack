@@ -99,6 +99,18 @@ func (s *Svc) WithAssetLookup(lookup AssetLookup, log *logger.Logger) *Svc {
 // price_status to 'resolved'. Intended for lots in 'unpriceable' or 'pending' state
 // where the user knows the correct price.
 //
+// Pending-disposal resolution scope:
+//
+//	After the lot is resolved, the service also attempts to resolve pending
+//	lot_disposals rows scoped to (this user, this asset, lot.AcquiredAt's
+//	minute bucket). Disposals are bucketed on disposed_at, not acquired_at,
+//	so this only resolves disposals whose disposed_at lands in the same
+//	minute as the lot's acquisition — typically same-tx or same-block
+//	acquire+dispose events (e.g. a flash-minted token sold in the same
+//	block). Disposals of the same lot at unrelated times stay pending and
+//	will be resolved later by the global PriceResolvedHook once a historical
+//	spot price lands.
+//
 // Note: We intentionally skip writing to price_history here. The
 // override_cost_basis_per_unit field + override_reason provide a sufficient audit
 // trail without risking unique-constraint collisions on (asset_id, time) when
