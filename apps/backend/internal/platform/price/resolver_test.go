@@ -138,6 +138,96 @@ func TestResolver_NotFoundBeatsRateLimited_Current(t *testing.T) {
 	require.False(t, errors.Is(err, price.ErrRateLimited))
 }
 
+// countingProvider tracks how many times it was called. Used to assert that
+// a provider in cooldown is not invoked.
+type countingProvider struct {
+	name  price.Source
+	err   error
+	hist  *price.HistoricalPrice
+	calls int
+}
+
+func (c *countingProvider) Name() price.Source { return c.name }
+func (c *countingProvider) GetPrice(ctx context.Context, a asset.Asset) (*big.Int, error) {
+	c.calls++
+	if c.err != nil {
+		return nil, c.err
+	}
+	return c.hist.PriceUSD, nil
+}
+func (c *countingProvider) GetHistoricalPrice(ctx context.Context, a asset.Asset, t time.Time) (*price.HistoricalPrice, error) {
+	c.calls++
+	if c.err != nil {
+		return nil, c.err
+	}
+	return c.hist, nil
+}
+
+func TestResolver_CooldownSkipsProviderAfterThreeTransient(t *testing.T) {
+	// Provider A fails with transient errors, provider B answers NotFound.
+	// After three transient errors on A, A must be skipped on the 4th call.
+	a := &countingProvider{name: price.SourceCoinGecko, err: price.ErrTransient}
+	b := &countingProvider{name: price.SourceDefiLlama, err: price.ErrNotFound}
+	r := price.NewResolver([]price.Provider{a, b}, nil, logger.NewNoop())
+
+	for i := 0; i < 3; i++ {
+		_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+		// With A transient + B NotFound, NotFound wins (BUG C semantics).
+		require.ErrorIs(t, err, price.ErrNotFound, "iter %d", i)
+	}
+	require.Equal(t, 3, a.calls, "A should be called three times before cooldown")
+
+	// 4th call: A is now in cooldown; only B is consulted.
+	_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	require.ErrorIs(t, err, price.ErrNotFound)
+	require.Equal(t, 3, a.calls, "A must be skipped during cooldown")
+	require.Equal(t, 4, b.calls, "B still receives every call")
+}
+
+func TestResolver_CooldownResetsOnSuccess(t *testing.T) {
+	// Sequence: transient, transient, success, transient. Success in the
+	// middle must reset the counter so the final transient doesn't cool
+	// anyone down.
+	wrapped := &sequenceProvider{name: price.SourceCoinGecko, errs: []error{
+		price.ErrTransient, price.ErrTransient, nil, price.ErrTransient,
+	}}
+	r := price.NewResolver([]price.Provider{wrapped}, nil, logger.NewNoop())
+
+	for i := 0; i < 4; i++ {
+		_, _, _ = r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	}
+	require.Equal(t, 4, wrapped.calls, "success must reset counter so 4th call still runs wrapped")
+}
+
+// sequenceProvider returns errors from a fixed sequence on each call.
+type sequenceProvider struct {
+	name  price.Source
+	errs  []error
+	hp    *price.HistoricalPrice
+	calls int
+}
+
+func (s *sequenceProvider) Name() price.Source { return s.name }
+func (s *sequenceProvider) GetPrice(ctx context.Context, a asset.Asset) (*big.Int, error) {
+	s.calls++
+	err := s.errs[(s.calls-1)%len(s.errs)]
+	if err != nil {
+		return nil, err
+	}
+	return big.NewInt(1), nil
+}
+func (s *sequenceProvider) GetHistoricalPrice(ctx context.Context, a asset.Asset, t time.Time) (*price.HistoricalPrice, error) {
+	s.calls++
+	err := s.errs[(s.calls-1)%len(s.errs)]
+	if err != nil {
+		return nil, err
+	}
+	if s.hp == nil {
+		return &price.HistoricalPrice{PriceUSD: big.NewInt(1), Timestamp: time.Now(), Confidence: 1}, nil
+	}
+	return s.hp, nil
+}
+
 func TestResolver_WrapsUnexpectedError(t *testing.T) {
 	// Unknown provider error → treated as Transient so worker reschedules.
 	r := price.NewResolver([]price.Provider{
