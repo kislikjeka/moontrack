@@ -356,7 +356,33 @@ func (r *TaxLotRepository) UpdateOverride(ctx context.Context, lotID uuid.UUID, 
 }
 
 // ClearOverride removes the cost-basis override from a lot.
+//
+// Refuses to clear when the target lot has no auto_cost_basis_per_unit
+// (i.e., the auto was never resolved). Clearing in that case would leave
+// the lot with effective cost basis = NULL but price_status != 'pending',
+// so no backfill worker would ever resolve it and downstream readers
+// would dereference nil. Callers must either resolve the auto first or
+// flip price_status back to 'pending' before clearing the override.
 func (r *TaxLotRepository) ClearOverride(ctx context.Context, lotID uuid.UUID) error {
+	// Guard against the "auto NULL + status resolved" landmine.
+	// Uses the same queryer so it respects an in-flight tx.
+	q := r.getQueryer(ctx)
+	var autoIsNull bool
+	err := q.QueryRow(ctx, `
+		SELECT auto_cost_basis_per_unit IS NULL
+		FROM tax_lots
+		WHERE id = $1
+	`, lotID).Scan(&autoIsNull)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return ledger.ErrLotNotFound
+		}
+		return fmt.Errorf("failed to inspect lot for clear override: %w", err)
+	}
+	if autoIsNull {
+		return ledger.ErrCannotClearOverrideOnPendingAuto
+	}
+
 	query := `
 		UPDATE tax_lots
 		SET override_cost_basis_per_unit = NULL,
@@ -365,7 +391,6 @@ func (r *TaxLotRepository) ClearOverride(ctx context.Context, lotID uuid.UUID) e
 		WHERE id = $1
 	`
 
-	q := r.getQueryer(ctx)
 	tag, err := q.Exec(ctx, query, lotID)
 	if err != nil {
 		return fmt.Errorf("failed to clear override: %w", err)

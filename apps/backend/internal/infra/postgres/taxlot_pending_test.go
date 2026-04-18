@@ -168,6 +168,75 @@ func TestTaxLotRepo_IncrementAttempt(t *testing.T) {
 	require.WithinDuration(t, nextRetry, *fetched.PriceNextRetryAt, time.Second)
 }
 
+// TestTaxLotRepo_ClearOverride_RefusesWhenAutoIsNull verifies that clearing an
+// override on a lot whose auto_cost_basis_per_unit is NULL returns
+// ErrCannotClearOverrideOnPendingAuto (instead of silently leaving the lot
+// with no effective cost basis and a non-pending status).
+func TestTaxLotRepo_ClearOverride_RefusesWhenAutoIsNull(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	ctx := context.Background()
+	require.NoError(t, testDB.Reset(ctx))
+
+	repo := NewTaxLotRepository(testDB.Pool)
+	_, walletID := seedUserAndWallet(t, ctx)
+
+	// Seed a pending lot (auto NULL), then apply an override and flip to resolved.
+	lot := seedPendingLot(t, ctx, repo, walletID, "WWW", time.Now().UTC())
+	require.NoError(t, repo.UpdateOverride(ctx, lot.ID, big.NewInt(123_000_000), "manual price"))
+	// Move status off 'pending' to simulate the landmine: override present, auto NULL,
+	// but status is no longer pending.
+	require.NoError(t, repo.MarkResolved(ctx, lot.ID))
+
+	err := repo.ClearOverride(ctx, lot.ID)
+	require.ErrorIs(t, err, ledger.ErrCannotClearOverrideOnPendingAuto, "ClearOverride must refuse when auto is NULL")
+
+	// Override should still be present since the clear was refused.
+	fetched, err := repo.GetTaxLot(ctx, lot.ID)
+	require.NoError(t, err)
+	require.NotNil(t, fetched.OverrideCostBasisPerUnit, "override must remain intact after refusal")
+}
+
+// TestTaxLotRepo_ClearOverride_AllowedWhenAutoResolved verifies the happy path:
+// when a lot has a valid auto cost basis, ClearOverride removes the override.
+func TestTaxLotRepo_ClearOverride_AllowedWhenAutoResolved(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	ctx := context.Background()
+	require.NoError(t, testDB.Reset(ctx))
+
+	repo := NewTaxLotRepository(testDB.Pool)
+	_, walletID := seedUserAndWallet(t, ctx)
+
+	accountID := seedAccountForPendingTest(t, ctx, walletID, "QQQ")
+	txID := seedTransactionForPendingTest(t, ctx, walletID)
+
+	lot := &ledger.TaxLot{
+		ID:                   uuid.New(),
+		TransactionID:        txID,
+		AccountID:            accountID,
+		Asset:                "QQQ",
+		QuantityAcquired:     big.NewInt(1_000),
+		QuantityRemaining:    big.NewInt(1_000),
+		AcquiredAt:           time.Now().UTC(),
+		AutoCostBasisPerUnit: big.NewInt(100_000_000),
+		AutoCostBasisSource:  ledger.CostBasisFMVAtTransfer,
+		PriceStatus:          ledger.PriceStatusResolved,
+		CreatedAt:            time.Now().UTC(),
+	}
+	require.NoError(t, repo.CreateTaxLot(ctx, lot))
+	require.NoError(t, repo.UpdateOverride(ctx, lot.ID, big.NewInt(250_000_000), "manual"))
+
+	require.NoError(t, repo.ClearOverride(ctx, lot.ID))
+
+	fetched, err := repo.GetTaxLot(ctx, lot.ID)
+	require.NoError(t, err)
+	require.Nil(t, fetched.OverrideCostBasisPerUnit, "override must be cleared")
+	require.NotNil(t, fetched.AutoCostBasisPerUnit, "auto cost basis must remain")
+}
+
 // TestTaxLotRepo_GetWAC_MixedPendingAndResolved verifies that GetWAC does not
 // fail when some lots are pending (cost basis NULL in the materialized view).
 // Before the fix, scanning a NULL weighted_avg_cost into a string panicked.
