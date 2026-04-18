@@ -336,6 +336,25 @@ func main() {
 			}
 		}
 
+		// PRICE_BACKFILL_WORKERS is parsed but clamped to 1 for now.
+		//
+		// Running multiple workers against the same provider set requires a
+		// distributed per-provider rate-limit coordinator (e.g. a Redis token
+		// bucket) — otherwise each worker independently hits the 1 rps ceiling
+		// and trips 429s, defeating the point. Tracked as
+		// FOLLOWUP-PRICE-WORKER-SCALE; until then, refuse to start more than
+		// one worker to avoid quietly ignoring the operator's configuration.
+		backfillWorkers := 1
+		if v := os.Getenv("PRICE_BACKFILL_WORKERS"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil && parsed > 1 {
+				log.Warn("PRICE_BACKFILL_WORKERS > 1 is not yet supported; clamping to 1",
+					"requested", parsed,
+					"reason", "requires distributed per-provider rate-limit coordination (FOLLOWUP-PRICE-WORKER-SCALE)",
+				)
+			}
+		}
+		_ = backfillWorkers
+
 		gtClient := geckoterminal.NewClient(geckoterminal.Config{BaseURL: gtBaseURL})
 		dlClient := defillama.NewClient(defillama.Config{
 			BaseURL:       dlBaseURL,
