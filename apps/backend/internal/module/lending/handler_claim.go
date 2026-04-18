@@ -32,7 +32,14 @@ func (h *LendingClaimHandler) Handle(ctx context.Context, data map[string]interf
 		return nil, err
 	}
 
-	entries := generateClaimEntries(&txn)
+	entries := make([]*ledger.Entry, 0)
+	if len(txn.Transfers) > 0 {
+		for i := range txn.Transfers {
+			entries = append(entries, generateClaimItemEntries(&txn, &txn.Transfers[i])...)
+		}
+	} else {
+		entries = append(entries, generateClaimEntries(&txn)...)
+	}
 	if gasEntries := generateGasFeeEntries(&txn); gasEntries != nil {
 		entries = append(entries, gasEntries...)
 	}

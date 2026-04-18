@@ -3,6 +3,7 @@ package lending
 import (
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -343,4 +344,245 @@ func calcUSD(txn *LendingTransaction) (*big.Int, *big.Int) {
 	}
 	usdValue := money.CalcUSDValue(txn.Amount.ToBigInt(), usdRate, txn.Decimals)
 	return usdRate, usdValue
+}
+
+// --- Multi-asset aware entry generation ---
+//
+// The entry builders below take a LendingTransferItem and the parent
+// LendingTransaction for shared fields (wallet_id, chain_id, protocol,
+// tx_hash). They classify the item's asset via ClassifyLendingAsset and
+// emit the balanced pair appropriate for the chosen lending op type:
+//
+//	| Op        | Liquid asset         | Receipt / debt token         |
+//	| --------- | -------------------- | ----------------------------- |
+//	| Supply    | DEBIT  collateral    | DEBIT  collateral            |
+//	|           | CREDIT wallet        | CREDIT clearing.{protocol}   |
+//	| Withdraw  | DEBIT  wallet        | DEBIT  clearing.{protocol}   |
+//	|           | CREDIT collateral    | CREDIT collateral            |
+//	| Borrow    | DEBIT  wallet        | DEBIT  clearing.{protocol}   |
+//	|           | CREDIT liability     | CREDIT liability             |
+//	| Repay     | DEBIT  liability     | DEBIT  liability             |
+//	|           | CREDIT wallet        | CREDIT clearing.{protocol}   |
+//	| Claim     | DEBIT  wallet        | DEBIT  wallet (rare)         |
+//	|           | CREDIT income.lend.. | CREDIT income.lending.*      |
+//
+// Receipt/debt movements use a clearing account on the protocol side so
+// the debit+credit pair balances without leaking into the user's liquid
+// wallet balance. The wallet vs collateral/liability account is resolved
+// by the ledger's accountResolver based on the `account_code` metadata.
+
+// entryRouting captures the debit and credit side of a single balanced
+// pair for a lending asset movement.
+type entryRouting struct {
+	debitAccount  string
+	debitType     ledger.EntryType
+	creditAccount string
+	creditType    ledger.EntryType
+	accountType   string // e.g. "COLLATERAL", "LIABILITY" — for Account.Type when needed
+}
+
+// generateSupplyItemEntries emits entries for one transfer item of a supply op.
+func generateSupplyItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
+	walletID := txn.WalletID.String()
+	chain := txn.ChainID
+	proto := txn.Protocol
+
+	role := ClassifyLendingAsset(item.AssetID, proto)
+	switch role {
+	case RoleCollateralReceipt:
+		// Supply receipt (aToken) inbound — tracks the user's claim.
+		return buildLendingPair(txn, item, entryRouting{
+			debitAccount:  fmt.Sprintf("collateral.%s.%s.%s.%s", proto, walletID, chain, item.AssetID),
+			debitType:     ledger.EntryTypeCollateralIncrease,
+			creditAccount: fmt.Sprintf("clearing.lending.%s.%s", proto, chain),
+			creditType:    ledger.EntryTypeClearing,
+			accountType:   "COLLATERAL",
+		})
+	default:
+		// Liquid asset outbound — the principal that leaves the wallet.
+		return buildLendingPair(txn, item, entryRouting{
+			debitAccount:  fmt.Sprintf("collateral.%s.%s.%s.%s", proto, walletID, chain, item.AssetID),
+			debitType:     ledger.EntryTypeCollateralIncrease,
+			creditAccount: fmt.Sprintf("wallet.%s.%s.%s", walletID, chain, item.AssetID),
+			creditType:    ledger.EntryTypeAssetDecrease,
+			accountType:   "COLLATERAL",
+		})
+	}
+}
+
+// generateWithdrawItemEntries emits entries for one transfer item of a withdraw op.
+func generateWithdrawItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
+	walletID := txn.WalletID.String()
+	chain := txn.ChainID
+	proto := txn.Protocol
+
+	role := ClassifyLendingAsset(item.AssetID, proto)
+	switch role {
+	case RoleCollateralReceipt:
+		// Supply receipt (aToken) outbound — burning the user's claim.
+		return buildLendingPair(txn, item, entryRouting{
+			debitAccount:  fmt.Sprintf("clearing.lending.%s.%s", proto, chain),
+			debitType:     ledger.EntryTypeClearing,
+			creditAccount: fmt.Sprintf("collateral.%s.%s.%s.%s", proto, walletID, chain, item.AssetID),
+			creditType:    ledger.EntryTypeCollateralDecrease,
+			accountType:   "COLLATERAL",
+		})
+	default:
+		// Principal inbound to wallet.
+		return buildLendingPair(txn, item, entryRouting{
+			debitAccount:  fmt.Sprintf("wallet.%s.%s.%s", walletID, chain, item.AssetID),
+			debitType:     ledger.EntryTypeAssetIncrease,
+			creditAccount: fmt.Sprintf("collateral.%s.%s.%s.%s", proto, walletID, chain, item.AssetID),
+			creditType:    ledger.EntryTypeCollateralDecrease,
+			accountType:   "COLLATERAL",
+		})
+	}
+}
+
+// generateBorrowItemEntries emits entries for one transfer item of a borrow op.
+// For borrow both the debt receipt token AND the liquid borrowed asset arrive
+// as IN transfers; we route each to its correct account side.
+func generateBorrowItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
+	walletID := txn.WalletID.String()
+	chain := txn.ChainID
+	proto := txn.Protocol
+
+	role := ClassifyLendingAsset(item.AssetID, proto)
+	switch role {
+	case RoleLiabilityReceipt:
+		// Debt receipt inbound — tracks outstanding debt growing.
+		return buildLendingPair(txn, item, entryRouting{
+			debitAccount:  fmt.Sprintf("clearing.lending.%s.%s", proto, chain),
+			debitType:     ledger.EntryTypeClearing,
+			creditAccount: fmt.Sprintf("liability.%s.%s.%s.%s", proto, walletID, chain, item.AssetID),
+			creditType:    ledger.EntryTypeLiabilityIncrease,
+			accountType:   "LIABILITY",
+		})
+	default:
+		// Liquid borrowed asset inbound to wallet.
+		return buildLendingPair(txn, item, entryRouting{
+			debitAccount:  fmt.Sprintf("wallet.%s.%s.%s", walletID, chain, item.AssetID),
+			debitType:     ledger.EntryTypeAssetIncrease,
+			creditAccount: fmt.Sprintf("liability.%s.%s.%s.%s", proto, walletID, chain, item.AssetID),
+			creditType:    ledger.EntryTypeLiabilityIncrease,
+			accountType:   "LIABILITY",
+		})
+	}
+}
+
+// generateRepayItemEntries emits entries for one transfer item of a repay op.
+func generateRepayItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
+	walletID := txn.WalletID.String()
+	chain := txn.ChainID
+	proto := txn.Protocol
+
+	role := ClassifyLendingAsset(item.AssetID, proto)
+	switch role {
+	case RoleLiabilityReceipt:
+		// Debt receipt burned — liability decreases.
+		return buildLendingPair(txn, item, entryRouting{
+			debitAccount:  fmt.Sprintf("liability.%s.%s.%s.%s", proto, walletID, chain, item.AssetID),
+			debitType:     ledger.EntryTypeLiabilityDecrease,
+			creditAccount: fmt.Sprintf("clearing.lending.%s.%s", proto, chain),
+			creditType:    ledger.EntryTypeClearing,
+			accountType:   "LIABILITY",
+		})
+	default:
+		// Liquid asset outbound from wallet (repayment).
+		return buildLendingPair(txn, item, entryRouting{
+			debitAccount:  fmt.Sprintf("liability.%s.%s.%s.%s", proto, walletID, chain, item.AssetID),
+			debitType:     ledger.EntryTypeLiabilityDecrease,
+			creditAccount: fmt.Sprintf("wallet.%s.%s.%s", walletID, chain, item.AssetID),
+			creditType:    ledger.EntryTypeAssetDecrease,
+			accountType:   "LIABILITY",
+		})
+	}
+}
+
+// generateClaimItemEntries emits entries for one transfer item of a claim op.
+// Rewards (liquid) flow to the wallet; the rare receipt adjustment goes through
+// the clearing account.
+func generateClaimItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
+	walletID := txn.WalletID.String()
+	chain := txn.ChainID
+	proto := txn.Protocol
+
+	role := ClassifyLendingAsset(item.AssetID, proto)
+	switch role {
+	case RoleCollateralReceipt, RoleLiabilityReceipt:
+		return buildLendingPair(txn, item, entryRouting{
+			debitAccount:  fmt.Sprintf("clearing.lending.%s.%s", proto, chain),
+			debitType:     ledger.EntryTypeClearing,
+			creditAccount: fmt.Sprintf("income.lending.%s.%s", chain, item.AssetID),
+			creditType:    ledger.EntryTypeIncome,
+		})
+	default:
+		return buildLendingPair(txn, item, entryRouting{
+			debitAccount:  fmt.Sprintf("wallet.%s.%s.%s", walletID, chain, item.AssetID),
+			debitType:     ledger.EntryTypeAssetIncrease,
+			creditAccount: fmt.Sprintf("income.lending.%s.%s", chain, item.AssetID),
+			creditType:    ledger.EntryTypeIncome,
+		})
+	}
+}
+
+// buildLendingPair turns an entryRouting and a LendingTransferItem into a
+// balanced debit/credit pair. Metadata carries account_code for the resolver;
+// the wallet-scoped side also carries wallet_id + chain_id so the resolver
+// can persist the correct Account.WalletID / ChainID columns.
+func buildLendingPair(txn *LendingTransaction, item *LendingTransferItem, r entryRouting) []*ledger.Entry {
+	amount := item.GetAmount()
+	usdRate := item.GetUSDRate()
+	usdValue := money.CalcUSDValue(amount, usdRate, item.Decimals)
+
+	walletID := txn.WalletID.String()
+	chain := txn.ChainID
+	proto := txn.Protocol
+
+	baseMeta := func(accountCode string, includeAccountType bool) map[string]interface{} {
+		m := map[string]interface{}{
+			"account_code":     accountCode,
+			"tx_hash":          txn.TxHash,
+			"chain_id":         chain,
+			"protocol":         proto,
+			"contract_address": item.ContractAddress,
+		}
+		// Wallet / collateral / liability accounts need wallet_id in metadata
+		// so the resolver creates the account with the right WalletID column.
+		if strings.HasPrefix(accountCode, "wallet.") ||
+			strings.HasPrefix(accountCode, "collateral.") ||
+			strings.HasPrefix(accountCode, "liability.") {
+			m["wallet_id"] = walletID
+		}
+		if includeAccountType && r.accountType != "" {
+			m["account_type"] = r.accountType
+		}
+		return m
+	}
+
+	debit := &ledger.Entry{
+		ID:          uuid.New(),
+		DebitCredit: ledger.Debit,
+		EntryType:   r.debitType,
+		Amount:      new(big.Int).Set(amount),
+		AssetID:     item.AssetID,
+		USDRate:     new(big.Int).Set(usdRate),
+		USDValue:    new(big.Int).Set(usdValue),
+		OccurredAt:  txn.OccurredAt,
+		CreatedAt:   time.Now().UTC(),
+		Metadata:    baseMeta(r.debitAccount, true),
+	}
+	credit := &ledger.Entry{
+		ID:          uuid.New(),
+		DebitCredit: ledger.Credit,
+		EntryType:   r.creditType,
+		Amount:      new(big.Int).Set(amount),
+		AssetID:     item.AssetID,
+		USDRate:     new(big.Int).Set(usdRate),
+		USDValue:    new(big.Int).Set(usdValue),
+		OccurredAt:  txn.OccurredAt,
+		CreatedAt:   time.Now().UTC(),
+		Metadata:    baseMeta(r.creditAccount, true),
+	}
+	return []*ledger.Entry{debit, credit}
 }

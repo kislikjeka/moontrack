@@ -175,6 +175,99 @@ func TestLendingBorrowHandler_Handle(t *testing.T) {
 	assertEntriesBalanced(t, entries)
 }
 
+// TestLendingBorrowHandler_MultiAsset verifies that a borrow tx with BOTH
+// the debt receipt token AND the real borrowed asset emits balanced pairs
+// for each. Regression test for the multi-asset bug: historically the first
+// transfer was kept and the rest were silently dropped, so either the debt
+// or the liquid asset never landed in the ledger.
+func TestLendingBorrowHandler_MultiAsset(t *testing.T) {
+	_, walletID, mockRepo, log, ctx := setupHandler(t)
+
+	handler := lending.NewLendingBorrowHandler(mockRepo, log)
+
+	data := map[string]interface{}{
+		"wallet_id":   walletID.String(),
+		"tx_hash":     "0xmultiasset",
+		"chain_id":    "base",
+		"occurred_at": time.Now().UTC().Format(time.RFC3339),
+		"protocol":    "Aave V3",
+		"transfers": []map[string]interface{}{
+			{
+				// Liquid borrowed asset
+				"asset_id":         "USDC",
+				"decimals":         6,
+				"amount":           "400000000",
+				"usd_rate":         "100000000",
+				"contract_address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+				"direction":        "in",
+			},
+			{
+				// Debt receipt token
+				"asset_id":         "variableDebtBasUSDC",
+				"decimals":         6,
+				"amount":           "400000000",
+				"usd_rate":         "0",
+				"contract_address": "0xdebtcontract",
+				"direction":        "in",
+			},
+		},
+	}
+
+	entries, err := handler.Handle(ctx, data)
+	require.NoError(t, err)
+	require.Len(t, entries, 4, "expected 2 entries per asset × 2 assets")
+
+	// Locate per-asset entries by AssetID.
+	perAsset := map[string][]*ledger.Entry{
+		"USDC":                {},
+		"variableDebtBasUSDC": {},
+	}
+	for _, e := range entries {
+		perAsset[e.AssetID] = append(perAsset[e.AssetID], e)
+	}
+	require.Len(t, perAsset["USDC"], 2, "USDC should have one debit+credit pair")
+	require.Len(t, perAsset["variableDebtBasUSDC"], 2, "debt token should have one debit+credit pair")
+
+	// Per-asset balance and account routing.
+	for asset, es := range perAsset {
+		var debitSum, creditSum = new(big.Int), new(big.Int)
+		for _, e := range es {
+			if e.DebitCredit == ledger.Debit {
+				debitSum.Add(debitSum, e.Amount)
+			} else {
+				creditSum.Add(creditSum, e.Amount)
+			}
+		}
+		assert.Equal(t, 0, debitSum.Cmp(creditSum),
+			"%s entries must balance: debit=%s credit=%s",
+			asset, debitSum.String(), creditSum.String())
+	}
+
+	// USDC (liquid) debit must be the user's wallet account; credit is liability.
+	for _, e := range perAsset["USDC"] {
+		code, _ := e.Metadata["account_code"].(string)
+		if e.DebitCredit == ledger.Debit {
+			assert.Contains(t, code, "wallet.", "USDC debit should land on wallet account, got %s", code)
+			assert.Equal(t, ledger.EntryTypeAssetIncrease, e.EntryType)
+		} else {
+			assert.Contains(t, code, "liability.", "USDC credit should land on liability account, got %s", code)
+			assert.Equal(t, ledger.EntryTypeLiabilityIncrease, e.EntryType)
+		}
+	}
+
+	// Debt receipt: debit clears through protocol, credit on liability.
+	for _, e := range perAsset["variableDebtBasUSDC"] {
+		code, _ := e.Metadata["account_code"].(string)
+		if e.DebitCredit == ledger.Debit {
+			assert.Contains(t, code, "clearing.", "debt token debit should clear, got %s", code)
+			assert.Equal(t, ledger.EntryTypeClearing, e.EntryType)
+		} else {
+			assert.Contains(t, code, "liability.", "debt token credit should be liability, got %s", code)
+			assert.Equal(t, ledger.EntryTypeLiabilityIncrease, e.EntryType)
+		}
+	}
+}
+
 // === Repay Handler ===
 
 func TestLendingRepayHandler_Handle(t *testing.T) {
