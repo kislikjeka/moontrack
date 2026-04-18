@@ -236,6 +236,85 @@ func TestTransferInHandler_ValidateData(t *testing.T) {
 	}
 }
 
+// TestTransferInHandler_MultiAsset verifies a single tx with multiple IN
+// transfers produces one balanced debit/credit pair per asset. Regression
+// test for the multi-asset bug where only the first transfer was processed
+// and the rest were silently dropped (e.g. Aave borrow debt + USDC both
+// arriving in one on-chain tx).
+func TestTransferInHandler_MultiAsset(t *testing.T) {
+	ctx := context.Background()
+	walletID := uuid.New()
+	userID := uuid.New()
+
+	walletRepo := new(MockWalletRepository)
+	walletRepo.On("GetByID", ctx, walletID).Return(&wallet.Wallet{
+		ID:      walletID,
+		UserID:  userID,
+		Address: "0x1234567890123456789012345678901234567890",
+	}, nil)
+
+	handler := transfer.NewTransferInHandler(walletRepo, logger.NewDefault("test"))
+
+	// Two simultaneous IN transfers: 1 ETH (18 decimals) and 400 USDC (6).
+	data := map[string]interface{}{
+		"wallet_id":    walletID.String(),
+		"chain_id":     "ethereum",
+		"tx_hash":      "0xabc123",
+		"block_number": int64(12345678),
+		"occurred_at":  time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
+		"unique_id":    "unique123",
+		"transfers": []map[string]interface{}{
+			{
+				"asset_id":         "ETH",
+				"decimals":         18,
+				"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
+				"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
+				"contract_address": "",
+				"from_address":     "0xsender1",
+				"direction":        "in",
+			},
+			{
+				"asset_id":         "USDC",
+				"decimals":         6,
+				"amount":           money.NewBigIntFromInt64(400000000).String(),
+				"usd_rate":         money.NewBigIntFromInt64(100000000).String(),
+				"contract_address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+				"from_address":     "0xsender2",
+				"direction":        "in",
+			},
+		},
+	}
+
+	entries, err := handler.Handle(ctx, data)
+	require.NoError(t, err)
+	require.Len(t, entries, 4, "expected 2 entries per asset x 2 assets = 4 entries")
+
+	// Each asset must contribute a balanced debit/credit pair.
+	perAsset := map[string]struct {
+		debitSum, creditSum *big.Int
+	}{
+		"ETH":  {big.NewInt(0), big.NewInt(0)},
+		"USDC": {big.NewInt(0), big.NewInt(0)},
+	}
+	for _, e := range entries {
+		bucket, ok := perAsset[e.AssetID]
+		if !ok {
+			t.Fatalf("unexpected asset %s in entries", e.AssetID)
+		}
+		if e.DebitCredit == ledger.Debit {
+			bucket.debitSum.Add(bucket.debitSum, e.Amount)
+		} else {
+			bucket.creditSum.Add(bucket.creditSum, e.Amount)
+		}
+	}
+	for asset, b := range perAsset {
+		assert.Equal(t, 0, b.debitSum.Cmp(b.creditSum),
+			"%s entries must balance: debit=%s credit=%s",
+			asset, b.debitSum.String(), b.creditSum.String())
+		assert.Equal(t, 1, b.debitSum.Sign(), "%s should have non-zero debit", asset)
+	}
+}
+
 // TestTransferInHandler_CrossUserWallet_ReturnsUnauthorized tests authorization
 func TestTransferInHandler_CrossUserWallet_ReturnsUnauthorized(t *testing.T) {
 	walletOwner := uuid.New()

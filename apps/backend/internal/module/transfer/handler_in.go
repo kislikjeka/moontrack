@@ -98,75 +98,100 @@ func (h *TransferInHandler) ValidateData(ctx context.Context, data map[string]in
 	return nil
 }
 
-// GenerateEntries generates ledger entries for a transfer in transaction
-// Ledger entries generated (2 entries):
-// 1. DEBIT wallet.{wallet_id}.{asset_id} (asset_increase) - increases wallet balance
-// 2. CREDIT income.{chain_id}.{asset_id} (income) - records income from blockchain
+// GenerateEntries generates ledger entries for a transfer in transaction.
+// For each asset movement (from Transfers when populated, else the legacy
+// flat fields) it emits a balanced pair:
+//  1. DEBIT  wallet.{wallet_id}.{chain}.{asset_id} (asset_increase)
+//  2. CREDIT income.{chain_id}.{asset_id}         (income)
 func (h *TransferInHandler) GenerateEntries(ctx context.Context, txn *TransferInTransaction) ([]*ledger.Entry, error) {
-	// Get USD rate
-	usdRate := txn.GetUSDRate()
-	if usdRate == nil || usdRate.Sign() == 0 {
-		usdRate = big.NewInt(0) // Price will be determined later if not provided
+	items := h.collectItems(txn)
+
+	entries := make([]*ledger.Entry, 0, 2*len(items))
+	for i := range items {
+		entries = append(entries, h.entriesForItem(txn, &items[i])...)
 	}
 
-	// Calculate USD value: (amount * usd_rate) / 10^decimals
-	usdValue := new(big.Int).Mul(txn.GetAmount(), usdRate)
+	h.logger.Debug("transfer entries generated", "entry_count", len(entries), "item_count", len(items))
+	return entries, nil
+}
+
+// collectItems returns the list of asset movements to turn into ledger entries.
+// When Transfers is populated it wins; otherwise the single-asset flat fields
+// are converted into a one-element slice so the generator is uniform.
+func (h *TransferInHandler) collectItems(txn *TransferInTransaction) []TransferItem {
+	if len(txn.Transfers) > 0 {
+		return txn.Transfers
+	}
+	return []TransferItem{{
+		AssetID:         txn.AssetID,
+		Decimals:        txn.Decimals,
+		Amount:           txn.Amount,
+		USDRate:          txn.USDRate,
+		ContractAddress: txn.ContractAddress,
+		FromAddress:     txn.FromAddress,
+		Direction:       "in",
+	}}
+}
+
+// entriesForItem emits one balanced debit/credit pair for a single asset.
+func (h *TransferInHandler) entriesForItem(txn *TransferInTransaction, item *TransferItem) []*ledger.Entry {
+	usdRate := item.GetUSDRate()
+	if usdRate == nil {
+		usdRate = big.NewInt(0)
+	}
+
+	// USD value = (amount * usd_rate) / 10^decimals
+	usdValue := new(big.Int).Mul(item.GetAmount(), usdRate)
 	if usdRate.Sign() > 0 {
-		divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(txn.Decimals)), nil)
+		divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(item.Decimals)), nil)
 		usdValue.Div(usdValue, divisor)
 	}
 
-	// Generate entries
-	entries := make([]*ledger.Entry, 2)
-
-	// Entry 1: DEBIT wallet account (asset increases)
-	entries[0] = &ledger.Entry{
-		ID:          uuid.New(),
-		AccountID:   uuid.Nil, // Will be resolved by AccountResolver
-		DebitCredit: ledger.Debit,
-		EntryType:   ledger.EntryTypeAssetIncrease,
-		Amount:      new(big.Int).Set(txn.GetAmount()),
-		AssetID:     txn.AssetID,
-		USDRate:     new(big.Int).Set(usdRate),
-		USDValue:    new(big.Int).Set(usdValue),
-		OccurredAt:  txn.OccurredAt,
-		CreatedAt:   time.Now().UTC(),
-		Metadata: map[string]interface{}{
-			"wallet_id":        txn.WalletID.String(),
-			"account_code":     fmt.Sprintf("wallet.%s.%s.%s", txn.WalletID.String(), txn.ChainID, txn.AssetID),
-			"tx_hash":          txn.TxHash,
-			"block_number":     txn.BlockNumber,
-			"chain_id":         txn.ChainID,
-			"from_address":     txn.FromAddress,
-			"contract_address": txn.ContractAddress,
-			"unique_id":        txn.UniqueID,
+	return []*ledger.Entry{
+		// DEBIT wallet account (asset increases)
+		{
+			ID:          uuid.New(),
+			AccountID:   uuid.Nil,
+			DebitCredit: ledger.Debit,
+			EntryType:   ledger.EntryTypeAssetIncrease,
+			Amount:      new(big.Int).Set(item.GetAmount()),
+			AssetID:     item.AssetID,
+			USDRate:     new(big.Int).Set(usdRate),
+			USDValue:    new(big.Int).Set(usdValue),
+			OccurredAt:  txn.OccurredAt,
+			CreatedAt:   time.Now().UTC(),
+			Metadata: map[string]interface{}{
+				"wallet_id":        txn.WalletID.String(),
+				"account_code":     fmt.Sprintf("wallet.%s.%s.%s", txn.WalletID.String(), txn.ChainID, item.AssetID),
+				"tx_hash":          txn.TxHash,
+				"block_number":     txn.BlockNumber,
+				"chain_id":         txn.ChainID,
+				"from_address":     item.FromAddress,
+				"contract_address": item.ContractAddress,
+				"unique_id":        txn.UniqueID,
+			},
+		},
+		// CREDIT income account (blockchain income)
+		{
+			ID:          uuid.New(),
+			AccountID:   uuid.Nil,
+			DebitCredit: ledger.Credit,
+			EntryType:   ledger.EntryTypeIncome,
+			Amount:      new(big.Int).Set(item.GetAmount()),
+			AssetID:     item.AssetID,
+			USDRate:     new(big.Int).Set(usdRate),
+			USDValue:    new(big.Int).Set(usdValue),
+			OccurredAt:  txn.OccurredAt,
+			CreatedAt:   time.Now().UTC(),
+			Metadata: map[string]interface{}{
+				"account_code":     fmt.Sprintf("income.%s.%s", txn.ChainID, item.AssetID),
+				"tx_hash":          txn.TxHash,
+				"block_number":     txn.BlockNumber,
+				"chain_id":         txn.ChainID,
+				"from_address":     item.FromAddress,
+				"contract_address": item.ContractAddress,
+				"unique_id":        txn.UniqueID,
+			},
 		},
 	}
-
-	// Entry 2: CREDIT income account (blockchain income)
-	entries[1] = &ledger.Entry{
-		ID:          uuid.New(),
-		AccountID:   uuid.Nil, // Will be resolved by AccountResolver
-		DebitCredit: ledger.Credit,
-		EntryType:   ledger.EntryTypeIncome,
-		Amount:      new(big.Int).Set(txn.GetAmount()),
-		AssetID:     txn.AssetID,
-		USDRate:     new(big.Int).Set(usdRate),
-		USDValue:    new(big.Int).Set(usdValue),
-		OccurredAt:  txn.OccurredAt,
-		CreatedAt:   time.Now().UTC(),
-		Metadata: map[string]interface{}{
-			"account_code":     fmt.Sprintf("income.%s.%s", txn.ChainID, txn.AssetID),
-			"tx_hash":          txn.TxHash,
-			"block_number":     txn.BlockNumber,
-			"chain_id":         txn.ChainID,
-			"from_address":     txn.FromAddress,
-			"contract_address": txn.ContractAddress,
-			"unique_id":        txn.UniqueID,
-		},
-	}
-
-	h.logger.Debug("transfer entries generated", "entry_count", len(entries), "asset_id", txn.AssetID)
-
-	return entries, nil
 }

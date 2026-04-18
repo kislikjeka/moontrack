@@ -96,75 +96,19 @@ func (h *TransferOutHandler) ValidateData(ctx context.Context, data map[string]i
 	return nil
 }
 
-// GenerateEntries generates ledger entries for a transfer out transaction
-// Ledger entries generated (2-4 entries):
-// 1. DEBIT expense.{chain_id}.{asset_id} (expense) - records expense
-// 2. CREDIT wallet.{wallet_id}.{asset_id} (asset_decrease) - decreases wallet balance
-// If gas fee is present (separate from transfer amount):
-// 3. DEBIT gas.{chain_id}.{native_asset} (gas_fee) - records gas expense
-// 4. CREDIT wallet.{wallet_id}.{native_asset} (asset_decrease) - decreases native token balance
+// GenerateEntries generates ledger entries for a transfer out transaction.
+// For each asset movement (from Transfers when populated, else the legacy
+// flat fields) it emits a balanced pair:
+//  1. DEBIT  expense.{chain_id}.{asset_id}            (expense)
+//  2. CREDIT wallet.{wallet_id}.{chain}.{asset_id}    (asset_decrease)
+// If gas is present the usual native-token gas pair is appended once.
 func (h *TransferOutHandler) GenerateEntries(ctx context.Context, txn *TransferOutTransaction) ([]*ledger.Entry, error) {
-	// Get USD rate for transferred asset
-	usdRate := txn.GetUSDRate()
-	if usdRate == nil {
-		usdRate = big.NewInt(0)
+	items := h.collectItems(txn)
+
+	entries := make([]*ledger.Entry, 0, 2*len(items)+2)
+	for i := range items {
+		entries = append(entries, h.entriesForItem(txn, &items[i])...)
 	}
-
-	// Calculate USD value for transfer: (amount * usd_rate) / 10^decimals
-	usdValue := new(big.Int).Mul(txn.GetAmount(), usdRate)
-	if usdRate.Sign() > 0 {
-		divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(txn.Decimals)), nil)
-		usdValue.Div(usdValue, divisor)
-	}
-
-	entries := make([]*ledger.Entry, 0, 4)
-
-	// Entry 1: DEBIT expense account (records expense)
-	entries = append(entries, &ledger.Entry{
-		ID:          uuid.New(),
-		AccountID:   uuid.Nil, // Will be resolved by AccountResolver
-		DebitCredit: ledger.Debit,
-		EntryType:   ledger.EntryTypeExpense,
-		Amount:      new(big.Int).Set(txn.GetAmount()),
-		AssetID:     txn.AssetID,
-		USDRate:     new(big.Int).Set(usdRate),
-		USDValue:    new(big.Int).Set(usdValue),
-		OccurredAt:  txn.OccurredAt,
-		CreatedAt:   time.Now().UTC(),
-		Metadata: map[string]interface{}{
-			"account_code":     fmt.Sprintf("expense.%s.%s", txn.ChainID, txn.AssetID),
-			"tx_hash":          txn.TxHash,
-			"block_number":     txn.BlockNumber,
-			"chain_id":         txn.ChainID,
-			"to_address":       txn.ToAddress,
-			"contract_address": txn.ContractAddress,
-			"unique_id":        txn.UniqueID,
-		},
-	})
-
-	// Entry 2: CREDIT wallet account (decreases balance)
-	entries = append(entries, &ledger.Entry{
-		ID:          uuid.New(),
-		AccountID:   uuid.Nil, // Will be resolved by AccountResolver
-		DebitCredit: ledger.Credit,
-		EntryType:   ledger.EntryTypeAssetDecrease,
-		Amount:      new(big.Int).Set(txn.GetAmount()),
-		AssetID:     txn.AssetID,
-		USDRate:     new(big.Int).Set(usdRate),
-		USDValue:    new(big.Int).Set(usdValue),
-		OccurredAt:  txn.OccurredAt,
-		CreatedAt:   time.Now().UTC(),
-		Metadata: map[string]interface{}{
-			"wallet_id":        txn.WalletID.String(),
-			"account_code":     fmt.Sprintf("wallet.%s.%s.%s", txn.WalletID.String(), txn.ChainID, txn.AssetID),
-			"tx_hash":          txn.TxHash,
-			"block_number":     txn.BlockNumber,
-			"chain_id":         txn.ChainID,
-			"to_address":       txn.ToAddress,
-			"contract_address": txn.ContractAddress,
-			"unique_id":        txn.UniqueID,
-		},
-	})
 
 	// Add gas fee entries if gas is present
 	gasAmount := txn.GetGasAmount()
@@ -227,7 +171,89 @@ func (h *TransferOutHandler) GenerateEntries(ctx context.Context, txn *TransferO
 		})
 	}
 
-	h.logger.Debug("transfer entries generated", "entry_count", len(entries), "asset_id", txn.AssetID)
+	h.logger.Debug("transfer entries generated", "entry_count", len(entries), "item_count", len(items))
 
 	return entries, nil
+}
+
+// collectItems returns the list of asset movements. When Transfers is
+// populated it wins; otherwise the legacy flat fields are converted into a
+// one-element slice.
+func (h *TransferOutHandler) collectItems(txn *TransferOutTransaction) []TransferItem {
+	if len(txn.Transfers) > 0 {
+		return txn.Transfers
+	}
+	return []TransferItem{{
+		AssetID:         txn.AssetID,
+		Decimals:        txn.Decimals,
+		Amount:          txn.Amount,
+		USDRate:         txn.USDRate,
+		ContractAddress: txn.ContractAddress,
+		ToAddress:       txn.ToAddress,
+		Direction:       "out",
+	}}
+}
+
+// entriesForItem emits one balanced debit/credit pair for a single outgoing
+// asset movement.
+func (h *TransferOutHandler) entriesForItem(txn *TransferOutTransaction, item *TransferItem) []*ledger.Entry {
+	usdRate := item.GetUSDRate()
+	if usdRate == nil {
+		usdRate = big.NewInt(0)
+	}
+
+	// USD value = (amount * usd_rate) / 10^decimals
+	usdValue := new(big.Int).Mul(item.GetAmount(), usdRate)
+	if usdRate.Sign() > 0 {
+		divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(item.Decimals)), nil)
+		usdValue.Div(usdValue, divisor)
+	}
+
+	return []*ledger.Entry{
+		// DEBIT expense account (records expense)
+		{
+			ID:          uuid.New(),
+			AccountID:   uuid.Nil,
+			DebitCredit: ledger.Debit,
+			EntryType:   ledger.EntryTypeExpense,
+			Amount:      new(big.Int).Set(item.GetAmount()),
+			AssetID:     item.AssetID,
+			USDRate:     new(big.Int).Set(usdRate),
+			USDValue:    new(big.Int).Set(usdValue),
+			OccurredAt:  txn.OccurredAt,
+			CreatedAt:   time.Now().UTC(),
+			Metadata: map[string]interface{}{
+				"account_code":     fmt.Sprintf("expense.%s.%s", txn.ChainID, item.AssetID),
+				"tx_hash":          txn.TxHash,
+				"block_number":     txn.BlockNumber,
+				"chain_id":         txn.ChainID,
+				"to_address":       item.ToAddress,
+				"contract_address": item.ContractAddress,
+				"unique_id":        txn.UniqueID,
+			},
+		},
+		// CREDIT wallet account (decreases balance)
+		{
+			ID:          uuid.New(),
+			AccountID:   uuid.Nil,
+			DebitCredit: ledger.Credit,
+			EntryType:   ledger.EntryTypeAssetDecrease,
+			Amount:      new(big.Int).Set(item.GetAmount()),
+			AssetID:     item.AssetID,
+			USDRate:     new(big.Int).Set(usdRate),
+			USDValue:    new(big.Int).Set(usdValue),
+			OccurredAt:  txn.OccurredAt,
+			CreatedAt:   time.Now().UTC(),
+			Metadata: map[string]interface{}{
+				"wallet_id":        txn.WalletID.String(),
+				"account_code":     fmt.Sprintf("wallet.%s.%s.%s", txn.WalletID.String(), txn.ChainID, item.AssetID),
+				"tx_hash":          txn.TxHash,
+				"block_number":     txn.BlockNumber,
+				"chain_id":         txn.ChainID,
+				"to_address":       item.ToAddress,
+				"contract_address": item.ContractAddress,
+				"unique_id":        txn.UniqueID,
+			},
+		},
+	}
 }
