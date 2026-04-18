@@ -5,17 +5,15 @@
 // Flags:
 //
 //	-dry-run   bool    Print affected rows without modifying data (default: true).
-//	-force     bool    Allow destructive mode without FEATURE_PRICE_FALLBACK=true.
-//	                   Dangerous — only use when you have verified the backfill
-//	                   worker is running elsewhere. Otherwise flipped lots
-//	                   cannot be re-resolved and will be stuck in 'pending'.
 //
 // Usage:
 //
-//	go run ./cmd/backfill-legacy-prices                    # dry-run (default, safe)
-//	FEATURE_PRICE_FALLBACK=true \
-//	   go run ./cmd/backfill-legacy-prices -dry-run=false  # actually flip lots
-//	go run ./cmd/backfill-legacy-prices -dry-run=false -force  # force override
+//	go run ./cmd/backfill-legacy-prices                     # dry-run (default, safe)
+//	go run ./cmd/backfill-legacy-prices -dry-run=false      # actually flip lots
+//
+// The backfill worker runs unconditionally as part of the API server, so any
+// lot this CLI flips back to 'pending' will be picked up and re-resolved
+// automatically.
 package main
 
 import (
@@ -48,42 +46,16 @@ func main() {
 				"Flags:")
 		flag.PrintDefaults()
 		fmt.Fprintln(os.Stderr,
-			"\nDestructive mode (-dry-run=false) requires either FEATURE_PRICE_FALLBACK=true\n"+
-				"(recommended) OR the -force flag (only safe if the backfill worker is known\n"+
-				"to be running elsewhere).")
+			"\nDestructive mode (-dry-run=false) flips matching lots back to 'pending'\n"+
+				"and enqueues a price_backfill_job for each unique (asset_id, target_time).\n"+
+				"The worker embedded in the API server picks them up and resolves prices\n"+
+				"via the fallback provider pipeline.")
 	}
 	dryRun := flag.Bool("dry-run", true, "Print affected rows without modifying data (default: true)")
-	force := flag.Bool("force", false, "Allow destructive mode without FEATURE_PRICE_FALLBACK=true (dangerous)")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
-	// Safety guard: in destructive mode, require the price-fallback worker to be
-	// enabled. Otherwise, flipping lots to "pending" strands them forever because
-	// nothing will re-resolve the prices.
-	//
-	// The --force flag lets an operator bypass the check when they know the
-	// worker is running elsewhere (e.g. the user has verified a separate
-	// deployment). We still print a clear warning so the override is logged.
-	if !*dryRun {
-		flag := os.Getenv("FEATURE_PRICE_FALLBACK")
-		if flag != "true" && !*force {
-			fmt.Fprintln(os.Stderr,
-				"ERROR: destructive mode requires FEATURE_PRICE_FALLBACK=true so the "+
-					"backfill worker will pick up flipped lots. Without it, lots flipped to "+
-					"'pending' will never be re-resolved and will remain stuck.")
-			fmt.Fprintln(os.Stderr,
-				"       Options: export FEATURE_PRICE_FALLBACK=true (recommended), OR "+
-					"re-run with --force if you have verified the worker is running elsewhere.")
-			os.Exit(2)
-		}
-		if *force && flag != "true" {
-			fmt.Fprintln(os.Stderr,
-				"WARN: --force supplied with FEATURE_PRICE_FALLBACK!=\"true\". Proceeding, "+
-					"but flipped lots will be stuck until a backfill worker starts.")
-		}
-	}
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
