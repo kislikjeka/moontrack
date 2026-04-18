@@ -277,6 +277,38 @@ func TestClient_NonOKResponse(t *testing.T) {
 }
 
 // =============================================================================
+// Oversized Response Tests
+// =============================================================================
+
+// TestClient_OversizedResponse verifies the Zerion client bounds the response
+// body read at maxResponseBytes. A hostile upstream returning a body larger
+// than the bound will yield a decode error (from truncated JSON) rather than
+// unbounded memory growth.
+//
+// Here we emit a JSON prefix then 20 MiB of filler (> 16 MiB bound) then a
+// suffix. The read is truncated to 16 MiB, leaving the JSON invalid.
+func TestClient_OversizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"`))
+		filler := make([]byte, 20<<20) // 20 MiB — exceeds 16 MiB bound
+		for i := range filler {
+			filler[i] = 'a'
+		}
+		_, _ = w.Write(filler)
+		_, _ = w.Write([]byte(`","type":"transactions","attributes":{}}]}`))
+	}))
+	defer server.Close()
+
+	client := zerion.NewClient("key", testLogger())
+	client.SetBaseURL(server.URL)
+
+	_, err := client.GetTransactions(context.Background(), "0xtest", []string{"ethereum"}, time.Now())
+	require.Error(t, err, "oversized response must fail decode (not OOM)")
+	assert.Contains(t, err.Error(), "decode")
+}
+
+// =============================================================================
 // RateLimitError Type Tests
 // =============================================================================
 

@@ -19,6 +19,12 @@ const (
 	headerAPIKey        = "x-cg-demo-api-key"
 	requestTimeout      = 10 * time.Second
 	rateLimitRetryAfter = 60 * time.Second
+
+	// maxResponseBytes bounds the size of a CoinGecko JSON response we will
+	// decode. Protects against hostile or MITM'd upstream returning arbitrarily
+	// large payloads (OOM / DoS vector). 1 MiB is well above legitimate response
+	// sizes for /simple/price, /coins/{id}/history, /coins/{id} and /search.
+	maxResponseBytes = 1 << 20 // 1 MiB
 )
 
 // Client represents a CoinGecko API client
@@ -39,6 +45,12 @@ func NewClient(apiKey string, log *logger.Logger) *Client {
 		baseURL: baseURL,
 		logger:  log.WithField("component", "coingecko"),
 	}
+}
+
+// SetBaseURL overrides the default base URL (useful for tests that point the
+// client at an httptest.Server).
+func (c *Client) SetBaseURL(u string) {
+	c.baseURL = u
 }
 
 // PriceResponse represents the response from CoinGecko price API
@@ -106,9 +118,9 @@ func (c *Client) GetCurrentPrices(ctx context.Context, assetIDs []string) (map[s
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parse response
+	// Parse response (bounded to guard against oversized/hostile payloads)
 	var rawPrices map[string]map[string]float64
-	if err := json.NewDecoder(resp.Body).Decode(&rawPrices); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&rawPrices); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -170,9 +182,9 @@ func (c *Client) GetHistoricalPrice(ctx context.Context, assetID string, date ti
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parse response
+	// Parse response (bounded to guard against oversized/hostile payloads)
 	var historical HistoricalPriceResponse
-	if err := json.NewDecoder(resp.Body).Decode(&historical); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&historical); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -270,9 +282,9 @@ func (c *Client) GetCoinDetails(ctx context.Context, coinID string) (*CoinDetail
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parse response
+	// Parse response (bounded to guard against oversized/hostile payloads)
 	var detail CoinDetail
-	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&detail); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -333,9 +345,9 @@ func (c *Client) SearchCoins(ctx context.Context, query string) ([]SearchCoin, e
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parse response
+	// Parse response (bounded to guard against oversized/hostile payloads)
 	var searchResp SearchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&searchResp); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 

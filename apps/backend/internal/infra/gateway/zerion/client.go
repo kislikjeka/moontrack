@@ -20,6 +20,18 @@ const (
 	defaultBaseURL = "https://api.zerion.io/v1"
 	requestTimeout = 30 * time.Second
 	maxRetries     = 3
+
+	// maxResponseBytes bounds the size of a single Zerion API response body
+	// we will read into memory. Protects against hostile/misbehaving upstream
+	// returning gigantic payloads (OOM / DoS vector).
+	//
+	// 16 MiB (vs. 1 MiB used for price providers) because Zerion paginated
+	// /wallets/{address}/transactions/ and /positions/ responses can
+	// legitimately carry hundreds of entries per page, each with deeply
+	// nested attributes, flags, and transfer arrays. 16 MiB is well above
+	// any legitimate single-page response we've observed while still
+	// bounding memory per request.
+	maxResponseBytes int64 = 16 << 20 // 16 MiB
 )
 
 // Client is an HTTP client for the Zerion REST API
@@ -86,7 +98,11 @@ func (c *Client) doRequest(ctx context.Context, method, reqURL string, params ur
 			return nil, fmt.Errorf("failed to execute request: %w", err)
 		}
 
-		body, readErr := io.ReadAll(resp.Body)
+		// Bound the read to guard against hostile/misbehaving upstream returning
+		// gigantic payloads. LimitReader only delivers up to maxResponseBytes;
+		// any overflow results in a truncated JSON body that will fail to
+		// decode (deterministic error, not OOM).
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 		resp.Body.Close()
 		if readErr != nil {
 			return nil, fmt.Errorf("failed to read response body: %w", readErr)
