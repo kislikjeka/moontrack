@@ -372,13 +372,13 @@ func calcUSD(txn *LendingTransaction) (*big.Int, *big.Int) {
 // by the ledger's accountResolver based on the `account_code` metadata.
 
 // entryRouting captures the debit and credit side of a single balanced
-// pair for a lending asset movement.
+// pair for a lending asset movement. Account types are inferred from each
+// account code's prefix in buildLendingPair — no need to carry them here.
 type entryRouting struct {
 	debitAccount  string
 	debitType     ledger.EntryType
 	creditAccount string
 	creditType    ledger.EntryType
-	accountType   string // e.g. "COLLATERAL", "LIABILITY" — for Account.Type when needed
 }
 
 // generateSupplyItemEntries emits entries for one transfer item of a supply op.
@@ -396,7 +396,6 @@ func generateSupplyItemEntries(txn *LendingTransaction, item *LendingTransferIte
 			debitType:     ledger.EntryTypeCollateralIncrease,
 			creditAccount: fmt.Sprintf("clearing.lending.%s.%s", proto, chain),
 			creditType:    ledger.EntryTypeClearing,
-			accountType:   "COLLATERAL",
 		})
 	default:
 		// Liquid asset outbound — the principal that leaves the wallet.
@@ -405,7 +404,6 @@ func generateSupplyItemEntries(txn *LendingTransaction, item *LendingTransferIte
 			debitType:     ledger.EntryTypeCollateralIncrease,
 			creditAccount: fmt.Sprintf("wallet.%s.%s.%s", walletID, chain, item.AssetID),
 			creditType:    ledger.EntryTypeAssetDecrease,
-			accountType:   "COLLATERAL",
 		})
 	}
 }
@@ -425,7 +423,6 @@ func generateWithdrawItemEntries(txn *LendingTransaction, item *LendingTransferI
 			debitType:     ledger.EntryTypeClearing,
 			creditAccount: fmt.Sprintf("collateral.%s.%s.%s.%s", proto, walletID, chain, item.AssetID),
 			creditType:    ledger.EntryTypeCollateralDecrease,
-			accountType:   "COLLATERAL",
 		})
 	default:
 		// Principal inbound to wallet.
@@ -434,7 +431,6 @@ func generateWithdrawItemEntries(txn *LendingTransaction, item *LendingTransferI
 			debitType:     ledger.EntryTypeAssetIncrease,
 			creditAccount: fmt.Sprintf("collateral.%s.%s.%s.%s", proto, walletID, chain, item.AssetID),
 			creditType:    ledger.EntryTypeCollateralDecrease,
-			accountType:   "COLLATERAL",
 		})
 	}
 }
@@ -456,7 +452,6 @@ func generateBorrowItemEntries(txn *LendingTransaction, item *LendingTransferIte
 			debitType:     ledger.EntryTypeClearing,
 			creditAccount: fmt.Sprintf("liability.%s.%s.%s.%s", proto, walletID, chain, item.AssetID),
 			creditType:    ledger.EntryTypeLiabilityIncrease,
-			accountType:   "LIABILITY",
 		})
 	default:
 		// Liquid borrowed asset inbound to wallet.
@@ -465,7 +460,6 @@ func generateBorrowItemEntries(txn *LendingTransaction, item *LendingTransferIte
 			debitType:     ledger.EntryTypeAssetIncrease,
 			creditAccount: fmt.Sprintf("liability.%s.%s.%s.%s", proto, walletID, chain, item.AssetID),
 			creditType:    ledger.EntryTypeLiabilityIncrease,
-			accountType:   "LIABILITY",
 		})
 	}
 }
@@ -485,7 +479,6 @@ func generateRepayItemEntries(txn *LendingTransaction, item *LendingTransferItem
 			debitType:     ledger.EntryTypeLiabilityDecrease,
 			creditAccount: fmt.Sprintf("clearing.lending.%s.%s", proto, chain),
 			creditType:    ledger.EntryTypeClearing,
-			accountType:   "LIABILITY",
 		})
 	default:
 		// Liquid asset outbound from wallet (repayment).
@@ -494,7 +487,6 @@ func generateRepayItemEntries(txn *LendingTransaction, item *LendingTransferItem
 			debitType:     ledger.EntryTypeLiabilityDecrease,
 			creditAccount: fmt.Sprintf("wallet.%s.%s.%s", walletID, chain, item.AssetID),
 			creditType:    ledger.EntryTypeAssetDecrease,
-			accountType:   "LIABILITY",
 		})
 	}
 }
@@ -528,8 +520,9 @@ func generateClaimItemEntries(txn *LendingTransaction, item *LendingTransferItem
 
 // buildLendingPair turns an entryRouting and a LendingTransferItem into a
 // balanced debit/credit pair. Metadata carries account_code for the resolver;
-// the wallet-scoped side also carries wallet_id + chain_id so the resolver
-// can persist the correct Account.WalletID / ChainID columns.
+// per-side account_type is derived from the code prefix so wallet / collateral
+// / liability / clearing accounts each get the correct Account.Type and the
+// wallet-scoped sides are tagged with wallet_id.
 func buildLendingPair(txn *LendingTransaction, item *LendingTransferItem, r entryRouting) []*ledger.Entry {
 	amount := item.GetAmount()
 	usdRate := item.GetUSDRate()
@@ -539,7 +532,7 @@ func buildLendingPair(txn *LendingTransaction, item *LendingTransferItem, r entr
 	chain := txn.ChainID
 	proto := txn.Protocol
 
-	baseMeta := func(accountCode string, includeAccountType bool) map[string]interface{} {
+	metaFor := func(accountCode string) map[string]interface{} {
 		m := map[string]interface{}{
 			"account_code":     accountCode,
 			"tx_hash":          txn.TxHash,
@@ -547,15 +540,22 @@ func buildLendingPair(txn *LendingTransaction, item *LendingTransferItem, r entr
 			"protocol":         proto,
 			"contract_address": item.ContractAddress,
 		}
-		// Wallet / collateral / liability accounts need wallet_id in metadata
-		// so the resolver creates the account with the right WalletID column.
-		if strings.HasPrefix(accountCode, "wallet.") ||
-			strings.HasPrefix(accountCode, "collateral.") ||
-			strings.HasPrefix(accountCode, "liability.") {
+		switch {
+		case strings.HasPrefix(accountCode, "wallet."):
 			m["wallet_id"] = walletID
-		}
-		if includeAccountType && r.accountType != "" {
-			m["account_type"] = r.accountType
+			// crypto_wallet is inferred from the prefix; no account_type needed.
+		case strings.HasPrefix(accountCode, "collateral."):
+			m["wallet_id"] = walletID
+			m["account_type"] = "COLLATERAL"
+		case strings.HasPrefix(accountCode, "liability."):
+			m["wallet_id"] = walletID
+			m["account_type"] = "LIABILITY"
+		case strings.HasPrefix(accountCode, "clearing."):
+			m["account_type"] = "CLEARING"
+		case strings.HasPrefix(accountCode, "income."):
+			m["account_type"] = "INCOME"
+		case strings.HasPrefix(accountCode, "expense."):
+			m["account_type"] = "EXPENSE"
 		}
 		return m
 	}
@@ -570,7 +570,7 @@ func buildLendingPair(txn *LendingTransaction, item *LendingTransferItem, r entr
 		USDValue:    new(big.Int).Set(usdValue),
 		OccurredAt:  txn.OccurredAt,
 		CreatedAt:   time.Now().UTC(),
-		Metadata:    baseMeta(r.debitAccount, true),
+		Metadata:    metaFor(r.debitAccount),
 	}
 	credit := &ledger.Entry{
 		ID:          uuid.New(),
@@ -582,7 +582,7 @@ func buildLendingPair(txn *LendingTransaction, item *LendingTransferItem, r entr
 		USDValue:    new(big.Int).Set(usdValue),
 		OccurredAt:  txn.OccurredAt,
 		CreatedAt:   time.Now().UTC(),
-		Metadata:    baseMeta(r.creditAccount, true),
+		Metadata:    metaFor(r.creditAccount),
 	}
 	return []*ledger.Entry{debit, credit}
 }
