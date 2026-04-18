@@ -596,6 +596,43 @@ func (r *TaxLotRepository) ListPendingLotsByAssetAndTime(ctx context.Context, as
 	return r.collectTaxLots(rows)
 }
 
+// ListPendingLotsByAssetIDAndTime returns lots with price_status='pending' for
+// the asset identified by assetID (UUID) within the minute bucket containing at.
+//
+// Unlike the symbol-keyed variant, this method disambiguates tokens that share
+// a symbol across chains by joining accounts.chain_id against the target asset's
+// chain_id. The JOIN condition uses IS NOT DISTINCT FROM so NULL chain_ids
+// (e.g., non-chain-scoped assets) compare as equal.
+func (r *TaxLotRepository) ListPendingLotsByAssetIDAndTime(ctx context.Context, assetID uuid.UUID, at time.Time) ([]*ledger.TaxLot, error) {
+	minStart := at.UTC().Truncate(time.Minute)
+	minEnd := minStart.Add(time.Minute)
+
+	query := `
+		SELECT tl.id, tl.transaction_id, tl.account_id, tl.asset,
+		       tl.quantity_acquired, tl.quantity_remaining, tl.acquired_at,
+		       tl.auto_cost_basis_per_unit, tl.auto_cost_basis_source,
+		       tl.override_cost_basis_per_unit, tl.override_reason, tl.override_at,
+		       tl.linked_source_lot_id, tl.created_at,
+		       tl.price_status, tl.price_resolution_attempts, tl.price_next_retry_at
+		FROM tax_lots tl
+		JOIN accounts a ON a.id = tl.account_id
+		JOIN assets ass ON ass.symbol = tl.asset
+		   AND ass.chain_id IS NOT DISTINCT FROM a.chain_id
+		WHERE ass.id = $1
+		  AND tl.price_status = 'pending'
+		  AND tl.acquired_at >= $2 AND tl.acquired_at < $3
+	`
+
+	q := r.getQueryer(ctx)
+	rows, err := q.Query(ctx, query, assetID, minStart, minEnd)
+	if err != nil {
+		return nil, fmt.Errorf("list pending lots by asset id and time: %w", err)
+	}
+	defer rows.Close()
+
+	return r.collectTaxLots(rows)
+}
+
 // ResolvePendingPrice sets auto_cost_basis_per_unit and transitions
 // price_status to 'resolved'. Only affects rows where price_status='pending'.
 func (r *TaxLotRepository) ResolvePendingPrice(ctx context.Context, lotID uuid.UUID, autoCostBasisPerUnit *big.Int, autoSource ledger.CostBasisSource) error {

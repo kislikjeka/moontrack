@@ -98,7 +98,7 @@ func (m *memPriceRecorder) RecordPrice(ctx context.Context, p *asset.PricePoint)
 
 type memResolvedHook struct{ called int }
 
-func (m *memResolvedHook) OnResolved(ctx context.Context, assetSym string, at time.Time, price *big.Int, src ledger.CostBasisSource) error {
+func (m *memResolvedHook) OnResolved(ctx context.Context, assetID uuid.UUID, at time.Time, price *big.Int, src ledger.CostBasisSource) error {
 	m.called++
 	return nil
 }
@@ -179,7 +179,7 @@ func TestWorker_RateLimited_DoesNotCountAttempt(t *testing.T) {
 
 	w := price.NewBackfillWorker(price.WorkerDeps{
 		Jobs: jr, Resolver: resolver, AssetLookup: aLookup,
-		PriceRecorder: &memPriceRecorder{}, OnResolved: func(ctx context.Context, a string, t time.Time, p *big.Int, s ledger.CostBasisSource) error {
+		PriceRecorder: &memPriceRecorder{}, OnResolved: func(ctx context.Context, a uuid.UUID, t time.Time, p *big.Int, s ledger.CostBasisSource) error {
 			return nil
 		},
 		Logger: logger.NewNoop(),
@@ -202,7 +202,7 @@ func TestWorker_TerminalAttempt_MarksFailed(t *testing.T) {
 	j.Attempts = price.MaxAttempts - 1
 	w := price.NewBackfillWorker(price.WorkerDeps{
 		Jobs: jr, Resolver: resolver, AssetLookup: aLookup,
-		PriceRecorder: &memPriceRecorder{}, OnResolved: func(ctx context.Context, a string, t time.Time, p *big.Int, s ledger.CostBasisSource) error {
+		PriceRecorder: &memPriceRecorder{}, OnResolved: func(ctx context.Context, a uuid.UUID, t time.Time, p *big.Int, s ledger.CostBasisSource) error {
 			return nil
 		},
 		Logger: logger.NewNoop(),

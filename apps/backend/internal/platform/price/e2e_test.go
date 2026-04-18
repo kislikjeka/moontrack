@@ -49,7 +49,7 @@ func buildPipeline(
 		Resolver:    resolver,
 		AssetLookup: aLookup,
 		PriceRecorder: pr,
-		OnResolved: func(_ context.Context, _ string, _ time.Time, _ *big.Int, _ ledger.CostBasisSource) error {
+		OnResolved: func(_ context.Context, _ uuid.UUID, _ time.Time, _ *big.Int, _ ledger.CostBasisSource) error {
 			calls++
 			return nil
 		},

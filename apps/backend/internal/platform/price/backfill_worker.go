@@ -24,8 +24,9 @@ type PriceRecorder interface {
 }
 
 // OnPriceResolvedFunc notifies interested parties (ledger hook) that a price
-// is now known for (assetSymbol, at). Implementations must be idempotent.
-type OnPriceResolvedFunc func(ctx context.Context, assetSymbol string, at time.Time, priceUSDPerUnit *big.Int, src ledger.CostBasisSource) error
+// is now known for (assetID, at). Implementations must be idempotent.
+// The UUID (not symbol) is used to avoid cross-chain collisions.
+type OnPriceResolvedFunc func(ctx context.Context, assetID uuid.UUID, at time.Time, priceUSDPerUnit *big.Int, src ledger.CostBasisSource) error
 
 // WorkerDeps holds all dependencies for BackfillWorker.
 type WorkerDeps struct {
@@ -89,7 +90,7 @@ func (w *BackfillWorker) ProcessOne(ctx context.Context) error {
 			// Don't count as attempt — it's our problem, not the provider's.
 			return w.d.Jobs.UnlockWithoutCounting(ctx, job.ID, time.Now().Add(1*time.Minute))
 		}
-		if err := w.d.OnResolved(ctx, a.Symbol, job.TargetTime, hp.PriceUSD, ledger.CostBasisFMVAtTransfer); err != nil {
+		if err := w.d.OnResolved(ctx, a.ID, job.TargetTime, hp.PriceUSD, ledger.CostBasisFMVAtTransfer); err != nil {
 			return w.d.Jobs.UnlockWithoutCounting(ctx, job.ID, time.Now().Add(1*time.Minute))
 		}
 		return w.d.Jobs.MarkResolved(ctx, job.ID)

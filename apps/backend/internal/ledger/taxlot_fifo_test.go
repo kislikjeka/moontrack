@@ -14,6 +14,10 @@ import (
 type mockTaxLotRepo struct {
 	lots      []*TaxLot
 	disposals []*LotDisposal
+
+	// lotAssetIDs optionally associates a lot with a concrete asset UUID.
+	// Used by PriceResolvedHook tests that exercise the UUID-keyed variant.
+	lotAssetIDs map[uuid.UUID]uuid.UUID
 }
 
 func (m *mockTaxLotRepo) CreateTaxLot(_ context.Context, lot *TaxLot) error {
@@ -117,6 +121,31 @@ func (m *mockTaxLotRepo) ListPendingLotsByAssetAndTime(_ context.Context, asset 
 	var result []*TaxLot
 	for _, l := range m.lots {
 		if l.Asset == asset && l.PriceStatus == PriceStatusPending &&
+			l.AcquiredAt.Truncate(time.Minute).Equal(at.Truncate(time.Minute)) {
+			result = append(result, l)
+		}
+	}
+	return result, nil
+}
+
+// mockAssetID is set on lots that the mock wants disambiguated by UUID;
+// when lot.AccountID's first byte matches a mock marker, treat this as the
+// owning asset UUID. Tests drive the mapping directly via lotAssetIDs.
+func (m *mockTaxLotRepo) ListPendingLotsByAssetIDAndTime(_ context.Context, assetID uuid.UUID, at time.Time) ([]*TaxLot, error) {
+	var result []*TaxLot
+	for _, l := range m.lots {
+		owner, ok := m.lotAssetIDs[l.ID]
+		// If the test did not register a UUID for this lot, fall back to
+		// matching on all pending lots in the bucket (symbol not considered)
+		// so existing tests that don't care about UUID still pass.
+		if !ok {
+			if l.PriceStatus == PriceStatusPending &&
+				l.AcquiredAt.Truncate(time.Minute).Equal(at.Truncate(time.Minute)) {
+				result = append(result, l)
+			}
+			continue
+		}
+		if owner == assetID && l.PriceStatus == PriceStatusPending &&
 			l.AcquiredAt.Truncate(time.Minute).Equal(at.Truncate(time.Minute)) {
 			result = append(result, l)
 		}

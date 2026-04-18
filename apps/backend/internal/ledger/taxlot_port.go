@@ -40,7 +40,19 @@ type TaxLotRepository interface {
 
 	// ListPendingLotsByAssetAndTime returns all lots whose price_status is 'pending'
 	// for the given asset symbol within the minute bucket containing at.
+	//
+	// WARNING: this method keys on the asset symbol (string) only, which
+	// collides for tokens that share a symbol across chains (e.g. USDT on
+	// Ethereum vs USDT on BNB). Prefer ListPendingLotsByAssetIDAndTime for
+	// new code paths.
 	ListPendingLotsByAssetAndTime(ctx context.Context, asset string, at time.Time) ([]*TaxLot, error)
+
+	// ListPendingLotsByAssetIDAndTime returns all lots whose price_status is
+	// 'pending' for the given asset UUID within the minute bucket containing at.
+	// The UUID filter prevents collisions between tokens that share a symbol
+	// on different chains. Implementations must resolve assetID -> (symbol, chain_id)
+	// and JOIN on accounts.chain_id to scope correctly.
+	ListPendingLotsByAssetIDAndTime(ctx context.Context, assetID uuid.UUID, at time.Time) ([]*TaxLot, error)
 
 	// ResolvePendingPrice sets auto_cost_basis_per_unit and transitions
 	// price_status to 'resolved'. Only affects rows where price_status='pending'.
