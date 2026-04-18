@@ -268,7 +268,7 @@ func main() {
 	portfolioHandler := handler.NewPortfolioHandler(portfolioSvc)
 	assetHandler := handler.NewAssetHandler(assetSvc)
 	taxLotHandler := handler.NewTaxLotHandler(taxLotSvc, decimalResolver)
-	lotsSvc := lots.NewService(taxLotRepo, ledgerRepo, walletRepo)
+	lotsSvc := lots.NewService(taxLotRepo, ledgerRepo, walletRepo).WithAssetLookup(assetSvc, log)
 	lotsHandler := lots.NewHandler(lotsSvc)
 	lpPositionHTTPHandler := handler.NewLPPositionHandler(lpPositionSvc)
 	lendingPositionHTTPHandler := handler.NewLendingPositionHandler(lendingPositionSvc)
