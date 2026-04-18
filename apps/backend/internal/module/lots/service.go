@@ -9,7 +9,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/internal/platform/asset"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
@@ -35,6 +37,7 @@ type LotRepo interface {
 	UpdateOverride(ctx context.Context, lotID uuid.UUID, costBasis *big.Int, reason string) error
 	MarkResolved(ctx context.Context, lotID uuid.UUID) error
 	CreateOverrideHistory(ctx context.Context, history *ledger.LotOverrideHistory) error
+	ResolvePendingDisposals(ctx context.Context, assetID uuid.UUID, at time.Time, proceedsPerUnit *big.Int) (int64, error)
 }
 
 // LedgerRepo is the subset of ledger.Repository used for transactions and account lookups.
@@ -50,11 +53,21 @@ type WalletRepo interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*wallet.Wallet, error)
 }
 
+// AssetLookup resolves an asset UUID from a symbol (optionally chain-scoped).
+// Used to thread a manual-price lot's symbol back to the asset_id that
+// ResolvePendingDisposals expects. Optional: when nil, SetManualPrice still
+// resolves the lot itself but skips pending-disposal resolution.
+type AssetLookup interface {
+	GetAssetBySymbol(ctx context.Context, symbol string, chainID *string) (*asset.Asset, error)
+}
+
 // Svc provides business logic for the manual-price endpoint.
 type Svc struct {
-	repo      LotRepo
-	ledger    LedgerRepo
+	repo       LotRepo
+	ledger     LedgerRepo
 	walletRepo WalletRepo
+	assetLookup AssetLookup // optional
+	log        *logger.Logger
 }
 
 // NewService creates a new lots.Svc.
@@ -64,6 +77,19 @@ func NewService(repo LotRepo, ledger LedgerRepo, walletRepo WalletRepo) *Svc {
 		ledger:     ledger,
 		walletRepo: walletRepo,
 	}
+}
+
+// WithAssetLookup returns a copy of the service with asset-lookup wired in.
+// When present, SetManualPrice will also resolve pending disposals on the
+// same (asset, minute_bucket) as the priced lot.
+func (s *Svc) WithAssetLookup(lookup AssetLookup, log *logger.Logger) *Svc {
+	if s == nil {
+		return nil
+	}
+	cp := *s
+	cp.assetLookup = lookup
+	cp.log = log
+	return &cp
 }
 
 // SetManualPrice sets the cost basis override on a lot and transitions
@@ -131,7 +157,52 @@ func (s *Svc) SetManualPrice(ctx context.Context, userID uuid.UUID, lotID uuid.U
 		return fmt.Errorf("mark resolved: %w", err)
 	}
 
+	// Also resolve pending disposals on the same (asset, minute_bucket).
+	// User expectation is that PnL materializes immediately when they
+	// supply a price — not only the lot's cost basis. Mirror the logic in
+	// PriceResolvedHook (price_resolved_hook.go:56-63).
+	//
+	// Resilience: asset lookup is best-effort. The lot itself is already
+	// resolved — that is the user's primary intent — so a missing asset
+	// row must not fail the whole operation. Log a WARN and continue.
+	if s.assetLookup != nil {
+		s.resolvePendingDisposalsForLot(txCtx, lot, costBasis)
+	}
+
 	return s.ledger.CommitTx(txCtx)
+}
+
+// resolvePendingDisposalsForLot looks up the asset UUID for lot's symbol
+// (scoped by the lot's chain when non-empty) and calls
+// ResolvePendingDisposals on the matching minute bucket. Best-effort: any
+// error is logged and swallowed, because the manual-price operation's
+// primary job (resolving the lot) has already succeeded.
+func (s *Svc) resolvePendingDisposalsForLot(ctx context.Context, lot *ledger.TaxLot, priceUSD *big.Int) {
+	var chainPtr *string
+	if lot.ChainID != "" {
+		chain := lot.ChainID
+		chainPtr = &chain
+	}
+	a, err := s.assetLookup.GetAssetBySymbol(ctx, lot.Asset, chainPtr)
+	if err != nil || a == nil {
+		if s.log != nil {
+			s.log.Warn("manual price: asset lookup failed, skipping pending disposal resolution",
+				"lot_id", lot.ID.String(), "symbol", lot.Asset, "error", err)
+		}
+		return
+	}
+	n, err := s.repo.ResolvePendingDisposals(ctx, a.ID, lot.AcquiredAt, priceUSD)
+	if err != nil {
+		if s.log != nil {
+			s.log.Warn("manual price: resolve pending disposals failed",
+				"lot_id", lot.ID.String(), "asset_id", a.ID.String(), "error", err)
+		}
+		return
+	}
+	if n > 0 && s.log != nil {
+		s.log.Info("manual price: resolved pending disposals",
+			"lot_id", lot.ID.String(), "asset_id", a.ID.String(), "count", n)
+	}
 }
 
 // verifyOwnership checks that the lot's account belongs to a wallet owned by userID.
