@@ -234,6 +234,11 @@ func weightedAvgCostBasis(ctx context.Context, repo TaxLotRepository, disposals 
 		}
 
 		costBasis := lot.EffectiveCostBasisPerUnit()
+		if costBasis == nil {
+			// Source lot is still pending (no resolved auto cost basis and no override).
+			// Skip it — the caller already handles a nil return by falling back to FMV.
+			continue
+		}
 		// cost * quantity
 		contribution := new(big.Int).Mul(costBasis, d.QuantityDisposed)
 		totalCostTimesQty.Add(totalCostTimesQty, contribution)

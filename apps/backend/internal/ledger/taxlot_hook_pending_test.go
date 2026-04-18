@@ -80,6 +80,128 @@ func TestTaxLotHook_CreatesPendingLot(t *testing.T) {
 	}
 }
 
+// TestWeightedAvgCostBasis_SkipsPendingLots verifies that when weightedAvgCostBasis
+// encounters a disposal consuming a pending source lot (EffectiveCostBasisPerUnit()
+// returns nil), it does not panic on Mul(nil, ...) and computes the WAC from the
+// resolved lots only.
+func TestWeightedAvgCostBasis_SkipsPendingLots(t *testing.T) {
+	accountID := uuid.New()
+	asset := "ETH"
+	now := time.Now()
+
+	// One resolved source lot, one pending source lot.
+	resolvedLot := &TaxLot{
+		ID:                   uuid.New(),
+		TransactionID:        uuid.New(),
+		AccountID:            accountID,
+		Asset:                asset,
+		QuantityAcquired:     big.NewInt(100),
+		QuantityRemaining:    big.NewInt(100),
+		AcquiredAt:           now.Add(-2 * time.Hour),
+		AutoCostBasisPerUnit: big.NewInt(200_000_000), // $2 scaled 10^8
+		AutoCostBasisSource:  CostBasisFMVAtTransfer,
+		PriceStatus:          PriceStatusResolved,
+		CreatedAt:            now,
+	}
+	pendingLot := &TaxLot{
+		ID:                   uuid.New(),
+		TransactionID:        uuid.New(),
+		AccountID:            accountID,
+		Asset:                asset,
+		QuantityAcquired:     big.NewInt(100),
+		QuantityRemaining:    big.NewInt(100),
+		AcquiredAt:           now.Add(-time.Hour),
+		AutoCostBasisPerUnit: nil, // pending — unresolved
+		AutoCostBasisSource:  CostBasisFMVAtTransfer,
+		PriceStatus:          PriceStatusPending,
+		CreatedAt:            now,
+	}
+
+	repo := &mockTaxLotRepo{lots: []*TaxLot{resolvedLot, pendingLot}}
+
+	// Disposals consuming 50 units from each lot.
+	disposals := []*LotDisposal{
+		{
+			ID:               uuid.New(),
+			TransactionID:    uuid.New(),
+			LotID:            resolvedLot.ID,
+			QuantityDisposed: big.NewInt(50),
+			ProceedsPerUnit:  big.NewInt(300_000_000),
+			DisposalType:     DisposalTypeInternalTransfer,
+			DisposedAt:       now,
+			CreatedAt:        now,
+		},
+		{
+			ID:               uuid.New(),
+			TransactionID:    uuid.New(),
+			LotID:            pendingLot.ID,
+			QuantityDisposed: big.NewInt(50),
+			ProceedsPerUnit:  big.NewInt(300_000_000),
+			DisposalType:     DisposalTypeInternalTransfer,
+			DisposedAt:       now,
+			CreatedAt:        now,
+		},
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("weightedAvgCostBasis panicked on pending lot: %v", r)
+		}
+	}()
+
+	wac := weightedAvgCostBasis(context.Background(), repo, disposals)
+	if wac == nil {
+		t.Fatalf("expected WAC from resolved lot, got nil")
+	}
+	// WAC should equal the resolved lot's cost basis (50*$2 / 50 = $2)
+	expected := big.NewInt(200_000_000)
+	if wac.Cmp(expected) != 0 {
+		t.Errorf("expected WAC %s (resolved lot only), got %s", expected, wac)
+	}
+}
+
+// TestWeightedAvgCostBasis_AllPending_ReturnsNil verifies that when every disposal
+// references a pending lot, the function returns nil (so callers fall back to FMV).
+func TestWeightedAvgCostBasis_AllPending_ReturnsNil(t *testing.T) {
+	accountID := uuid.New()
+	asset := "ETH"
+	now := time.Now()
+
+	pendingLot := &TaxLot{
+		ID:                   uuid.New(),
+		TransactionID:        uuid.New(),
+		AccountID:            accountID,
+		Asset:                asset,
+		QuantityAcquired:     big.NewInt(100),
+		QuantityRemaining:    big.NewInt(100),
+		AcquiredAt:           now.Add(-time.Hour),
+		AutoCostBasisPerUnit: nil,
+		AutoCostBasisSource:  CostBasisFMVAtTransfer,
+		PriceStatus:          PriceStatusPending,
+		CreatedAt:            now,
+	}
+
+	repo := &mockTaxLotRepo{lots: []*TaxLot{pendingLot}}
+
+	disposals := []*LotDisposal{
+		{
+			ID:               uuid.New(),
+			TransactionID:    uuid.New(),
+			LotID:            pendingLot.ID,
+			QuantityDisposed: big.NewInt(50),
+			ProceedsPerUnit:  big.NewInt(300_000_000),
+			DisposalType:     DisposalTypeInternalTransfer,
+			DisposedAt:       now,
+			CreatedAt:        now,
+		},
+	}
+
+	wac := weightedAvgCostBasis(context.Background(), repo, disposals)
+	if wac != nil {
+		t.Fatalf("expected nil WAC when all source lots are pending, got %s", wac)
+	}
+}
+
 // TestTaxLotHook_ResolvedWhenRatePresent verifies that when USDRate is non-nil
 // the hook creates a lot with PriceStatus == PriceStatusResolved (regression guard).
 func TestTaxLotHook_ResolvedWhenRatePresent(t *testing.T) {
