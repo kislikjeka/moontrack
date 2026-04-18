@@ -120,3 +120,14 @@ func TestSanitizeProviderField_TruncateLongName(t *testing.T) {
 		t.Fatalf("expected length %d, got %d", nameCapBytes, len(got))
 	}
 }
+
+// TestSymbolNameCapsAreReasonable guards against future changes that would
+// relax the trust-boundary caps below the values Bug 5 mandates.
+func TestSymbolNameCapsAreReasonable(t *testing.T) {
+	if symbolCapBytes > 32 {
+		t.Fatalf("symbol cap (%d) must not exceed 32", symbolCapBytes)
+	}
+	if nameCapBytes > 128 {
+		t.Fatalf("name cap (%d) must not exceed 128", nameCapBytes)
+	}
+}
