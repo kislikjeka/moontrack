@@ -394,31 +394,51 @@ func (p *ZerionProcessor) calcLPAmounts(transfers []DecodedTransfer, dir Transfe
 
 func (p *ZerionProcessor) buildTransferInData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
-	// TransferInHandler expects flat fields, not a transfers array.
-	// Find the primary "in" transfer.
-	var t *DecodedTransfer
+	data["unique_id"] = tx.ID
+
+	// Collect ALL incoming transfers. Zerion can emit multiple transfers of
+	// different assets in a single on-chain tx (e.g. Aave borrow returns
+	// a debt receipt token + the real borrowed asset). Prior to this change
+	// only the first matching transfer was kept, silently dropping the rest.
+	transfers := make([]map[string]interface{}, 0, len(tx.Transfers))
+	var first *DecodedTransfer
 	for i := range tx.Transfers {
-		if tx.Transfers[i].Direction == DirectionIn {
-			t = &tx.Transfers[i]
-			break
+		t := &tx.Transfers[i]
+		if t.Direction != DirectionIn {
+			continue
+		}
+		transfers = append(transfers, p.buildTransferEntry(t))
+		// Enqueue backfill jobs for EVERY unpriced transfer, not just the first.
+		if t.USDPrice == nil {
+			p.ensureBackfillJob(ctx, t, tx.ChainID, tx.MinedAt)
+		}
+		if first == nil {
+			first = t
 		}
 	}
-	if t == nil && len(tx.Transfers) > 0 {
-		t = &tx.Transfers[0]
+	// Fallback: no IN transfers found — use the first transfer of any direction
+	// so legacy callers that inspect flat fields still see something.
+	if first == nil && len(tx.Transfers) > 0 {
+		first = &tx.Transfers[0]
+		transfers = append(transfers, p.buildTransferEntry(first))
+		if first.USDPrice == nil {
+			p.ensureBackfillJob(ctx, first, tx.ChainID, tx.MinedAt)
+		}
 	}
-	if t != nil {
-		data["asset_id"] = t.AssetSymbol
-		data["amount"] = money.NewBigInt(t.Amount).String()
-		data["decimals"] = t.Decimals
-		data["contract_address"] = t.ContractAddress
-		data["from_address"] = t.Sender
-		data["unique_id"] = tx.ID
-		if t.USDPrice != nil {
-			data["usd_rate"] = t.USDPrice.String()
-		} else {
-			// No Zerion price: register the asset + enqueue a backfill job
-			// so the price is resolved later.
-			p.ensureBackfillJob(ctx, t, tx.ChainID, tx.MinedAt)
+
+	data["transfers"] = transfers
+
+	// Legacy flat fields, populated from the first transfer for backwards
+	// compatibility with consumers that read raw_transactions without
+	// understanding the new shape.
+	if first != nil {
+		data["asset_id"] = first.AssetSymbol
+		data["amount"] = money.NewBigInt(first.Amount).String()
+		data["decimals"] = first.Decimals
+		data["contract_address"] = first.ContractAddress
+		data["from_address"] = first.Sender
+		if first.USDPrice != nil {
+			data["usd_rate"] = first.USDPrice.String()
 		}
 	}
 	return data
@@ -426,35 +446,45 @@ func (p *ZerionProcessor) buildTransferInData(ctx context.Context, w *wallet.Wal
 
 func (p *ZerionProcessor) buildTransferOutData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
-	// TransferOutHandler expects flat fields, not a transfers array.
-	// Find the primary "out" transfer.
-	var t *DecodedTransfer
+	data["unique_id"] = tx.ID
+
+	// Collect ALL outgoing transfers — symmetric to buildTransferInData.
+	transfers := make([]map[string]interface{}, 0, len(tx.Transfers))
+	var first *DecodedTransfer
 	for i := range tx.Transfers {
-		if tx.Transfers[i].Direction == DirectionOut {
-			t = &tx.Transfers[i]
-			break
+		t := &tx.Transfers[i]
+		if t.Direction != DirectionOut {
+			continue
 		}
-	}
-	if t == nil && len(tx.Transfers) > 0 {
-		t = &tx.Transfers[0]
-	}
-	if t != nil {
-		data["asset_id"] = t.AssetSymbol
-		data["amount"] = money.NewBigInt(t.Amount).String()
-		data["decimals"] = t.Decimals
-		data["contract_address"] = t.ContractAddress
-		data["to_address"] = t.Recipient
-		data["unique_id"] = tx.ID
-		if t.USDPrice != nil {
-			data["usd_rate"] = t.USDPrice.String()
-		} else {
+		transfers = append(transfers, p.buildTransferEntry(t))
+		if t.USDPrice == nil {
 			// Outgoing unpriced transfer: enqueue a backfill job so the
 			// pending disposal's proceeds_per_unit gets filled in later.
-			// Prior to this fix, outgoing-only transfers never enqueued
-			// (enqueue only lived in buildSingleTransfer, used by swaps),
-			// so the disposal was stuck at proceeds_status='pending'
-			// indefinitely when no matching incoming transfer existed.
 			p.ensureBackfillJob(ctx, t, tx.ChainID, tx.MinedAt)
+		}
+		if first == nil {
+			first = t
+		}
+	}
+	if first == nil && len(tx.Transfers) > 0 {
+		first = &tx.Transfers[0]
+		transfers = append(transfers, p.buildTransferEntry(first))
+		if first.USDPrice == nil {
+			p.ensureBackfillJob(ctx, first, tx.ChainID, tx.MinedAt)
+		}
+	}
+
+	data["transfers"] = transfers
+
+	// Legacy flat fields for back-compat.
+	if first != nil {
+		data["asset_id"] = first.AssetSymbol
+		data["amount"] = money.NewBigInt(first.Amount).String()
+		data["decimals"] = first.Decimals
+		data["contract_address"] = first.ContractAddress
+		data["to_address"] = first.Recipient
+		if first.USDPrice != nil {
+			data["usd_rate"] = first.USDPrice.String()
 		}
 	}
 	// Map fee fields to gas fields expected by TransferOutHandler
@@ -465,6 +495,26 @@ func (p *ZerionProcessor) buildTransferOutData(ctx context.Context, w *wallet.Wa
 		data["gas_usd_rate"] = feeRate
 	}
 	return data
+}
+
+// buildTransferEntry renders a single DecodedTransfer into the map shape
+// consumed by transfer/lending handlers (the "transfers" array element).
+// Emits amount as a decimal string (money.BigInt-compatible) and omits
+// usd_rate when unknown so handlers treat missing price as nil.
+func (p *ZerionProcessor) buildTransferEntry(t *DecodedTransfer) map[string]interface{} {
+	m := map[string]interface{}{
+		"asset_id":         t.AssetSymbol,
+		"amount":           money.NewBigInt(t.Amount).String(),
+		"decimals":         t.Decimals,
+		"contract_address": t.ContractAddress,
+		"direction":        string(t.Direction),
+		"from_address":     t.Sender,
+		"to_address":       t.Recipient,
+	}
+	if t.USDPrice != nil {
+		m["usd_rate"] = t.USDPrice.String()
+	}
+	return m
 }
 
 // ensureBackfillJob upserts an asset by on-chain identity (if we have a
@@ -706,46 +756,67 @@ func (p *ZerionProcessor) buildSingleTransfer(ctx context.Context, t DecodedTran
 // --- Lending data builders ---
 
 func (p *ZerionProcessor) buildLendingSupplyData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
-	data := p.buildBaseData(w, tx)
-	// Supply: the outgoing transfer is the asset being supplied
-	if t := p.findTransfer(tx.Transfers, DirectionOut); t != nil {
-		p.setLendingAssetFields(data, t)
-	}
-	return data
+	// Supply: the primary asset being supplied flows OUT of the wallet.
+	// A receipt token (aToken) flows IN simultaneously — capture both.
+	return p.buildLendingData(w, tx, DirectionOut)
 }
 
 func (p *ZerionProcessor) buildLendingWithdrawData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
-	data := p.buildBaseData(w, tx)
-	// Withdraw: the incoming transfer is the asset being withdrawn
-	if t := p.findTransfer(tx.Transfers, DirectionIn); t != nil {
-		p.setLendingAssetFields(data, t)
-	}
-	return data
+	// Withdraw: the principal asset flows IN to the wallet, aToken flows OUT.
+	return p.buildLendingData(w, tx, DirectionIn)
 }
 
 func (p *ZerionProcessor) buildLendingBorrowData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
-	data := p.buildBaseData(w, tx)
-	// Borrow: the incoming transfer is the borrowed asset
-	if t := p.findTransfer(tx.Transfers, DirectionIn); t != nil {
-		p.setLendingAssetFields(data, t)
-	}
-	return data
+	// Borrow: both the debt receipt token AND the real borrowed asset
+	// arrive as IN transfers. Prior to multi-asset support only the first
+	// of these was persisted, so either the debt or the borrowed asset
+	// was silently dropped.
+	return p.buildLendingData(w, tx, DirectionIn)
 }
 
 func (p *ZerionProcessor) buildLendingRepayData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
-	data := p.buildBaseData(w, tx)
-	// Repay: the outgoing transfer is the asset being repaid
-	if t := p.findTransfer(tx.Transfers, DirectionOut); t != nil {
-		p.setLendingAssetFields(data, t)
-	}
-	return data
+	// Repay: the repayment asset flows OUT; debt-token burn flows OUT too.
+	return p.buildLendingData(w, tx, DirectionOut)
 }
 
 func (p *ZerionProcessor) buildLendingClaimData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+	// Claim: rewards/interest flow IN; rarely a receipt-adjustment transfer.
+	return p.buildLendingData(w, tx, DirectionIn)
+}
+
+// buildLendingData emits the shared lending data map shape. It collects all
+// transfers matching the primary direction into `transfers`, picks the first
+// such transfer for legacy flat fields (`asset`, `amount`, etc.), and always
+// includes the full array so handlers can route receipt vs. liquid assets.
+func (p *ZerionProcessor) buildLendingData(w *wallet.Wallet, tx DecodedTransaction, primary TransferDirection) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
-	// Claim: the incoming transfer is the reward/interest
-	if t := p.findTransfer(tx.Transfers, DirectionIn); t != nil {
-		p.setLendingAssetFields(data, t)
+
+	transfers := make([]map[string]interface{}, 0, len(tx.Transfers))
+	var first *DecodedTransfer
+	for i := range tx.Transfers {
+		t := &tx.Transfers[i]
+		if t.Direction != primary {
+			continue
+		}
+		transfers = append(transfers, p.buildTransferEntry(t))
+		if first == nil {
+			first = t
+		}
+	}
+	// Include the opposite-direction transfer too (e.g. for supply, the aToken
+	// flows IN; for borrow, nothing flows OUT — so this is a no-op for borrow).
+	// Handlers inspect direction to decide routing.
+	for i := range tx.Transfers {
+		t := &tx.Transfers[i]
+		if t.Direction == primary {
+			continue
+		}
+		transfers = append(transfers, p.buildTransferEntry(t))
+	}
+
+	data["transfers"] = transfers
+	if first != nil {
+		p.setLendingAssetFields(data, first)
 	}
 	return data
 }
