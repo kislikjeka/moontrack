@@ -367,7 +367,7 @@ func (r *AssetRepository) GetByChain(ctx context.Context, chainID string) ([]ass
 // scanAsset scans a single row into an Asset
 func (r *AssetRepository) scanAsset(row pgx.Row) (*asset.Asset, error) {
 	var a asset.Asset
-	var chainID, contractAddress sql.NullString
+	var cgID, chainID, contractAddress sql.NullString
 	var marketCapRank sql.NullInt32
 	var assetType string
 
@@ -375,7 +375,7 @@ func (r *AssetRepository) scanAsset(row pgx.Row) (*asset.Asset, error) {
 		&a.ID,
 		&a.Symbol,
 		&a.Name,
-		&a.CoinGeckoID,
+		&cgID,
 		&a.Decimals,
 		&assetType,
 		&chainID,
@@ -391,6 +391,9 @@ func (r *AssetRepository) scanAsset(row pgx.Row) (*asset.Asset, error) {
 	}
 
 	a.AssetType = asset.AssetType(assetType)
+	if cgID.Valid {
+		a.CoinGeckoID = cgID.String
+	}
 	if chainID.Valid {
 		a.ChainID = &chainID.String
 	}
@@ -416,7 +419,7 @@ func (r *AssetRepository) scanAssets(rows pgx.Rows) ([]asset.Asset, error) {
 
 	for rows.Next() {
 		var a asset.Asset
-		var chainID, contractAddress sql.NullString
+		var cgID, chainID, contractAddress sql.NullString
 		var marketCapRank sql.NullInt32
 		var assetType string
 
@@ -424,7 +427,7 @@ func (r *AssetRepository) scanAssets(rows pgx.Rows) ([]asset.Asset, error) {
 			&a.ID,
 			&a.Symbol,
 			&a.Name,
-			&a.CoinGeckoID,
+			&cgID,
 			&a.Decimals,
 			&assetType,
 			&chainID,
@@ -440,6 +443,9 @@ func (r *AssetRepository) scanAssets(rows pgx.Rows) ([]asset.Asset, error) {
 		}
 
 		a.AssetType = asset.AssetType(assetType)
+		if cgID.Valid {
+			a.CoinGeckoID = cgID.String
+		}
 		if chainID.Valid {
 			a.ChainID = &chainID.String
 		}
