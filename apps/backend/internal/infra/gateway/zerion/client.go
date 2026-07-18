@@ -59,8 +59,10 @@ func (c *Client) SetBaseURL(url string) {
 	c.baseURL = url
 }
 
-// doRequest performs an authenticated HTTP request with rate-limit retry.
-// It retries up to maxRetries times with exponential backoff (1s, 2s, 4s) on 429 responses.
+// doRequest performs an authenticated HTTP request with transient-error retry.
+// It retries up to maxRetries times with exponential backoff (1s, 2s, 4s) on
+// transient failures: HTTP 429, HTTP 5xx, and network errors from the transport.
+// Non-transient failures (4xx other than 429) are returned immediately.
 func (c *Client) doRequest(ctx context.Context, method, reqURL string, params url.Values) ([]byte, error) {
 	// Append query params if provided
 	if len(params) > 0 {
@@ -79,6 +81,21 @@ func (c *Client) doRequest(ctx context.Context, method, reqURL string, params ur
 	}
 
 	backoff := time.Second
+
+	// retryWait sleeps for the current backoff (respecting context cancellation)
+	// then doubles it. It returns an error only if the context is cancelled while
+	// waiting; a nil return means the caller should retry. Callers must check
+	// attempt < maxRetries before invoking it.
+	retryWait := func() error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+			backoff *= 2
+			return nil
+		}
+	}
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		c.logger.Debug("API request", "method", method, "url", reqURL, "attempt", attempt)
 		attemptStart := time.Now()
@@ -95,7 +112,17 @@ func (c *Client) doRequest(ctx context.Context, method, reqURL string, params ur
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("failed to execute request: %w", err)
+			// Network/transport error (dropped connection, DNS, etc.) — transient.
+			// Retry with the same exponential backoff used for 429/5xx.
+			if attempt == maxRetries {
+				c.logger.Error("request failed after retries", "attempts", maxRetries+1, "error", err)
+				return nil, fmt.Errorf("failed to execute request: %w", err)
+			}
+			c.logger.Warn("request failed, retrying", "attempt", attempt, "backoff_ms", backoff.Milliseconds(), "error", err)
+			if werr := retryWait(); werr != nil {
+				return nil, werr
+			}
+			continue
 		}
 
 		// Bound the read to guard against hostile/misbehaving upstream returning
@@ -122,15 +149,26 @@ func (c *Client) doRequest(ctx context.Context, method, reqURL string, params ur
 				}
 			}
 			c.logger.Warn("rate limited, retrying", "attempt", attempt, "backoff_ms", backoff.Milliseconds())
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(backoff):
-				backoff *= 2
-				continue
+			if werr := retryWait(); werr != nil {
+				return nil, werr
 			}
+			continue
 		}
 
+		// Server-side errors (5xx) are transient — retry with the same backoff.
+		if resp.StatusCode >= 500 {
+			if attempt == maxRetries {
+				c.logger.Error("server error exhausted retries", "status_code", resp.StatusCode, "attempts", maxRetries+1)
+				return nil, fmt.Errorf("Zerion API error: status %d, body: %s", resp.StatusCode, string(body))
+			}
+			c.logger.Warn("server error, retrying", "attempt", attempt, "status_code", resp.StatusCode, "backoff_ms", backoff.Milliseconds())
+			if werr := retryWait(); werr != nil {
+				return nil, werr
+			}
+			continue
+		}
+
+		// Client errors (4xx other than 429) are not transient — fail immediately.
 		c.logger.Error("API error", "status_code", resp.StatusCode)
 		return nil, fmt.Errorf("Zerion API error: status %d, body: %s", resp.StatusCode, string(body))
 	}
