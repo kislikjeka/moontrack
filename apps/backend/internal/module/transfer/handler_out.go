@@ -101,6 +101,7 @@ func (h *TransferOutHandler) ValidateData(ctx context.Context, data map[string]i
 // flat fields) it emits a balanced pair:
 //  1. DEBIT  expense.{chain_id}.{asset_id}            (expense)
 //  2. CREDIT wallet.{wallet_id}.{chain}.{asset_id}    (asset_decrease)
+//
 // If gas is present the usual native-token gas pair is appended once.
 func (h *TransferOutHandler) GenerateEntries(ctx context.Context, txn *TransferOutTransaction) ([]*ledger.Entry, error) {
 	items := h.collectItems(txn)
@@ -125,8 +126,12 @@ func (h *TransferOutHandler) GenerateEntries(ctx context.Context, txn *TransferO
 			gasUSDValue.Div(gasUSDValue, divisor)
 		}
 
-		// Get native asset symbol (assume ETH for simplicity, should come from chain config)
-		nativeAssetID := "ETH" // This should be derived from chain ID
+		// Get native asset symbol from the transaction (fee asset), falling
+		// back to ETH for legacy/native-fee chains.
+		nativeAssetID := txn.NativeAssetID
+		if nativeAssetID == "" {
+			nativeAssetID = "ETH" // Fallback for legacy/native-fee chains
+		}
 
 		// Entry 3: DEBIT gas account (records gas expense)
 		entries = append(entries, &ledger.Entry{
