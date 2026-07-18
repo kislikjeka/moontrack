@@ -133,12 +133,13 @@ func convertTransfer(zt ZTransfer, zerionChain string) sync.DecodedTransfer {
 		if zt.FungibleInfo.Icon != nil {
 			iconURL = zt.FungibleInfo.Icon.URL
 		}
+		// Resolve decimals with an explicit found signal: a found implementation
+		// is authoritative even when it reports 0 decimals; only fall back to the
+		// quantity's own decimals when no chain implementation exists at all.
 		if impl := zt.FungibleInfo.ImplementationByChain(zerionChain); impl != nil {
 			contractAddr = strings.ToLower(impl.Address)
 			decimals = impl.Decimals
-		}
-		// Fallback decimals from Quantity if not in implementations
-		if decimals == 0 {
+		} else {
 			decimals = zt.Quantity.Decimals
 		}
 	}
@@ -180,10 +181,11 @@ func convertFee(fee *Fee, zerionChain string) *sync.DecodedFee {
 		if fee.FungibleInfo.Icon != nil {
 			iconURL = fee.FungibleInfo.Icon.URL
 		}
+		// A found implementation is authoritative (even at 0 decimals); only fall
+		// back to the quantity's decimals when no chain implementation exists.
 		if impl := fee.FungibleInfo.ImplementationByChain(zerionChain); impl != nil {
 			decimals = impl.Decimals
-		}
-		if decimals == 0 {
+		} else {
 			decimals = fee.Quantity.Decimals
 		}
 	}
@@ -216,12 +218,23 @@ func parseIntString(s string) *big.Int {
 	return n
 }
 
+// maxUSDPrice bounds a per-unit USD price we will accept. Above this the scaled
+// value risks precision/serialization issues; we treat it as bad data.
+const maxUSDPrice = 1e12 // $1 trillion / unit — implausible, reject as bad data
+
 // usdFloatToBigInt converts a USD float64 price to *big.Int scaled by 1e8.
 // Example: 3500.12 → 350012000000.
-// Note: safe for prices up to ~$92 billion (int64 max / 1e8).
+// Returns nil (interpreted by callers as "price unknown") for non-finite,
+// negative, or implausibly large prices instead of silently saturating: the
+// old int64 conversion wrapped to a garbage-but-plausible rate above ~$9.2e10.
 func usdFloatToBigInt(price float64) *big.Int {
-	scaled := math.Round(price * 1e8)
-	return big.NewInt(int64(scaled))
+	if math.IsNaN(price) || math.IsInf(price, 0) || price < 0 || price > maxUSDPrice {
+		return nil
+	}
+	// Scale by 1e8 via big.Float to avoid int64 overflow/rounding on large prices.
+	scaled := new(big.Float).Mul(big.NewFloat(price), big.NewFloat(1e8))
+	result, _ := scaled.Int(nil) // truncates toward zero; acceptable at 1e-8 granularity
+	return result
 }
 
 // GetPositions fetches on-chain positions and converts them to domain types
@@ -251,11 +264,12 @@ func (a *SyncAdapter) GetPositions(ctx context.Context, address string) ([]sync.
 			if pd.Attributes.FungibleInfo.Icon != nil {
 				iconURL = pd.Attributes.FungibleInfo.Icon.URL
 			}
+			// A found implementation is authoritative (even at 0 decimals); only
+			// fall back to the quantity's decimals when no chain implementation exists.
 			if impl := pd.Attributes.FungibleInfo.ImplementationByChain(chain); impl != nil {
 				contractAddr = strings.ToLower(impl.Address)
 				decimals = impl.Decimals
-			}
-			if decimals == 0 {
+			} else {
 				decimals = pd.Attributes.Quantity.Decimals
 			}
 		}
