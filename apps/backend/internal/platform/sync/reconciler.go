@@ -13,6 +13,13 @@ import (
 	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
+// negativeDeltaDustTolerance is the maximum absolute base-unit magnitude of a
+// negative reconciliation delta (on-chain < calculated) that is treated as
+// rounding noise and skipped. Amounts are stored in base units (NUMERIC(78,0)),
+// so a handful of base units is negligible dust at any realistic decimals scale.
+// Anything strictly larger is surfaced as a degraded sync rather than swallowed.
+var negativeDeltaDustTolerance = big.NewInt(10)
+
 // Reconciler handles Phase 2: comparing transaction flows with on-chain balances
 type Reconciler struct {
 	rawTxRepo       RawTransactionRepository
@@ -109,17 +116,49 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, erro
 			netFlow = big.NewInt(0)
 		}
 
+		// MT-SYNC-04: AssetFlow.Decimals is fixed from the first transfer seen and
+		// never re-checked, while pos.Quantity is scaled at pos.Decimals. Summing
+		// netFlow (at flow.Decimals) and subtracting pos.Quantity (at pos.Decimals)
+		// only makes sense when the two scales agree. A mismatch makes the delta
+		// garbage, so treat it as a hard reconciliation error and do NOT synthesize.
+		// Only meaningful when a flow exists (no flow => nothing to compare against).
+		if exists && flow.Decimals != pos.Decimals {
+			r.logger.Error("decimals mismatch between calculated flow and on-chain position",
+				"wallet_id", w.ID,
+				"chain_id", pos.ChainID,
+				"asset", pos.AssetSymbol,
+				"flow_decimals", flow.Decimals,
+				"position_decimals", pos.Decimals)
+			return genesisCount, r.markDegraded(ctx, w.ID, fmt.Sprintf(
+				"decimals mismatch for %s on %s: flow=%d position=%d",
+				pos.AssetSymbol, pos.ChainID, flow.Decimals, pos.Decimals))
+		}
+
 		delta := new(big.Int).Sub(pos.Quantity, netFlow)
 
 		if delta.Sign() < 0 {
-			r.logger.Warn("negative delta (on-chain < calculated), ignoring",
+			// MT-SYNC-03: on-chain balance is LESS than what our transaction history
+			// calculated. Genesis can only ADD to a balance, so we cannot correct an
+			// over-report here; if swallowed it becomes a permanent, invisible error.
+			r.logger.Warn("negative delta (on-chain < calculated)",
 				"wallet_id", w.ID,
 				"chain_id", pos.ChainID,
 				"asset", pos.AssetSymbol,
 				"on_chain", pos.Quantity.String(),
 				"calculated", netFlow.String(),
 				"delta", delta.String())
-			continue
+
+			// Tolerate dust (rounding noise): a negative delta whose absolute value is
+			// within a tiny hardcoded base-unit threshold is treated as noise and skipped.
+			// Anything beyond that is a real discrepancy → mark the sync degraded.
+			absDelta := new(big.Int).Abs(delta)
+			if absDelta.Cmp(negativeDeltaDustTolerance) <= 0 {
+				continue
+			}
+
+			return genesisCount, r.markDegraded(ctx, w.ID, fmt.Sprintf(
+				"on-chain balance below calculated for %s on %s: on_chain=%s calculated=%s delta=%s",
+				pos.AssetSymbol, pos.ChainID, pos.Quantity.String(), netFlow.String(), delta.String()))
 		}
 
 		if delta.Sign() == 0 {
@@ -151,6 +190,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, erro
 		"positions_checked", len(positions))
 
 	return genesisCount, nil
+}
+
+// markDegraded records a reconciliation discrepancy on the wallet (so it becomes
+// visible instead of silently proceeding) and returns a hard error so the caller
+// aborts the sync. Used for both a beyond-dust negative delta (MT-SYNC-03) and a
+// decimals mismatch (MT-SYNC-04) — one consistent surfacing mechanism.
+func (r *Reconciler) markDegraded(ctx context.Context, walletID uuid.UUID, reason string) error {
+	errMsg := "reconciliation discrepancy: " + reason
+	if err := r.walletRepo.SetSyncError(ctx, walletID, errMsg); err != nil {
+		r.logger.Error("failed to mark wallet sync degraded",
+			"wallet_id", walletID,
+			"reason", reason,
+			"error", err)
+	}
+	return fmt.Errorf("%s", errMsg)
 }
 
 // calculateNetFlows processes raw transactions and computes net flows per asset.
