@@ -157,6 +157,162 @@ func TestSyncAdapter_FullConversion(t *testing.T) {
 }
 
 // =============================================================================
+// Decimals Resolution (MT-SYNC-02)
+// =============================================================================
+
+// A found chain implementation is authoritative: an 18-dp implementation must
+// not be clobbered by the Quantity fallback, and a missing implementation must
+// fall back to the quantity's own decimals.
+func TestSyncAdapter_DecimalsResolution(t *testing.T) {
+	tests := []struct {
+		name             string
+		impls            []zerion.Implementation
+		quantityDecimals int
+		wantDecimals     int
+	}{
+		{
+			name:             "found impl 18dp not clobbered by fallback",
+			impls:            []zerion.Implementation{{ChainID: "ethereum", Address: "0xToken", Decimals: 18}},
+			quantityDecimals: 6, // differs from impl — must be ignored
+			wantDecimals:     18,
+		},
+		{
+			name:             "missing impl falls back to quantity decimals",
+			impls:            nil, // no chain implementation
+			quantityDecimals: 8,
+			wantDecimals:     8,
+		},
+		{
+			name:             "impl on different chain falls back to quantity decimals",
+			impls:            []zerion.Implementation{{ChainID: "polygon", Address: "0xToken", Decimals: 6}},
+			quantityDecimals: 9,
+			wantDecimals:     9,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			txData := zerion.TransactionResponse{
+				Data: []zerion.TransactionData{
+					withChain(zerion.TransactionData{
+						ID: "tx-decimals",
+						Attributes: zerion.TransactionAttributes{
+							OperationType: "receive",
+							Hash:          "0xdec",
+							MinedAt:       "2024-01-01T00:00:00Z",
+							Status:        "confirmed",
+							Transfers: []zerion.ZTransfer{
+								{
+									FungibleInfo: &zerion.FungibleInfo{
+										Symbol:          "TKN",
+										Implementations: tt.impls,
+									},
+									Direction: "in",
+									Quantity:  zerion.Quantity{Int: "100", Decimals: tt.quantityDecimals},
+									Sender:    "0xa",
+									Recipient: "0xb",
+								},
+							},
+						},
+					}, "ethereum"),
+				},
+			}
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				json.NewEncoder(w).Encode(txData)
+			}))
+			defer server.Close()
+
+			client := zerion.NewClient("key", testLogger())
+			client.SetBaseURL(server.URL)
+			adapter := zerion.NewSyncAdapter(client)
+
+			txs, err := adapter.GetTransactions(context.Background(), "0xb", time.Time{})
+			require.NoError(t, err)
+			require.Len(t, txs, 1)
+			require.Len(t, txs[0].Transfers, 1)
+			assert.Equal(t, tt.wantDecimals, txs[0].Transfers[0].Decimals)
+		})
+	}
+}
+
+// A large-but-valid price that overflows the old int64 path must convert cleanly
+// end-to-end, and a non-finite/over-ceiling price must yield a nil USD price.
+func TestSyncAdapter_USDPriceGuards(t *testing.T) {
+	largePrice := 5e11  // ~$500B/unit: overflows old int64 path, valid via big.Float
+	overCeiling := 2e12 // above maxUSDPrice — rejected
+
+	tests := []struct {
+		name      string
+		price     *float64
+		wantPrice *big.Int // nil means expect nil USDPrice
+	}{
+		{
+			name:  "large valid price converts",
+			price: &largePrice,
+			wantPrice: func() *big.Int {
+				n, _ := new(big.Int).SetString("50000000000000000000", 10)
+				return n
+			}(),
+		},
+		{
+			name:      "over-ceiling price rejected as nil",
+			price:     &overCeiling,
+			wantPrice: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			txData := zerion.TransactionResponse{
+				Data: []zerion.TransactionData{
+					withChain(zerion.TransactionData{
+						ID: "tx-price",
+						Attributes: zerion.TransactionAttributes{
+							OperationType: "receive",
+							Hash:          "0xprice",
+							MinedAt:       "2024-01-01T00:00:00Z",
+							Status:        "confirmed",
+							Transfers: []zerion.ZTransfer{
+								{
+									FungibleInfo: &zerion.FungibleInfo{Symbol: "TKN"},
+									Direction:    "in",
+									Quantity:     zerion.Quantity{Int: "1", Decimals: 18},
+									Sender:       "0xa",
+									Recipient:    "0xb",
+									Price:        tt.price,
+								},
+							},
+						},
+					}, "ethereum"),
+				},
+			}
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				json.NewEncoder(w).Encode(txData)
+			}))
+			defer server.Close()
+
+			client := zerion.NewClient("key", testLogger())
+			client.SetBaseURL(server.URL)
+			adapter := zerion.NewSyncAdapter(client)
+
+			txs, err := adapter.GetTransactions(context.Background(), "0xb", time.Time{})
+			require.NoError(t, err)
+			require.Len(t, txs, 1)
+			require.Len(t, txs[0].Transfers, 1)
+			got := txs[0].Transfers[0].USDPrice
+			if tt.wantPrice == nil {
+				assert.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			assert.Equal(t, 0, got.Cmp(tt.wantPrice))
+		})
+	}
+}
+
+// =============================================================================
 // Unsupported Chain Skipped
 // =============================================================================
 
