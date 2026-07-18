@@ -961,7 +961,7 @@ func (p *ZerionProcessor) lendingProtocol(tx DecodedTransaction) string {
 
 func (p *ZerionProcessor) calcLendingUSD(t *DecodedTransfer) *big.Int {
 	if t.USDPrice != nil && t.Amount != nil {
-		return new(big.Int).Mul(t.Amount, t.USDPrice)
+		return money.CalcUSDValue(t.Amount, t.USDPrice, t.Decimals)
 	}
 	return big.NewInt(0)
 }
