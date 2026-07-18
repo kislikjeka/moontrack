@@ -7,6 +7,15 @@
         "-e", "LOKI_URL=http://host.docker.internal:3100",
         "moontrack-loki-mcp:latest"
       ]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y", "@playwright/mcp@latest",
+        "--browser", "chromium",
+        "--headless",
+        "--allowed-origins", "http://localhost:5173;http://localhost:8080"
+      ]
     }
   }
 }

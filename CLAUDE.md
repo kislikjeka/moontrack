@@ -176,6 +176,16 @@ Query backend logs directly via the `loki` MCP server (LogQL over Loki).
 
 See `.claude/skills/observability-debugging/SKILL.md` for full LogQL reference and debugging workflows.
 
+## Visual UI Verification (Playwright MCP)
+
+After editing anything under `apps/frontend/src/`, visually verify it in a real headless browser before claiming it works — do not infer from the code that it renders. Use the `verify-ui` skill (`.claude/skills/verify-ui/SKILL.md`), which drives the `playwright` MCP server against the running dev loop (`just dev`).
+
+**Prerequisites:**
+1. `just dev` — frontend on Vite `:5173`, backend on `:8080`.
+2. `playwright` MCP enabled in `.mcp.json` + `.claude/settings.local.json` (`enabledMcpjsonServers`). Playwright comes on-demand via `npx @playwright/mcp@latest` — nothing to install in `package.json`.
+
+**Auth note:** MoonTrack uses JWT (not cookies). To get an authenticated session, register a throwaway user via `POST /api/v1/auth/register`, then seed `localStorage['auth_token']` and `localStorage['user']` on the `:5173` origin before navigating. Full workflow and hard rules in the skill.
+
 ## Skills & Workflows
 
 When a skill template or existing skill exists for a task (e.g., skill-development skill), always use it as the base. Check `.claude/skills/` before creating new skills from scratch.

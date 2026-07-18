@@ -11,6 +11,9 @@ Thumbs.db
 *.suo
 *.user
 
+# Playwright MCP runtime artifacts (screenshots, snapshots, console logs)
+.playwright-mcp/
+
 # Environment Variables (NEVER COMMIT SECRETS!)
 # Main .env file (root)
 .env

@@ -1,7 +1,18 @@
 {
   "permissions": {
     "allow": [
-      "Bash(go get:*)"
+      "Bash(go get:*)",
+      "Bash(curl -s -L \"https://thegraph.com/docs/en/\")",
+      "Bash(curl -s -L \"https://thegraph.com/docs/en/about/\")",
+      "Bash(curl -s -L \"https://thegraph.com/docs/en/developing/creating-a-subgraph/\")",
+      "Bash(curl -s -L \"https://thegraph.com/docs/en/querying/querying-the-graph/\")",
+      "WebFetch(domain:thegraph.com)",
+      "WebSearch",
+      "Bash(curl -s -L https://docs.alchemy.com/reference/transfers-api-quickstart)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "loki",
+    "playwright"
+  ]
 }
