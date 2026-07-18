@@ -262,8 +262,63 @@ func TestClient_RateLimitContextCancel(t *testing.T) {
 // =============================================================================
 
 func TestClient_NonOKResponse(t *testing.T) {
+	// A 4xx (client error, non-429) is not transient: fail immediately, no retry.
+	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
+		atomic.AddInt32(&requestCount, 1)
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error": "bad request"}`))
+	}))
+	defer server.Close()
+
+	client := zerion.NewClient("key", testLogger())
+	client.SetBaseURL(server.URL)
+
+	_, err := client.GetTransactions(context.Background(), "0xtest", []string{"ethereum"}, time.Now())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "status 400")
+	assert.Equal(t, int32(1), atomic.LoadInt32(&requestCount), "4xx must not be retried")
+}
+
+// =============================================================================
+// Transient 5xx / Network Error Retry Tests (MT-SYNC-16)
+// =============================================================================
+
+// TestClient_ServerErrorRetrySucceeds verifies a transient 5xx (502) on the
+// first attempts is retried and the request ultimately succeeds, rather than
+// aborting the whole sync.
+func TestClient_ServerErrorRetrySucceeds(t *testing.T) {
+	var requestCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := atomic.AddInt32(&requestCount, 1)
+		if count <= 2 {
+			w.WriteHeader(http.StatusBadGateway) // 502
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(zerion.TransactionResponse{
+			Data: []zerion.TransactionData{{ID: "tx1", Type: "transactions"}},
+		})
+	}))
+	defer server.Close()
+
+	client := zerion.NewClient("key", testLogger())
+	client.SetBaseURL(server.URL)
+
+	txs, err := client.GetTransactions(context.Background(), "0xtest", []string{"ethereum"}, time.Now())
+	require.NoError(t, err)
+	assert.Len(t, txs, 1)
+	// 2 x 502 + 1 success = 3 total requests
+	assert.Equal(t, int32(3), atomic.LoadInt32(&requestCount))
+}
+
+// TestClient_ServerErrorExhaustion verifies a persistent 5xx exhausts all
+// retries and returns an error including the status code.
+func TestClient_ServerErrorExhaustion(t *testing.T) {
+	var requestCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requestCount, 1)
+		w.WriteHeader(http.StatusInternalServerError) // 500
 		w.Write([]byte(`{"error": "internal"}`))
 	}))
 	defer server.Close()
@@ -274,6 +329,44 @@ func TestClient_NonOKResponse(t *testing.T) {
 	_, err := client.GetTransactions(context.Background(), "0xtest", []string{"ethereum"}, time.Now())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "status 500")
+	assert.False(t, zerion.IsRateLimitError(err), "5xx exhaustion is not a rate-limit error")
+	// initial attempt + maxRetries = 4 total requests
+	assert.Equal(t, int32(4), atomic.LoadInt32(&requestCount))
+}
+
+// TestClient_NetworkErrorRetrySucceeds verifies a transport-level error (here a
+// dropped connection: the server hijacks and closes the conn without a
+// response) is retried and the request ultimately succeeds. The first two
+// attempts drop the connection; the third responds normally.
+func TestClient_NetworkErrorRetrySucceeds(t *testing.T) {
+	var requestCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := atomic.AddInt32(&requestCount, 1)
+		if count <= 2 {
+			// Hijack and immediately close the raw connection to simulate a
+			// dropped connection — httpClient.Do returns a transport error.
+			hj, ok := w.(http.Hijacker)
+			require.True(t, ok, "test server must support hijacking")
+			conn, _, err := hj.Hijack()
+			require.NoError(t, err)
+			conn.Close()
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(zerion.TransactionResponse{
+			Data: []zerion.TransactionData{{ID: "tx1", Type: "transactions"}},
+		})
+	}))
+	defer server.Close()
+
+	client := zerion.NewClient("key", testLogger())
+	client.SetBaseURL(server.URL)
+
+	txs, err := client.GetTransactions(context.Background(), "0xtest", []string{"ethereum"}, time.Now())
+	require.NoError(t, err)
+	assert.Len(t, txs, 1)
+	// 2 dropped connections + 1 success = 3 total requests
+	assert.Equal(t, int32(3), atomic.LoadInt32(&requestCount))
 }
 
 // =============================================================================
