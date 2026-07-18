@@ -146,6 +146,7 @@ type TransferOutTransaction struct {
 	USDRate         *money.BigInt `json:"usd_rate"`         // Legacy single-asset USD rate
 	GasAmount       *money.BigInt `json:"gas_amount"`       // Gas fee in native token base units
 	GasUSDRate      *money.BigInt `json:"gas_usd_rate"`     // Native token USD rate scaled by 10^8
+	NativeAssetID   string        `json:"native_asset_id"`  // Native asset symbol (ETH, MATIC, BNB, etc.)
 	ChainID         string        `json:"chain_id"`         // EVM chain ID
 	TxHash          string        `json:"tx_hash"`          // Blockchain transaction hash
 	BlockNumber     int64         `json:"block_number"`     // Block number
@@ -239,17 +240,17 @@ func (t *TransferOutTransaction) GetGasUSDRate() *big.Int {
 type InternalTransferTransaction struct {
 	SourceWalletID  uuid.UUID     `json:"source_wallet_id"`
 	DestWalletID    uuid.UUID     `json:"dest_wallet_id"`
-	AssetID         string        `json:"asset_id"`     // Asset symbol (ETH, USDC, etc.)
-	Decimals        int           `json:"decimals"`     // Asset decimals
-	Amount          *money.BigInt `json:"amount"`       // Amount in base units
-	USDRate         *money.BigInt `json:"usd_rate"`     // USD rate scaled by 10^8
-	GasAmount       *money.BigInt `json:"gas_amount"`   // Gas fee in native token base units
-	GasUSDRate      *money.BigInt `json:"gas_usd_rate"` // Native token USD rate scaled by 10^8
-	GasDecimals     int           `json:"gas_decimals"` // Native token decimals
-	NativeAssetID   string        `json:"native_asset_id"` // Native asset symbol (ETH, MATIC, etc.)
-	ChainID         string        `json:"chain_id"`        // EVM chain ID
-	TxHash          string        `json:"tx_hash"`         // Blockchain transaction hash
-	BlockNumber     int64         `json:"block_number"`    // Block number
+	AssetID         string        `json:"asset_id"`         // Asset symbol (ETH, USDC, etc.)
+	Decimals        int           `json:"decimals"`         // Asset decimals
+	Amount          *money.BigInt `json:"amount"`           // Amount in base units
+	USDRate         *money.BigInt `json:"usd_rate"`         // USD rate scaled by 10^8
+	GasAmount       *money.BigInt `json:"gas_amount"`       // Gas fee in native token base units
+	GasUSDRate      *money.BigInt `json:"gas_usd_rate"`     // Native token USD rate scaled by 10^8
+	GasDecimals     int           `json:"gas_decimals"`     // Native token decimals
+	NativeAssetID   string        `json:"native_asset_id"`  // Native asset symbol (ETH, MATIC, etc.)
+	ChainID         string        `json:"chain_id"`         // EVM chain ID
+	TxHash          string        `json:"tx_hash"`          // Blockchain transaction hash
+	BlockNumber     int64         `json:"block_number"`     // Block number
 	ContractAddress string        `json:"contract_address"` // Contract address for ERC-20 (empty for native)
 	OccurredAt      time.Time     `json:"occurred_at"`
 	UniqueID        string        `json:"unique_id"` // Unique transfer ID from blockchain provider

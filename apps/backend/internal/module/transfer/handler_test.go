@@ -519,6 +519,66 @@ func TestTransferOutHandler_WithGas_GenerateEntries_Balance(t *testing.T) {
 	// Verify entry types for gas
 	assert.Equal(t, ledger.EntryTypeGasFee, entries[2].EntryType)
 	assert.Equal(t, ledger.EntryTypeAssetDecrease, entries[3].EntryType)
+
+	// Without native_asset_id the gas asset must fall back to ETH (legacy behavior).
+	assert.Equal(t, "ETH", entries[2].AssetID, "gas debit should fall back to ETH")
+	assert.Equal(t, "ETH", entries[3].AssetID, "gas credit should fall back to ETH")
+}
+
+// TestTransferOutHandler_WithNativeAsset_GenerateEntries verifies that a
+// non-ETH native fee asset (e.g. BNB on BSC) is booked to the chain-native
+// gas asset rather than a hardcoded "ETH" (MT-SYNC-11 regression).
+func TestTransferOutHandler_WithNativeAsset_GenerateEntries(t *testing.T) {
+	ctx := context.Background()
+	walletID := uuid.New()
+	userID := uuid.New()
+
+	walletRepo := new(MockWalletRepository)
+	walletRepo.On("GetByID", ctx, walletID).Return(&wallet.Wallet{
+		ID:      walletID,
+		UserID:  userID,
+		Address: "0x1234567890123456789012345678901234567890",
+	}, nil)
+
+	handler := transfer.NewTransferOutHandler(walletRepo, logger.NewDefault("test"))
+
+	data := map[string]interface{}{
+		"wallet_id":        walletID.String(),
+		"asset_id":         "USDT",
+		"decimals":         18,
+		"amount":           money.NewBigIntFromInt64(1000000000000000000).String(), // 1 USDT
+		"usd_rate":         money.NewBigIntFromInt64(100000000).String(),           // $1
+		"gas_amount":       money.NewBigIntFromInt64(5000000000000000).String(),    // 0.005 BNB gas
+		"gas_usd_rate":     money.NewBigIntFromInt64(30000000000).String(),         // $300
+		"native_asset_id":  "BNB",
+		"chain_id":         "binance-smart-chain",
+		"tx_hash":          "0xbnb123",
+		"block_number":     int64(87654321),
+		"to_address":       "0xreceiver",
+		"contract_address": "0xtoken",
+		"occurred_at":      time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
+		"unique_id":        "uniqueBNB",
+	}
+
+	entries, err := handler.Handle(ctx, data)
+	require.NoError(t, err)
+	require.Len(t, entries, 4, "TransferOut with gas should generate 4 entries")
+
+	// Gas entries must be booked to BNB, not ETH.
+	gasDebit := entries[2]
+	gasCredit := entries[3]
+	assert.Equal(t, ledger.EntryTypeGasFee, gasDebit.EntryType)
+	assert.Equal(t, ledger.EntryTypeAssetDecrease, gasCredit.EntryType)
+	assert.Equal(t, "BNB", gasDebit.AssetID, "gas debit asset must be BNB")
+	assert.Equal(t, "BNB", gasCredit.AssetID, "gas credit asset must be BNB")
+
+	// Account codes must reference the chain-native BNB asset.
+	assert.Equal(t, "gas.binance-smart-chain.BNB", gasDebit.Metadata["account_code"],
+		"gas account code must use native fee asset")
+	assert.Equal(t,
+		"wallet."+walletID.String()+".binance-smart-chain.BNB",
+		gasCredit.Metadata["account_code"],
+		"wallet native account code must use native fee asset")
 }
 
 // TestTransferOutHandler_ValidateData validates input validation

@@ -494,6 +494,9 @@ func (p *ZerionProcessor) buildTransferOutData(ctx context.Context, w *wallet.Wa
 	if feeRate, ok := data["fee_usd_price"]; ok {
 		data["gas_usd_rate"] = feeRate
 	}
+	if feeAsset, ok := data["fee_asset"]; ok {
+		data["native_asset_id"] = feeAsset
+	}
 	return data
 }
 
@@ -751,7 +754,6 @@ func (p *ZerionProcessor) buildSingleTransfer(ctx context.Context, t DecodedTran
 
 	return m
 }
-
 
 // --- Lending data builders ---
 
