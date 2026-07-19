@@ -8,10 +8,10 @@ import (
 )
 
 // sourceName is the ledger `source` tag stamped on every transaction recorded by
-// the sync pipeline. It is provider-neutral at the identifier level; the string
-// value is flipped to the new provider's name together with the data-clearing
-// migration, not in this rename step.
-const sourceName = "zerion"
+// the sync pipeline. The provider is Noves; the value is kept in lockstep with
+// the `wipe_wallet_ledger` function and the data-clearing migration (000028),
+// which TRUNCATE the old 'zerion' rows and re-sync under 'noves'.
+const sourceName = "noves"
 
 // SyncPhase represents the current phase of a wallet's sync process
 type SyncPhase string
@@ -38,7 +38,7 @@ const (
 type RawTransaction struct {
 	ID               uuid.UUID        `db:"id"`
 	WalletID         uuid.UUID        `db:"wallet_id"`
-	ExternalID       string           `db:"zerion_id"`
+	ExternalID       string           `db:"external_id"`
 	TxHash           string           `db:"tx_hash"`
 	ChainID          string           `db:"chain_id"`
 	OperationType    string           `db:"operation_type"`

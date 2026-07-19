@@ -112,7 +112,7 @@ func TestLendingUSD_AppliesDecimalsDivisor(t *testing.T) {
 				Return([]*wallet.Wallet{}, nil).Maybe()
 
 			ledgerSvc := new(MockLedgerService)
-			ledgerSvc.On("RecordTransaction", ctx, tc.txType, "zerion", mock.Anything, mock.Anything, mock.Anything).
+			ledgerSvc.On("RecordTransaction", ctx, tc.txType, "noves", mock.Anything, mock.Anything, mock.Anything).
 				Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 			lendingSvc := &mockLendingPositionService{}

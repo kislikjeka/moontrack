@@ -29,8 +29,8 @@ type Config struct {
 	// Sync configuration
 	SyncPollInterval time.Duration
 
-	// Zerion API configuration (for blockchain sync and DeFi data)
-	ZerionAPIKey string
+	// Noves API configuration (for blockchain sync: decoded transactions + balances)
+	NovesAPIKey string
 }
 
 // Load loads configuration from environment variables
@@ -44,7 +44,7 @@ func Load() (*Config, error) {
 		JWTSecret:        getEnv("JWT_SECRET", ""),
 		CoinGeckoAPIKey:  getEnv("COINGECKO_API_KEY", ""),
 		SyncPollInterval: getEnvAsDuration("SYNC_POLL_INTERVAL", 5*time.Minute),
-		ZerionAPIKey:     getEnv("ZERION_API_KEY", ""),
+		NovesAPIKey:      getEnv("NOVES_API_KEY", ""),
 	}
 
 	// Validate required configuration

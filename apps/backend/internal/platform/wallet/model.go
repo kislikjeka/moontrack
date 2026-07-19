@@ -28,13 +28,13 @@ func (s SyncStatus) IsValid() bool {
 
 // Wallet represents an EVM blockchain wallet for tracking crypto assets
 type Wallet struct {
-	ID            uuid.UUID  `json:"id" db:"id"`
-	UserID        uuid.UUID  `json:"user_id" db:"user_id"`
-	Name          string     `json:"name" db:"name"`
-	Address       string     `json:"address" db:"address"`           // Required EVM address (0x...)
-	SyncStatus    SyncStatus `json:"sync_status" db:"sync_status"`   // Sync state
-	LastSyncAt    *time.Time `json:"last_sync_at" db:"last_sync_at"`
-	SyncError     *string    `json:"sync_error,omitempty" db:"sync_error"`
+	ID              uuid.UUID  `json:"id" db:"id"`
+	UserID          uuid.UUID  `json:"user_id" db:"user_id"`
+	Name            string     `json:"name" db:"name"`
+	Address         string     `json:"address" db:"address"`         // Required EVM address (0x...)
+	SyncStatus      SyncStatus `json:"sync_status" db:"sync_status"` // Sync state
+	LastSyncAt      *time.Time `json:"last_sync_at" db:"last_sync_at"`
+	SyncError       *string    `json:"sync_error,omitempty" db:"sync_error"`
 	SyncStartedAt   *time.Time `json:"sync_started_at,omitempty" db:"sync_started_at"`
 	SyncPhase       string     `json:"sync_phase" db:"sync_phase"`
 	CollectCursorAt *time.Time `json:"collect_cursor_at,omitempty" db:"collect_cursor_at"`
@@ -88,15 +88,16 @@ func (w *Wallet) NeedsSyncing() bool {
 	return w.SyncStatus == SyncStatusPending || w.SyncStatus == SyncStatusError
 }
 
-// Supported EVM chains keyed by Zerion chain name
+// supportedEVMChains is the Enabled chain set: the chains actually polled during
+// sync, keyed by the canonical domain chain slug (provider-neutral; the Noves
+// adapter maps these to its own short slugs via chains.go). Per issue #23 the
+// initial Enabled set is Ethereum, Base and Arbitrum. The adapter remains
+// Compatible with more chains (see noves/chains.go), but only these are synced
+// until a per-wallet chain set is introduced (issue #27).
 var supportedEVMChains = map[string]string{
-	"ethereum":            "Ethereum",
-	"polygon":             "Polygon",
-	"arbitrum":            "Arbitrum One",
-	"optimism":            "Optimism",
-	"base":                "Base",
-	"avalanche":           "Avalanche",
-	"binance-smart-chain": "BNB Smart Chain",
+	"ethereum": "Ethereum",
+	"base":     "Base",
+	"arbitrum": "Arbitrum One",
 }
 
 // IsValidChain checks if the chain is supported

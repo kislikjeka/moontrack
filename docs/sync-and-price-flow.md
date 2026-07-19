@@ -8,7 +8,7 @@
 
 1. [Обзор архитектуры](#1-обзор-архитектуры)
 2. [Sync Service — обнаружение транзакций](#2-sync-service--обнаружение-транзакций)
-3. [Zerion API — транзакции с встроенными ценами](#3-zerion-api--транзакции-с-встроенными-ценами)
+3. [Noves Translate API — источник декодированных транзакций](#3-noves-translate-api--источник-декодированных-транзакций)
 4. [Обработка транзакций — от API до Ledger](#4-обработка-транзакций--от-api-до-ledger)
 5. [CoinGecko — фоновое обновление цен](#5-coingecko--фоновое-обновление-цен)
 6. [Иерархия получения цен (runtime)](#6-иерархия-получения-цен-runtime)
@@ -31,20 +31,20 @@
 │   │   Sync Service      │              │   Price Updater         │     │
 │   │   (poll wallets)    │              │   (every 5 min)         │     │
 │   │                     │              │                          │     │
-│   │   Zerion API ──┐    │              │   CoinGecko API ──┐     │     │
-│   │   (транзакции  │    │              │   (текущие цены   │     │     │
-│   │    + цены на   │    │              │    для портфеля)  │     │     │
-│   │    момент tx)  │    │              │                   │     │     │
+│   │   Noves API ───┐    │              │   CoinGecko API ──┐     │     │
+│   │   (декодир.    │    │              │   (текущие цены   │     │     │
+│   │    транзакции, │    │              │    для портфеля)  │     │     │
+│   │    БЕЗ цен)    │    │              │                   │     │     │
 │   └────────┬───────┘    │              └───────────┬────────┘     │
 │            │                                       │               │
 │   ┌────────▼───────────────────────────────────────▼──────────┐   │
 │   │                    Storage Layer                            │   │
 │   │                                                             │   │
 │   │   PostgreSQL                        Redis                   │   │
-│   │   ├─ entries.usd_rate    ◄── Zerion  ├─ price:{id}:usd     │   │
-│   │   │  (цена на момент tx,             │  (60s TTL)           │   │
-│   │   │   иммутабельна)                  │                      │   │
-│   │   │                                  ├─ price:{id}:usd:stale│   │
+│   │   ├─ entries.usd_rate    ◄─ CoinGecko ├─ price:{id}:usd    │   │
+│   │   │  (цена на момент tx,   (price-     │  (60s TTL)          │   │
+│   │   │   иммутабельна)         pipeline / │                     │   │
+│   │   │                         backfill)  ├─ price:{id}:usd:stale│  │
 │   │   ├─ price_history       ◄── CoinGecko  (24h TTL)          │   │
 │   │   │  (текущие цены,                  │                      │   │
 │   │   │   TimescaleDB)                   │                      │   │
@@ -56,8 +56,11 @@
 
 | Задача | Источник | Хранение | Мутабельность |
 |--------|----------|----------|---------------|
-| Цена на момент транзакции | Zerion API (встроена в ответ) | `entries.usd_rate`, `entries.usd_value` | Иммутабельна после записи |
+| Факт транзакции (движения активов) | Noves Translate API (декодированные транзакции, без цен) | `entries.amount`, `transactions` | Иммутабельны после записи |
+| Цена на момент транзакции | CoinGecko / price-pipeline + backfill-джоб | `entries.usd_rate`, `entries.usd_value` | Иммутабельна после записи |
 | Текущая цена актива | CoinGecko API (фоновый polling) | `price_history` + Redis cache | Обновляется каждые 5 мин |
+
+> **Noves не возвращает USD-цены.** Провайдер синхронизации даёт только декодированные движения активов (что, куда, сколько). Цену на момент транзакции проставляет ценовой pipeline (CoinGecko + backfill-джоб) — это отличие от прежнего провайдера (ранее Zerion отдавал встроенные цены).
 
 ---
 
@@ -89,114 +92,159 @@ syncAllWallets(ctx)
   │
   ├─ Семафор (ConcurrentWallets=3)
   │
-  └─ Для каждого кошелька (горутина):
+  └─ Для каждого кошелька (горутина) → syncWallet(ctx, wallet):
         │
         ├─ ClaimWalletForSync()          ◄── атомарный захват, защита от race condition
         │
-        ├─ Определение cursor:
-        │   wallet.LastSyncAt существует → since = LastSyncAt
-        │   первичная синхронизация      → since = now - 90 дней
+        ├─ isInitial = (wallet.LastSyncAt == nil)
         │
-        ├─ [PREFERRED] syncWalletZerion(ctx, wallet)
+        ├─ [ПЕРВИЧНАЯ синхронизация]  Collect → Reconcile → Process
+        │     since = 0 (вся история; InitialSyncLookback=0)
         │
-        └─ [FALLBACK]  syncWalletAlchemy(ctx, wallet)
+        └─ [ИНКРЕМЕНТАЛЬНАЯ]          Collect → Process
+              since = collect_cursor_at, иначе last_sync_at
 ```
 
-**Файл:** `internal/platform/sync/service.go:124-187`
+**Файл:** `internal/platform/sync/service.go:201-277` (`syncWallet`)
+
+Провайдер синхронизации инжектируется через порты `TransactionDataProvider` +
+`PositionDataProvider` (provider-agnostic). Никакого preferred/fallback между
+провайдерами нет — активный провайдер один (Noves). Никакого
+`syncWalletZerion`/`syncWalletAlchemy` в коде тоже нет.
+
+### Двухфазный pipeline (три фазы, реконсиляция — только при первичной)
+
+```
+Collect (collector.go)   →   Reconcile (reconciler.go)   →   Process (processor.go)
+  fan-out по чейнам           только initial sync             pending raws,
+  wallet.GetSupportedChains() сверка с on-chain balances,     oldest-first,
+  provider.GetTransactions()  синтетические genesis raws      классификация → ledger
+  → raw_transactions          для положительных дельт
+```
+
+- **Phase 1 — Collect**: fan-out по `wallet.GetSupportedChains()`, вызов
+  `provider.GetTransactions()` по каждому чейну, складывание в staging-таблицу
+  `raw_transactions` (со статусом `pending`). Двигает `collect_cursor_at`.
+- **Phase 2 — Reconcile** (только первичная синхронизация): тянет on-chain балансы
+  через `PositionDataProvider.GetPositions`, сравнивает с расчётными net-flow из
+  собранных raws; для положительных дельт создаёт синтетические genesis-raws.
+- **Phase 3 — Process**: читает `pending` raws oldest-first, классифицирует,
+  строит сбалансированные ledger-транзакции. Двигает `last_sync_at`.
+
+Прогресс отражается в `wallets.sync_phase` (collecting → reconciling → processing → synced → idle).
 
 ### Concurrency
 
 ```
-Wallet A goroutine:    [Zerion fetch] → [classify + commit] → done
-Wallet B goroutine:    [Zerion fetch] → [classify + commit] → done
-Wallet C goroutine:         [Zerion fetch] → [classify + commit] → done
+Wallet A goroutine:    [Collect → (Reconcile) → Process] → done
+Wallet B goroutine:    [Collect → (Reconcile) → Process] → done
+Wallet C goroutine:         [Collect → (Reconcile) → Process] → done
                        ─────────────────────────────────────────────→ time
 ```
 
 - **Между кошельками** — полная параллельность (разные адреса, нет shared state)
-- **Внутри кошелька** — строгая последовательность (хронологический порядок)
+- **Внутри кошелька** — строгая последовательность (raws обрабатываются в хронологическом порядке)
 - **Race protection**: `ClaimWalletForSync()` ставит `sync_status = "syncing"` атомарно
 
 ---
 
-## 3. Zerion API — транзакции с встроенными ценами
+## 3. Noves Translate API — источник декодированных транзакций
 
-### HTTP Request
+Noves — это активный провайдер синхронизации (ранее использовался Zerion). Он
+отдаёт уже **классифицированные** транзакции с человекочитаемыми движениями
+активов, но **без встроенных USD-цен**. Клиент обращается к API **по каждому
+чейну отдельно**.
+
+### HTTP Request — транзакции
 
 ```
-GET https://api.zerion.io/v1/wallets/{address}/transactions/
-  ?filter[chain_ids]={chainID}
-  &filter[min_mined_at]={since (RFC3339)}
-  &filter[asset_types]=fungible
-  &filter[trash]=only_non_trash
+GET https://translate.noves.fi/evm/{chain}/txs/{address}
+  ?pageSize=100
+  &sort=asc                       ← oldest-first
+  &startTimestamp={since (Unix ms)}   ← только при since != 0
 ```
 
-**Файл:** `internal/infra/gateway/zerion/client.go:113-148`
+- Аутентификация: заголовок `apiKey: <key>` (НЕ Basic auth).
+- `{chain}` — короткий slug Noves (`eth`, `base`, …); адаптер маппит доменный
+  slug (`ethereum`, `base`) в Noves-slug.
 
-### Rate Limiting
+**Файл:** `internal/infra/gateway/noves/client.go:174-211` (`GetTransactions`)
 
-- Retry на HTTP 429 с exponential backoff: 1s → 2s → 4s
-- Максимум 3 попытки
+### HTTP Request — балансы (для реконсиляции)
+
+```
+GET https://translate.noves.fi/evm/{chain}/tokens/balancesOf/{address}
+```
+
+- Возвращает JSON-массив балансов. На «дегенеративных» кошельках (слишком много
+  ERC20) отдаёт объект `{detail: ...}` — клиент трактует это как ошибку.
+
+**Файл:** `internal/infra/gateway/noves/client.go:218-240` (`GetBalances`)
+
+### Rate Limiting и transient-ошибки
+
+- Retry на HTTP 429 **и** 5xx (и сетевых ошибках) с exponential backoff: 1s → 2s → 4s
+- Максимум 3 попытки; при исчерпании — ошибка, которая валит текущий цикл sync
 
 ### Пагинация
 
-- Следование по `Links.Next` (absolute URL) до исчерпания страниц
+- Следование по `nextPageUrl` (absolute URL) пока `hasNextPage == true`
 
 ### Структура ответа (упрощённая)
 
 ```
-TransactionData
-  ├─ ID: string                           ← Zerion transaction ID (для idempotency)
-  ├─ Attributes
-  │   ├─ OperationType: "trade" | "receive" | "send" | ...
-  │   ├─ Hash: "0x..."                    ← blockchain tx hash
-  │   ├─ MinedAt: RFC3339 timestamp
-  │   ├─ Status: "confirmed" | "pending" | "failed"
-  │   │
-  │   ├─ Fee
-  │   │   ├─ FungibleInfo: { Symbol, Implementations }
-  │   │   ├─ Quantity: { Int: "base_units", Decimals }
-  │   │   └─ Price: *float64              ◄── USD цена gas token на момент tx
-  │   │
-  │   ├─ Transfers[]
-  │   │   ├─ FungibleInfo: { Symbol, Implementations }
-  │   │   ├─ Direction: "in" | "out"
-  │   │   ├─ Quantity: { Int: "base_units", Decimals }
-  │   │   ├─ Price: *float64              ◄── USD цена токена на момент tx
-  │   │   ├─ Sender: "0x..."
-  │   │   └─ Recipient: "0x..."
-  │   │
-  │   └─ ApplicationMD: { Name: "Uniswap V3" }
+Transaction
+  ├─ rawTransactionData
+  │   ├─ transactionHash: "0x..."         ← blockchain tx hash
+  │   ├─ timestamp: Unix seconds
+  │   └─ transactionFee: { token, amount }
+  │
+  └─ classificationData
+      ├─ type: "swap" | "sendToken" | "receiveToken" | "deposit" | ...
+      ├─ protocol: { name: null | "Uniswap V3" }   ← обычно null
+      ├─ sent[]      → исходящие движения (out)
+      │   ├─ token: { symbol, decimals, address, name }
+      │   ├─ amount: "1.5"                 ← DECIMAL-строка (человеко-единицы)
+      │   ├─ action: "paidGas" фильтруется (дублирует fee)
+      │   ├─ from / to: { address, name }
+      │   └─ nft: {...}                    ← NFT-леги не эмитятся как fungible
+      └─ received[]  → входящие движения (in), та же структура
 ```
 
 **Файлы:**
-- `internal/infra/gateway/zerion/types.go:30-119` — типы ответа
-- `internal/infra/gateway/zerion/adapter.go` — конвертация в domain типы
+- `internal/infra/gateway/noves/client.go` — HTTP-клиент, retry, пагинация
+- `internal/infra/gateway/noves/adapter.go` — конвертация raw JSON → `sync.DecodedTransaction`
+- `internal/infra/gateway/noves/positions.go` — конвертация балансов → `sync.OnChainPosition`
 
-### Конвертация цен: float64 → big.Int
+### Конвертация amounts: decimal-строка → base units
 
-```go
-// adapter.go:177-183
-func usdFloatToBigInt(price float64) *big.Int {
-    scaled := int64(price * 1e8)  // $67,000.50 → 6_700_050_000_000
-    return big.NewInt(scaled)
-}
-```
+Noves отдаёт суммы **десятичными строками** (человеко-единицы). Адаптер
+конвертирует их **точно** в base units (`money.ToBaseUnits`) по `token.decimals`.
+Если дробных цифр больше, чем `decimals`, значение усекается, а транзакция
+помечается `NeedsReview` (не теряется, но флагуется).
 
-- Масштабирование: × 10^8
-- Безопасный диапазон: до ~$92 млрд (ограничение int64)
-- Все цены далее хранятся как `NUMERIC(78,0)` / `big.Int`
+`protocol.name` обычно `null` → протокол выводится из имён контрагентов/NFT
+(эвристики `Uniswap V3`, `Aave`) в `deriveProtocol`.
 
-> **Zerion — единственный источник цен на момент транзакции.** CoinGecko используется только для текущих цен портфеля.
+> **В ответе Noves НЕТ USD-цен.** Ни у transfer, ни у балансов
+> (`OnChainPosition.USDPrice == nil`). USD-цену на момент транзакции проставляет
+> ценовой pipeline (CoinGecko) и backfill-джоб — см. раздел 4.
 
 ---
 
 ## 4. Обработка транзакций — от API до Ledger
 
+Фаза Process читает `pending` raws (oldest-first) и прогоняет каждую через
+`TxBuilder.ProcessTransaction`. Синтетические genesis-raws обрабатываются
+отдельной веткой (`processGenesis`).
+
 ### Полный pipeline обработки одной транзакции
 
 ```
-zerionProcessor.ProcessTransaction(ctx, wallet, tx)
+processor.ProcessAll(ctx, wallet)  → для каждой pending raw:
+  │
+  ├─ 0. Десериализовать RawJSON → DecodedTransaction
+  │     (synthetic genesis → processGenesis, обычная → txBuilder.ProcessTransaction)
   │
   ├─ 1. Skip если tx.Status == "failed"
   │
@@ -205,7 +253,7 @@ zerionProcessor.ProcessTransaction(ctx, wallet, tx)
   │     send     → transfer_out
   │     trade    → swap
   │     approve  → skip (нет движения активов)
-  │     execute  → classify по transfers[] direction
+  │     execute  → classify по transfers[] direction (LP/lending эвристики)
   │
   ├─ 3. Детекция внутренних переводов
   │     Контрагент — свой кошелёк? → internal_transfer
@@ -217,39 +265,52 @@ zerionProcessor.ProcessTransaction(ctx, wallet, tx)
   │     │    "amount":            "1000000000..."   │ ← base units (wei)
   │     │    "decimals":          "18"              │
   │     │    "contract_address":  "0x..."           │
-  │     │    "usd_price":         "6700050000000"   │ ← из Zerion Price
   │     │    "sender":            "0x..."           │
   │     │    "recipient":         "0x..."           │
   │     │    "direction":         "in"              │
   │     │                                           │
   │     │  buildSwapData()                          │
-  │     │    "from_*":  исходящий токен + usd_price │
-  │     │    "to_*":    входящий токен + usd_price  │
+  │     │    "from_*":  исходящий токен             │
+  │     │    "to_*":    входящий токен              │
   │     └─────────────────────────────────────────┘
+  │        (USD-цены здесь НЕТ — Noves её не отдаёт)
   │
-  └─ 5. ledgerSvc.RecordTransaction(ctx, txType, "zerion", &externalID, minedAt, rawData)
+  └─ 5. ledgerSvc.RecordTransaction(ctx, txType, "noves", &externalID, minedAt, rawData)
         │
         ├─ Handler.ValidateData(ctx, rawData)
         ├─ Handler.Handle(ctx, rawData)
         │   → генерирует []Entry:
         │     Entry {
         │       amount:      quantity в base units
-        │       usd_rate:    из rawData["usd_price"]    ◄── цена от Zerion
+        │       usd_rate:    проставляется ценовым pipeline / backfill-джобом
         │       usd_value:   amount × usd_rate / 10^decimals
         │       occurred_at: timestamp транзакции
         │     }
         │
         ├─ Проверка: SUM(debits) == SUM(credits)
-        ├─ INSERT INTO transactions (source='zerion', external_id=...)
-        └─ INSERT INTO entries (usd_rate, usd_value, ...)
+        ├─ INSERT INTO transactions (source='noves', external_id=...)
+        └─ INSERT INTO entries (amount, occurred_at, ...)
 ```
 
-**Файл:** `internal/platform/sync/zerion_processor.go`
+**Файлы:**
+- `internal/platform/sync/processor.go` — Phase 3, чтение pending raws
+- `internal/platform/sync/tx_builder.go` — классификация + построение rawData по типам (`ProcessTransaction`, `buildTransferInData`, `buildSwapData`, …)
+
+> Синтетические genesis-raws (из Phase 2) пишутся с source `sync_genesis`, тип
+> `genesis_balance` — см. `processGenesis` в `processor.go`.
+
+### USD-цены для синхронизированных транзакций
+
+Поскольку Noves не отдаёт цены, `entries.usd_rate` для синхронизированных
+транзакций проставляется **не провайдером**, а ценовым pipeline (CoinGecko,
+раздел 5) и отдельным backfill-джобом, который дозаполняет исторические цены на
+момент транзакции. Если цены на момент записи ещё нет — она проставляется позже,
+при backfill.
 
 ### Idempotency
 
-- `UNIQUE(source, external_id)` constraint на таблице `transactions`
-- `external_id = zerion_{zerion_tx_id}`
+- `UNIQUE(source, external_id)` constraint на таблице `transactions` (не изменился)
+- `external_id = {chain}:{txHash}` (в нижнем регистре), не id провайдера
 - При повторном sync — silent skip, ошибки нет
 
 ### Обновление cursor после успешной обработки
@@ -257,7 +318,7 @@ zerionProcessor.ProcessTransaction(ctx, wallet, tx)
 ```
 walletRepo.SetSyncCompletedAt(ctx, walletID, lastSuccessfulMinedAt)
   → wallets.last_sync_at = lastMinedAt
-  → wallets.sync_status = 'synced'
+  → wallets.sync_phase   = 'synced'
 ```
 
 ---
@@ -453,33 +514,40 @@ CREATE TABLE assets (
 ## 8. Sequence Diagram — полный поток
 
 ```
-    Sync Service          Zerion API         Ledger         CoinGecko        Redis       PostgreSQL
+    Sync Service          Noves API          Ledger         CoinGecko        Redis       PostgreSQL
         │                     │                │                │              │              │
   ══════╪═════════════════════╪════════════════╪════════════════╪══════════════╪══════════════╪═══
   SYNC  │                     │                │                │              │              │
   FLOW  │                     │                │                │              │              │
+        │ Phase 1: Collect (fan-out по чейнам) │                │              │              │
         │──GetTransactions───▶│                │                │              │              │
-        │   (addr, chain,     │                │                │              │              │
+        │   (chain, addr,     │                │                │              │              │
         │    since)           │                │                │              │              │
         │◀──Transactions──────│                │                │              │              │
-        │   with embedded     │                │                │              │              │
-        │   USD prices ◄──────│                │                │              │              │
+        │   (декодир., БЕЗ    │                │                │              │              │
+        │    USD-цен)         │                │                │              │              │
+        │────────────────────┼────────────────┼────────────────┼──────────────┼─UPSERT raws─▶│
+        │                     │                │                │              │ raw_transactions
         │                     │                │                │              │              │
-        │  For each tx:       │                │                │              │              │
+        │ Phase 2: Reconcile (только initial)  │                │              │              │
+        │──GetPositions──────▶│                │                │              │              │
+        │◀──balances──────────│  сверка с net-flows → genesis raws для +дельт  │              │
+        │                     │                │                │              │              │
+        │ Phase 3: Process (pending raws, oldest-first)         │              │              │
+        │  For each raw:      │                │                │              │              │
         │  ├─ Classify        │                │                │              │              │
         │  ├─ Build rawData   │                │                │              │              │
-        │  │  (incl usd_price │                │                │              │              │
-        │  │   from Zerion)   │                │                │              │              │
+        │  │  (без usd_price) │                │                │              │              │
         │  │                  │                │                │              │              │
         │  └─RecordTransaction┼───────────────▶│                │              │              │
         │                     │                ├─ Validate      │              │              │
         │                     │                ├─ GenEntries     │              │              │
-        │                     │                │  (usd_rate from│              │              │
-        │                     │                │   Zerion price)│              │              │
+        │                     │                │  (usd_rate:    │              │              │
+        │                     │                │   backfill)    │              │              │
         │                     │                ├────────────────┼──────────────┼──INSERT tx──▶│
         │                     │                ├────────────────┼──────────────┼──INSERT ─────▶│
-        │                     │                │                │              │  entries w/   │
-        │◀────────ok──────────┼────────────────│                │              │  usd_rate     │
+        │                     │                │                │              │  entries      │
+        │◀────────ok──────────┼────────────────│                │              │              │
         │                     │                │                │              │              │
         │──SetSyncCompleted───┼────────────────┼────────────────┼──────────────┼──UPDATE ────▶│
         │   (advance cursor)  │                │                │              │  wallets      │
@@ -522,10 +590,14 @@ CREATE TABLE assets (
 
 | Компонент | Файл | Ключевые функции |
 |-----------|------|------------------|
-| **Sync Service** | `internal/platform/sync/service.go` | `Run()`, `syncAllWallets()`, `syncWalletZerion()` |
-| **Zerion Processor** | `internal/platform/sync/zerion_processor.go` | `ProcessTransaction()`, `buildTransferInData()`, `buildSwapData()` |
-| **Zerion Client** | `internal/infra/gateway/zerion/client.go` | `GetTransactions()`, `doRequest()` |
-| **Zerion Adapter** | `internal/infra/gateway/zerion/adapter.go` | `convertTransaction()`, `usdFloatToBigInt()` |
+| **Sync Service** | `internal/platform/sync/service.go` | `Run()`, `syncAllWallets()`, `syncWallet()` |
+| **Collector (Phase 1)** | `internal/platform/sync/collector.go` | `CollectAll()`, `CollectIncremental()`, `collect()` |
+| **Reconciler (Phase 2)** | `internal/platform/sync/reconciler.go` | `Reconcile()`, `calculateNetFlows()`, `buildGenesisRaw()` |
+| **Processor (Phase 3)** | `internal/platform/sync/processor.go` | `ProcessAll()`, `processGenesis()`, `processRegular()` |
+| **Tx Builder** | `internal/platform/sync/tx_builder.go` | `ProcessTransaction()`, `buildTransferInData()`, `buildSwapData()` |
+| **Noves Client** | `internal/infra/gateway/noves/client.go` | `GetTransactions()`, `GetBalances()`, `doRequest()` |
+| **Noves Adapter** | `internal/infra/gateway/noves/adapter.go` | `GetTransactions()`, `convertTransaction()`, `deriveProtocol()` |
+| **Noves Positions** | `internal/infra/gateway/noves/positions.go` | `GetPositions()`, `convertBalance()` |
 | **CoinGecko Client** | `internal/infra/gateway/coingecko/client.go` | `GetCurrentPrices()`, `scaleFloatToBigInt()` |
 | **Asset Service** | `internal/platform/asset/service.go` | `GetCurrentPrice()`, `GetBatchPrices()` |
 | **Price Updater** | `internal/platform/asset/updater.go` | `Run()`, `updatePrices()`, `updateBatch()` |
@@ -552,9 +624,9 @@ CREATE TABLE assets (
 
 | Сценарий | Поведение |
 |----------|-----------|
-| Zerion API недоступен | Sync fail → `sync_status = "error"` → retry на следующем цикле. `last_sync_at` не двигается — при восстановлении подхватит всё |
-| Zerion rate limit (429) | Exponential backoff: 1s → 2s → 4s. Max 3 retries. Если не удалось — sync fail, retry next cycle |
-| Zerion `price: null` | `usd_rate = 0` в entries. Транзакция записывается, цена отсутствует |
-| Zerion indexing lag (~3-5 мин) | Транзакция появится в следующем sync цикле. Приемлемо для portfolio tracker |
+| Noves API недоступен | Ошибка per-chain fetch валит текущий цикл sync → `sync_status = "error"` → retry на следующем цикле. Курсоры (`collect_cursor_at`/`last_sync_at`) не двигаются — при восстановлении подхватит всё |
+| Noves rate limit (429) / 5xx | Retry с exponential backoff: 1s → 2s → 4s. Max 3 попытки. Если не удалось — sync fail, retry next cycle |
+| Ценовой pipeline недоступен | Транзакция всё равно записывается (движения активов от Noves). `usd_rate` дозаполняется позже backfill-джобом на момент транзакции |
+| Reconcile: on-chain баланс < расчётного | Genesis умеет только добавлять; расхождение сверх dust помечает кошелёк degraded (`sync_status='error'`), а не заминается молча (MT-SYNC-03) |
 | CoinGecko API недоступен | Circuit breaker → fallback на stale Redis cache (24h). Portfolio показывает устаревшие цены с пометкой |
 | Redis недоступен | Fallback на PostgreSQL `price_history`. Увеличенная latency, но данные доступны |

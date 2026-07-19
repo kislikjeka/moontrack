@@ -94,7 +94,7 @@ func TestTxBuilder_MissingPrice_UpsertAndEnqueue(t *testing.T) {
 	walletRepo := new(MockWalletRepository)
 	ledgerSvc := new(MockLedgerService)
 
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeSwap, "zerion",
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeSwap, "noves",
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
@@ -176,7 +176,7 @@ func TestTxBuilder_MissingPrice_NativeToken(t *testing.T) {
 	walletRepo := new(MockWalletRepository)
 	ledgerSvc := new(MockLedgerService)
 
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeSwap, "zerion",
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeSwap, "noves",
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
@@ -252,7 +252,7 @@ func TestTxBuilder_OutgoingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 	walletRepo.On("GetWalletsByAddressAndUserID", ctx, mock.Anything, mock.Anything).
 		Return([]*wallet.Wallet{}, nil)
 
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferOut, "zerion",
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferOut, "noves",
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
@@ -321,7 +321,7 @@ func TestTxBuilder_IncomingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 	walletRepo.On("GetWalletsByAddressAndUserID", ctx, mock.Anything, mock.Anything).
 		Return([]*wallet.Wallet{}, nil)
 
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "zerion",
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "noves",
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
@@ -384,7 +384,7 @@ func TestTxBuilder_InvalidContractAddress_NoEnqueue(t *testing.T) {
 	walletRepo := new(MockWalletRepository)
 	ledgerSvc := new(MockLedgerService)
 
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeSwap, "zerion",
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeSwap, "noves",
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 

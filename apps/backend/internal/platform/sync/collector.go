@@ -145,7 +145,7 @@ func (c *Collector) collect(ctx context.Context, w *wallet.Wallet, since time.Ti
 }
 
 // extractAssets iterates over decoded transactions and upserts asset metadata
-// into the zerion_assets table. Deduplicates by symbol:chain within the batch.
+// into the chain_assets table. Deduplicates by symbol:chain within the batch.
 func (c *Collector) extractAssets(ctx context.Context, txs []DecodedTransaction) {
 	if c.assetRepo == nil {
 		return

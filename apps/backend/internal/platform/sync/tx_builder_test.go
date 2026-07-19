@@ -82,7 +82,7 @@ func TestTxBuilder_TransferIn(t *testing.T) {
 
 	walletRepo.On("GetWalletsByAddressAndUserID", ctx, externalAddr, userID).Return([]*wallet.Wallet{}, nil)
 
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newTxBuilder(walletRepo, ledgerSvc)
@@ -97,7 +97,7 @@ func TestTxBuilder_TransferIn(t *testing.T) {
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
 	assert.Equal(t, ledger.TxTypeTransferIn, ledgerSvc.recordedTransactions[0].TxType)
-	assert.Equal(t, "zerion", ledgerSvc.recordedTransactions[0].Source)
+	assert.Equal(t, "noves", ledgerSvc.recordedTransactions[0].Source)
 	assert.Equal(t, tx.ID, *ledgerSvc.recordedTransactions[0].ExternalID)
 
 	rawData := ledgerSvc.recordedTransactions[0].RawData
@@ -123,7 +123,7 @@ func TestTxBuilder_TransferOut(t *testing.T) {
 
 	walletRepo.On("GetWalletsByAddressAndUserID", ctx, externalAddr, userID).Return([]*wallet.Wallet{}, nil)
 
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferOut, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferOut, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newTxBuilder(walletRepo, ledgerSvc)
@@ -138,7 +138,7 @@ func TestTxBuilder_TransferOut(t *testing.T) {
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
 	assert.Equal(t, ledger.TxTypeTransferOut, ledgerSvc.recordedTransactions[0].TxType)
-	assert.Equal(t, "zerion", ledgerSvc.recordedTransactions[0].Source)
+	assert.Equal(t, "noves", ledgerSvc.recordedTransactions[0].Source)
 }
 
 func TestTxBuilder_Swap(t *testing.T) {
@@ -149,7 +149,7 @@ func TestTxBuilder_Swap(t *testing.T) {
 	walletRepo := new(MockWalletRepository)
 	ledgerSvc := new(MockLedgerService)
 
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeSwap, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeSwap, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newTxBuilder(walletRepo, ledgerSvc)
@@ -207,7 +207,7 @@ func TestTxBuilder_InternalTransfer(t *testing.T) {
 		{ID: destWalletID, UserID: userID, Address: destAddr},
 	}, nil)
 
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeInternalTransfer, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeInternalTransfer, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newTxBuilder(walletRepo, ledgerSvc)
@@ -309,7 +309,7 @@ func TestTxBuilder_DuplicateHandling(t *testing.T) {
 	walletRepo.On("GetWalletsByAddressAndUserID", ctx, externalAddr, userID).Return([]*wallet.Wallet{}, nil)
 
 	duplicateError := &pgconn.PgError{Code: "23505", Message: "duplicate key value violates unique constraint"}
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, duplicateError)
 
 	processor := newTxBuilder(walletRepo, ledgerSvc)
@@ -333,7 +333,7 @@ func TestTxBuilder_USDPrices(t *testing.T) {
 	ledgerSvc := new(MockLedgerService)
 
 	walletRepo.On("GetWalletsByAddressAndUserID", ctx, externalAddr, userID).Return([]*wallet.Wallet{}, nil)
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newTxBuilder(walletRepo, ledgerSvc)
@@ -370,7 +370,7 @@ func TestTxBuilder_GasFee(t *testing.T) {
 	ledgerSvc := new(MockLedgerService)
 
 	walletRepo.On("GetWalletsByAddressAndUserID", ctx, externalAddr, userID).Return([]*wallet.Wallet{}, nil)
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferOut, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferOut, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newTxBuilder(walletRepo, ledgerSvc)
@@ -412,7 +412,7 @@ func TestTxBuilder_DeFiDeposit(t *testing.T) {
 	ledgerSvc := new(MockLedgerService)
 
 	// Aave V3 deposits are now classified as lending_supply
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeLendingSupply, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeLendingSupply, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newTxBuilder(walletRepo, ledgerSvc)
@@ -451,7 +451,7 @@ func TestTxBuilder_DeFiWithdraw(t *testing.T) {
 	ledgerSvc := new(MockLedgerService)
 
 	// Aave V3 withdrawals are now classified as lending_withdraw
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeLendingWithdraw, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeLendingWithdraw, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newTxBuilder(walletRepo, ledgerSvc)
@@ -490,7 +490,7 @@ func TestTxBuilder_DeFiClaim(t *testing.T) {
 	ledgerSvc := new(MockLedgerService)
 
 	// Aave V3 claims are now classified as lending_claim
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeLendingClaim, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeLendingClaim, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := newTxBuilder(walletRepo, ledgerSvc)

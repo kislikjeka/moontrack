@@ -15,10 +15,13 @@ import (
 )
 
 const (
-	defaultBaseURL  = "https://translate.noves.fi"
-	requestTimeout  = 30 * time.Second
-	maxRetries      = 3
-	defaultPageSize = 100
+	defaultBaseURL = "https://translate.noves.fi"
+	requestTimeout = 30 * time.Second
+	maxRetries     = 3
+	// defaultPageSize is the transactions-per-page requested from Noves. The API
+	// validates pageSize ∈ [1, 50] and rejects anything larger with HTTP 400, so
+	// 50 is the maximum we can ask for.
+	defaultPageSize = 50
 
 	// maxResponseBytes bounds the size of a single Noves API response body we
 	// will read into memory. Protects against a hostile/misbehaving upstream
@@ -208,6 +211,35 @@ func (c *Client) GetTransactions(ctx context.Context, chain, address string, sin
 
 	c.logger.Info("transactions fetched", "chain", chain, "address", address, "count", len(allTxs), "duration_ms", time.Since(fetchStart).Milliseconds())
 	return allTxs, nil
+}
+
+// GetBalances fetches the current token balances for a single chain and address.
+// The chain is a Noves short slug (e.g. "eth", "base"). The endpoint returns a
+// top-level JSON array of balance items; for degenerate wallets it instead
+// returns a `{detail: ...}` error object (e.g. "too many ERC20 token balances"),
+// which we surface as an error rather than silently returning no balances.
+func (c *Client) GetBalances(ctx context.Context, chain, address string) ([]BalanceItem, error) {
+	fetchStart := time.Now()
+	reqURL := fmt.Sprintf("%s/evm/%s/tokens/balancesOf/%s", c.baseURL, chain, address)
+
+	body, err := c.doRequest(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("GetBalances failed: %w", err)
+	}
+
+	var items []BalanceItem
+	if err := json.Unmarshal(body, &items); err != nil {
+		// The endpoint returns a `{detail: ...}` object instead of an array for
+		// degenerate wallets. Detect that shape and surface it as an error.
+		var envelope balancesErrorEnvelope
+		if jerr := json.Unmarshal(body, &envelope); jerr == nil && envelope.Detail != "" {
+			return nil, fmt.Errorf("Noves balances error for %s on %s: %s", address, chain, envelope.Detail)
+		}
+		return nil, fmt.Errorf("failed to decode Noves balances response: %w", err)
+	}
+
+	c.logger.Info("balances fetched", "chain", chain, "address", address, "count", len(items), "duration_ms", time.Since(fetchStart).Milliseconds())
+	return items, nil
 }
 
 // RateLimitError represents a rate limit error from the Noves API.
