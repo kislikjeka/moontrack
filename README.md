@@ -363,3 +363,12 @@ just docs            # Show documentation paths
 just stats           # Show project statistics
 just coingecko       # CoinGecko API setup instructions
 ```
+go run noves_pilot.go -chain ethereum -address 0xТВОЙ_КОШЕЛЁК -pages 1 -dump
+
+Потом — нормальный прогон на 3 страницы истории, читаешь итоговую таблицу:
+go run noves_pilot.go -chain ethereum -address 0xТВОЙ_КОШЕЛЁК -pages 3
+
+И повтори для второй сети:
+go run noves_pilot.go -chain arbitrum -address 0xТВОЙ_КОШЕЛЁК -pages 3
+
+Допустимые значения -chain: ethereum, polygon, arbitrum, optimism, base, avalanche, bsc.
