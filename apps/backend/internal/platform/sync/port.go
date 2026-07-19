@@ -56,11 +56,21 @@ type WalletRepository interface {
 
 	// WipeWalletLedger calls the wipe_wallet_ledger function to reset ledger data for replay
 	WipeWalletLedger(ctx context.Context, walletID uuid.UUID) error
+
+	// GetChainSyncRows returns the wallet's per-chain sync-state rows. These rows
+	// ARE the wallet chain set: the collector and reconciler iterate exactly the
+	// chains returned here (issue #27).
+	GetChainSyncRows(ctx context.Context, walletID uuid.UUID) ([]wallet.WalletChainSync, error)
+
+	// SetChainCollectCursor updates a single (wallet, chain) row's collect cursor.
+	SetChainCollectCursor(ctx context.Context, walletID uuid.UUID, chain string, cursor time.Time) error
 }
 
-// PositionDataProvider fetches on-chain positions (balances) from an external API
+// PositionDataProvider fetches on-chain positions (balances) from an external
+// API. Chain-aware: the caller (Reconciler) owns the fan-out loop over a wallet's
+// chain set and invokes this once per enabled chain (issue #27).
 type PositionDataProvider interface {
-	GetPositions(ctx context.Context, address string) ([]OnChainPosition, error)
+	GetPositions(ctx context.Context, address, chain string) ([]OnChainPosition, error)
 }
 
 // isDuplicateError checks if the error is due to a unique constraint violation (PostgreSQL error code 23505)

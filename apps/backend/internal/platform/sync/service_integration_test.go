@@ -105,7 +105,9 @@ func createTestUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool) uuid.
 	return userID
 }
 
-// Helper to create a test wallet with sync fields
+// Helper to create a test wallet with sync fields. Seeds a single "ethereum"
+// wallet_chain_sync row so the collector/reconciler fan-out (issue #27) iterates
+// exactly the chain the ethereum-only fixtures live on.
 func createTestWallet(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userID uuid.UUID, address string) uuid.UUID {
 	walletID := uuid.New()
 	_, err := pool.Exec(ctx, `
@@ -113,6 +115,13 @@ func createTestWallet(t *testing.T, ctx context.Context, pool *pgxpool.Pool, use
 		VALUES ($1, $2, $3, $4, 'pending', NOW(), NOW())
 	`, walletID, userID, "Test Wallet "+walletID.String()[:8], address)
 	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO wallet_chain_sync (wallet_id, chain, sync_status, sync_phase)
+		VALUES ($1, 'ethereum', 'pending', 'idle')
+	`, walletID)
+	require.NoError(t, err)
+
 	return walletID
 }
 

@@ -4,42 +4,38 @@ import (
 	"context"
 
 	"github.com/kislikjeka/moontrack/internal/platform/sync"
-	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 )
 
 // Compile-time check that SyncAdapter also implements PositionDataProvider. The
 // reconciler (Phase 2) needs on-chain balances to detect genesis deltas; Noves
-// exposes them per-chain via the balances endpoint, so the adapter fans out.
+// exposes them per-chain via the balances endpoint, and the reconciler owns the
+// fan-out over the wallet's chain set (issue #27).
 var _ sync.PositionDataProvider = (*SyncAdapter)(nil)
 
-// GetPositions fetches on-chain token balances across the wallet's supported
-// chains and converts them to domain positions. The Noves balances endpoint is
-// per-chain (like the tx endpoint), so we own the fan-out loop here, mapping each
-// domain chain slug to its Noves short slug. A per-chain fetch error aborts the
-// whole call (the reconciler treats a positions failure as a hard error rather
-// than reconciling against a partial balance set, which could fabricate a
-// genesis for an asset whose real balance simply failed to load).
-func (a *SyncAdapter) GetPositions(ctx context.Context, address string) ([]sync.OnChainPosition, error) {
+// GetPositions fetches on-chain token balances for a single chain and converts
+// them to domain positions. Chain-aware: the Reconciler owns the fan-out over the
+// wallet's chain set (issue #27) and calls this once per enabled chain, so a
+// wallet reconciles only its enabled chains. The domain chain slug is mapped to
+// its Noves short slug here; an unmapped (non-Compatible) chain yields no
+// positions rather than an error.
+func (a *SyncAdapter) GetPositions(ctx context.Context, address, chain string) ([]sync.OnChainPosition, error) {
+	novesChain, ok := domainToNovesChain(chain)
+	if !ok {
+		return nil, nil // unsupported chain: nothing to fetch
+	}
+
+	items, err := a.client.GetBalances(ctx, novesChain, address)
+	if err != nil {
+		return nil, err
+	}
+
 	var result []sync.OnChainPosition
-
-	for _, domainChain := range wallet.GetSupportedChains() {
-		novesChain, ok := domainToNovesChain(domainChain)
+	for _, item := range items {
+		pos, ok := convertBalance(item, chain)
 		if !ok {
-			continue // unsupported chain: nothing to fetch
+			continue
 		}
-
-		items, err := a.client.GetBalances(ctx, novesChain, address)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, item := range items {
-			pos, ok := convertBalance(item, domainChain)
-			if !ok {
-				continue
-			}
-			result = append(result, pos)
-		}
+		result = append(result, pos)
 	}
 
 	return result, nil

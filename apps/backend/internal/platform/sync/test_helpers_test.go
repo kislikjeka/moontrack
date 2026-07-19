@@ -65,6 +65,19 @@ func (m *MockWalletRepository) WipeWalletLedger(ctx context.Context, walletID uu
 	return args.Error(0)
 }
 
+func (m *MockWalletRepository) GetChainSyncRows(ctx context.Context, walletID uuid.UUID) ([]wallet.WalletChainSync, error) {
+	args := m.Called(ctx, walletID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]wallet.WalletChainSync), args.Error(1)
+}
+
+func (m *MockWalletRepository) SetChainCollectCursor(ctx context.Context, walletID uuid.UUID, chain string, cursor time.Time) error {
+	args := m.Called(ctx, walletID, chain, cursor)
+	return args.Error(0)
+}
+
 // =============================================================================
 // Mock Ledger Service
 // =============================================================================
@@ -185,8 +198,8 @@ type MockPositionDataProvider struct {
 	mock.Mock
 }
 
-func (m *MockPositionDataProvider) GetPositions(ctx context.Context, address string) ([]sync.OnChainPosition, error) {
-	args := m.Called(ctx, address)
+func (m *MockPositionDataProvider) GetPositions(ctx context.Context, address, chain string) ([]sync.OnChainPosition, error) {
+	args := m.Called(ctx, address, chain)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

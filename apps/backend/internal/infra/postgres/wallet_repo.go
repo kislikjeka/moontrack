@@ -24,13 +24,10 @@ func NewWalletRepository(pool *pgxpool.Pool) *WalletRepository {
 	return &WalletRepository{pool: pool}
 }
 
-// Create creates a new wallet
+// Create creates a new wallet and seeds its chain set (wallet_chain_sync rows)
+// with the default Enabled chains. The wallet row and its chain-set rows are
+// written in one transaction so a wallet never exists without a chain set.
 func (r *WalletRepository) Create(ctx context.Context, w *wallet.Wallet) error {
-	query := `
-		INSERT INTO wallets (id, user_id, name, address, sync_status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
-
 	now := time.Now()
 	w.CreatedAt = now
 	w.UpdatedAt = now
@@ -44,7 +41,16 @@ func (r *WalletRepository) Create(ctx context.Context, w *wallet.Wallet) error {
 		w.SyncStatus = wallet.SyncStatusPending
 	}
 
-	_, err := r.pool.Exec(ctx, query,
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO wallets (id, user_id, name, address, sync_status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`,
 		w.ID,
 		w.UserID,
 		w.Name,
@@ -53,7 +59,6 @@ func (r *WalletRepository) Create(ctx context.Context, w *wallet.Wallet) error {
 		w.CreatedAt,
 		w.UpdatedAt,
 	)
-
 	if err != nil {
 		errStr := err.Error()
 		if strings.Contains(errStr, "wallets_user_id_fkey") {
@@ -66,6 +71,20 @@ func (r *WalletRepository) Create(ctx context.Context, w *wallet.Wallet) error {
 			return wallet.ErrDuplicateWalletName
 		}
 		return fmt.Errorf("failed to insert wallet: %w", err)
+	}
+
+	// Seed the chain set with the default Enabled chains.
+	for _, chain := range wallet.EnabledChains() {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO wallet_chain_sync (wallet_id, chain, sync_status, sync_phase)
+			VALUES ($1, $2, $3, 'idle')
+		`, w.ID, chain, wallet.SyncStatusPending); err != nil {
+			return fmt.Errorf("failed to seed chain %s: %w", chain, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit wallet create: %w", err)
 	}
 
 	return nil
@@ -317,25 +336,43 @@ func (r *WalletRepository) GetWalletsByAddressAndUserID(ctx context.Context, add
 }
 
 // ClaimWalletForSync atomically claims a wallet for syncing using UPDATE...RETURNING
-// Returns true if the wallet was claimed, false if it was already being synced
+// Returns true if the wallet was claimed, false if it was already being synced.
+// On a successful claim it also flips every chain row to 'syncing', so the
+// wallet-level status stays a true rollup over the chain set (issue #27).
 func (r *WalletRepository) ClaimWalletForSync(ctx context.Context, walletID uuid.UUID) (bool, error) {
-	query := `
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	now := time.Now()
+	var id uuid.UUID
+	err = tx.QueryRow(ctx, `
 		UPDATE wallets
 		SET sync_status = $1, sync_error = NULL, sync_started_at = $2, updated_at = $3
 		WHERE id = $4
 		  AND sync_status != 'syncing'
 		RETURNING id
-	`
-
-	now := time.Now()
-	var id uuid.UUID
-	err := r.pool.QueryRow(ctx, query, wallet.SyncStatusSyncing, now, now, walletID).Scan(&id)
+	`, wallet.SyncStatusSyncing, now, now, walletID).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Already syncing — not claimed
 			return false, nil
 		}
 		return false, fmt.Errorf("failed to claim wallet for sync: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE wallet_chain_sync
+		SET sync_status = $1, sync_error = NULL, updated_at = now()
+		WHERE wallet_id = $2
+	`, wallet.SyncStatusSyncing, walletID); err != nil {
+		return false, fmt.Errorf("failed to mark chain rows syncing: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("failed to commit claim: %w", err)
 	}
 
 	return true, nil
@@ -361,43 +398,75 @@ func (r *WalletRepository) SetSyncInProgress(ctx context.Context, walletID uuid.
 	return nil
 }
 
-// SetSyncCompletedAt marks a wallet sync as completed at a given time
+// SetSyncCompletedAt marks a wallet sync as completed at a given time. All chain
+// rows are flipped to 'synced' with the same last_sync_at so the wallet-level
+// status stays a rollup over the chain set (issue #27).
 func (r *WalletRepository) SetSyncCompletedAt(ctx context.Context, walletID uuid.UUID, syncAt time.Time) error {
-	query := `
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	result, err := tx.Exec(ctx, `
 		UPDATE wallets
 		SET sync_status = $1, last_sync_at = $2, sync_error = NULL, updated_at = $3
 		WHERE id = $4
-	`
-
-	result, err := r.pool.Exec(ctx, query, wallet.SyncStatusSynced, syncAt, time.Now(), walletID)
+	`, wallet.SyncStatusSynced, syncAt, time.Now(), walletID)
 	if err != nil {
 		return fmt.Errorf("failed to set sync completed: %w", err)
 	}
-
 	if result.RowsAffected() == 0 {
 		return wallet.ErrWalletNotFound
 	}
 
+	if _, err := tx.Exec(ctx, `
+		UPDATE wallet_chain_sync
+		SET sync_status = $1, last_sync_at = $2, sync_error = NULL, sync_phase = 'idle', updated_at = now()
+		WHERE wallet_id = $3
+	`, wallet.SyncStatusSynced, syncAt, walletID); err != nil {
+		return fmt.Errorf("failed to mark chain rows synced: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit sync completed: %w", err)
+	}
 	return nil
 }
 
-// SetSyncError marks a wallet sync as failed with an error message
+// SetSyncError marks a wallet sync as failed with an error message. All chain
+// rows are flipped to 'error' so the wallet-level status stays a rollup over the
+// chain set (issue #27). Per-chain failure isolation is deferred to #28.
 func (r *WalletRepository) SetSyncError(ctx context.Context, walletID uuid.UUID, errMsg string) error {
-	query := `
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	result, err := tx.Exec(ctx, `
 		UPDATE wallets
 		SET sync_status = $1, sync_error = $2, updated_at = $3
 		WHERE id = $4
-	`
-
-	result, err := r.pool.Exec(ctx, query, wallet.SyncStatusError, errMsg, time.Now(), walletID)
+	`, wallet.SyncStatusError, errMsg, time.Now(), walletID)
 	if err != nil {
 		return fmt.Errorf("failed to set sync error: %w", err)
 	}
-
 	if result.RowsAffected() == 0 {
 		return wallet.ErrWalletNotFound
 	}
 
+	if _, err := tx.Exec(ctx, `
+		UPDATE wallet_chain_sync
+		SET sync_status = $1, sync_error = $2, updated_at = now()
+		WHERE wallet_id = $3
+	`, wallet.SyncStatusError, errMsg, walletID); err != nil {
+		return fmt.Errorf("failed to mark chain rows errored: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit sync error: %w", err)
+	}
 	return nil
 }
 
@@ -441,6 +510,62 @@ func (r *WalletRepository) WipeWalletLedger(ctx context.Context, walletID uuid.U
 	_, err := r.pool.Exec(ctx, query, walletID)
 	if err != nil {
 		return fmt.Errorf("failed to wipe wallet ledger: %w", err)
+	}
+	return nil
+}
+
+// GetChainSyncRows returns the wallet's per-chain sync-state rows (the wallet
+// chain set), ordered by chain for deterministic fan-out.
+func (r *WalletRepository) GetChainSyncRows(ctx context.Context, walletID uuid.UUID) ([]wallet.WalletChainSync, error) {
+	query := `
+		SELECT wallet_id, chain, sync_status, sync_error, sync_phase, collect_cursor_at, last_sync_at, created_at, updated_at
+		FROM wallet_chain_sync
+		WHERE wallet_id = $1
+		ORDER BY chain
+	`
+	rows, err := r.pool.Query(ctx, query, walletID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query chain sync rows: %w", err)
+	}
+	defer rows.Close()
+
+	var result []wallet.WalletChainSync
+	for rows.Next() {
+		var c wallet.WalletChainSync
+		if err := rows.Scan(
+			&c.WalletID,
+			&c.Chain,
+			&c.SyncStatus,
+			&c.SyncError,
+			&c.SyncPhase,
+			&c.CollectCursorAt,
+			&c.LastSyncAt,
+			&c.CreatedAt,
+			&c.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan chain sync row: %w", err)
+		}
+		result = append(result, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating chain sync rows: %w", err)
+	}
+	return result, nil
+}
+
+// SetChainCollectCursor updates a single (wallet, chain) row's collect cursor.
+func (r *WalletRepository) SetChainCollectCursor(ctx context.Context, walletID uuid.UUID, chain string, cursor time.Time) error {
+	query := `
+		UPDATE wallet_chain_sync
+		SET collect_cursor_at = $1, updated_at = now()
+		WHERE wallet_id = $2 AND chain = $3
+	`
+	result, err := r.pool.Exec(ctx, query, cursor, walletID, chain)
+	if err != nil {
+		return fmt.Errorf("failed to set chain collect cursor: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return wallet.ErrWalletNotFound
 	}
 	return nil
 }
