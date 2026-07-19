@@ -16,27 +16,27 @@ import (
 
 // Processor handles Phase 3: processing raw transactions through the ledger
 type Processor struct {
-	rawTxRepo       RawTransactionRepository
-	walletRepo      WalletRepository
-	zerionProcessor *ZerionProcessor
-	ledgerSvc       LedgerService
-	logger          *logger.Logger
+	rawTxRepo  RawTransactionRepository
+	walletRepo WalletRepository
+	txBuilder  *TxBuilder
+	ledgerSvc  LedgerService
+	logger     *logger.Logger
 }
 
 // NewProcessor creates a new Processor
 func NewProcessor(
 	rawTxRepo RawTransactionRepository,
 	walletRepo WalletRepository,
-	zerionProcessor *ZerionProcessor,
+	txBuilder *TxBuilder,
 	ledgerSvc LedgerService,
 	log *logger.Logger,
 ) *Processor {
 	return &Processor{
-		rawTxRepo:       rawTxRepo,
-		walletRepo:      walletRepo,
-		zerionProcessor: zerionProcessor,
-		ledgerSvc:       ledgerSvc,
-		logger:          log.WithField("component", "processor"),
+		rawTxRepo:  rawTxRepo,
+		walletRepo: walletRepo,
+		txBuilder:  txBuilder,
+		ledgerSvc:  ledgerSvc,
+		logger:     log.WithField("component", "processor"),
 	}
 }
 
@@ -103,7 +103,7 @@ func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 			p.logger.Error("failed to process raw transaction",
 				"wallet_id", w.ID,
 				"raw_id", raw.ID,
-				"zerion_id", raw.ZerionID,
+				"external_id", raw.ExternalID,
 				"is_synthetic", raw.IsSynthetic,
 				"error", processErr)
 
@@ -154,7 +154,7 @@ func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 	}
 
 	// Clear address cache after processing
-	p.zerionProcessor.ClearCache()
+	p.txBuilder.ClearCache()
 
 	p.logger.Info("processing complete",
 		"wallet_id", w.ID,
@@ -196,7 +196,7 @@ func (p *Processor) processGenesis(ctx context.Context, w *wallet.Wallet, raw *R
 		rawData["contract_address"] = t.ContractAddress
 	}
 
-	externalID := raw.ZerionID
+	externalID := raw.ExternalID
 
 	ledgerTx, err := p.ledgerSvc.RecordTransaction(
 		ctx,
@@ -213,14 +213,14 @@ func (p *Processor) processGenesis(ctx context.Context, w *wallet.Wallet, raw *R
 	return &ledgerTx.ID, nil
 }
 
-// processRegular processes a regular (non-synthetic) raw transaction via ZerionProcessor
+// processRegular processes a regular (non-synthetic) raw transaction via TxBuilder
 func (p *Processor) processRegular(ctx context.Context, w *wallet.Wallet, raw *RawTransaction) (*uuid.UUID, error) {
 	var dt DecodedTransaction
 	if err := json.Unmarshal(raw.RawJSON, &dt); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal raw tx: %w", err)
 	}
 
-	ledgerTxID, err := p.zerionProcessor.ProcessTransaction(ctx, w, dt)
+	ledgerTxID, err := p.txBuilder.ProcessTransaction(ctx, w, dt)
 	if err != nil {
 		return nil, err
 	}

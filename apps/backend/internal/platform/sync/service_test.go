@@ -28,12 +28,22 @@ type MockTransactionDataProvider struct {
 	mock.Mock
 }
 
-func (m *MockTransactionDataProvider) GetTransactions(ctx context.Context, address string, since time.Time) ([]pkgsync.DecodedTransaction, error) {
-	args := m.Called(ctx, address, since)
+func (m *MockTransactionDataProvider) GetTransactions(ctx context.Context, address, chain string, since time.Time) ([]pkgsync.DecodedTransaction, error) {
+	args := m.Called(ctx, address, chain, since)
 	return args.Get(0).([]pkgsync.DecodedTransaction), args.Error(1)
 }
 
 var _ pkgsync.TransactionDataProvider = (*MockTransactionDataProvider)(nil)
+
+// expectChainTxs sets up the chain-aware provider fan-out: the collector invokes
+// GetTransactions once per supported chain. Test fixtures live on "ethereum", so
+// the configured txs are returned for that chain and every other chain returns
+// empty. This preserves the pre-fan-out behavior (txs fetched exactly once).
+func expectChainTxs(provider *MockTransactionDataProvider, ctx context.Context, addr string, since interface{}, txs []pkgsync.DecodedTransaction) {
+	provider.On("GetTransactions", ctx, addr, "ethereum", since).Return(txs, nil)
+	provider.On("GetTransactions", ctx, addr, mock.Anything, mock.Anything).
+		Return([]pkgsync.DecodedTransaction{}, nil)
+}
 
 // =============================================================================
 // Helper to create a Service with mocks (3-phase pipeline)
@@ -129,8 +139,7 @@ func TestSyncWallet_InitialSync_ProcessesAllPhases(t *testing.T) {
 		Status:  "confirmed",
 	}
 
-	provider.On("GetTransactions", ctx, walletAddr, mock.Anything).
-		Return([]pkgsync.DecodedTransaction{txReceive, txReceive2}, nil)
+	expectChainTxs(provider, ctx, walletAddr, mock.Anything, []pkgsync.DecodedTransaction{txReceive, txReceive2})
 
 	// Collector stores raw transactions
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
@@ -145,8 +154,8 @@ func TestSyncWallet_InitialSync_ProcessesAllPhases(t *testing.T) {
 	rawID1 := uuid.New()
 	rawID2 := uuid.New()
 	allRaws := []*pkgsync.RawTransaction{
-		{ID: rawID1, WalletID: walletID, ZerionID: "tx-receive-1", TxHash: "0xaaa", ChainID: "ethereum", OperationType: "receive", MinedAt: t1Time, Status: "confirmed", RawJSON: marshalDecodedTx(txReceive), ProcessingStatus: pkgsync.ProcessingStatusPending},
-		{ID: rawID2, WalletID: walletID, ZerionID: "tx-receive-2", TxHash: "0xbbb", ChainID: "ethereum", OperationType: "receive", MinedAt: t2Time, Status: "confirmed", RawJSON: marshalDecodedTx(txReceive2), ProcessingStatus: pkgsync.ProcessingStatusPending},
+		{ID: rawID1, WalletID: walletID, ExternalID: "tx-receive-1", TxHash: "0xaaa", ChainID: "ethereum", OperationType: "receive", MinedAt: t1Time, Status: "confirmed", RawJSON: marshalDecodedTx(txReceive), ProcessingStatus: pkgsync.ProcessingStatusPending},
+		{ID: rawID2, WalletID: walletID, ExternalID: "tx-receive-2", TxHash: "0xbbb", ChainID: "ethereum", OperationType: "receive", MinedAt: t2Time, Status: "confirmed", RawJSON: marshalDecodedTx(txReceive2), ProcessingStatus: pkgsync.ProcessingStatusPending},
 	}
 	rawTxRepo.On("GetAllByWallet", ctx, walletID).Return(allRaws, nil)
 
@@ -233,15 +242,14 @@ func TestSyncWallet_IncrementalSync_CollectAndProcess(t *testing.T) {
 	}
 
 	// Collector fetches new transactions
-	provider.On("GetTransactions", ctx, walletAddr, lastSync).
-		Return([]pkgsync.DecodedTransaction{txReceive}, nil)
+	expectChainTxs(provider, ctx, walletAddr, lastSync, []pkgsync.DecodedTransaction{txReceive})
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
 
 	// Processor gets pending transactions
 	rawID := uuid.New()
 	pendingRaws := []*pkgsync.RawTransaction{
-		{ID: rawID, WalletID: walletID, ZerionID: "tx-receive-1", TxHash: "0xaaa", ChainID: "ethereum", OperationType: "receive", MinedAt: t1Time, Status: "confirmed", RawJSON: marshalDecodedTx(txReceive), ProcessingStatus: pkgsync.ProcessingStatusPending},
+		{ID: rawID, WalletID: walletID, ExternalID: "tx-receive-1", TxHash: "0xaaa", ChainID: "ethereum", OperationType: "receive", MinedAt: t1Time, Status: "confirmed", RawJSON: marshalDecodedTx(txReceive), ProcessingStatus: pkgsync.ProcessingStatusPending},
 	}
 	rawTxRepo.On("GetPendingByWallet", ctx, walletID).Return(pendingRaws, nil)
 
@@ -267,7 +275,7 @@ func TestSyncWallet_IncrementalSync_CollectAndProcess(t *testing.T) {
 }
 
 // TestSyncWallet_TransactionsProcessedOldestFirst verifies chronological ordering
-// in the Processor despite Zerion returning newest-first
+// in the Processor despite the provider returning newest-first
 func TestSyncWallet_TransactionsProcessedOldestFirst(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
@@ -329,9 +337,8 @@ func TestSyncWallet_TransactionsProcessedOldestFirst(t *testing.T) {
 		MinedAt: t3Time, Status: "confirmed",
 	}
 
-	// Provider returns newest-first (like Zerion)
-	provider.On("GetTransactions", ctx, walletAddr, mock.Anything).
-		Return([]pkgsync.DecodedTransaction{tx3, tx2, tx1}, nil)
+	// Provider returns newest-first (as the sync provider does)
+	expectChainTxs(provider, ctx, walletAddr, mock.Anything, []pkgsync.DecodedTransaction{tx3, tx2, tx1})
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
 
@@ -346,9 +353,9 @@ func TestSyncWallet_TransactionsProcessedOldestFirst(t *testing.T) {
 
 	// GetAllByWallet for reconcile (return in reverse order to prove Processor re-sorts)
 	allRaws := []*pkgsync.RawTransaction{
-		{ID: uuid.New(), WalletID: walletID, ZerionID: "tx-3", TxHash: "0xccc", ChainID: "ethereum", OperationType: "receive", MinedAt: t3Time, Status: "confirmed", RawJSON: marshalDecodedTx(tx3), ProcessingStatus: pkgsync.ProcessingStatusPending},
-		{ID: uuid.New(), WalletID: walletID, ZerionID: "tx-2", TxHash: "0xbbb", ChainID: "ethereum", OperationType: "receive", MinedAt: t2Time, Status: "confirmed", RawJSON: marshalDecodedTx(tx2), ProcessingStatus: pkgsync.ProcessingStatusPending},
-		{ID: uuid.New(), WalletID: walletID, ZerionID: "tx-1", TxHash: "0xaaa", ChainID: "ethereum", OperationType: "receive", MinedAt: t1Time, Status: "confirmed", RawJSON: marshalDecodedTx(tx1), ProcessingStatus: pkgsync.ProcessingStatusPending},
+		{ID: uuid.New(), WalletID: walletID, ExternalID: "tx-3", TxHash: "0xccc", ChainID: "ethereum", OperationType: "receive", MinedAt: t3Time, Status: "confirmed", RawJSON: marshalDecodedTx(tx3), ProcessingStatus: pkgsync.ProcessingStatusPending},
+		{ID: uuid.New(), WalletID: walletID, ExternalID: "tx-2", TxHash: "0xbbb", ChainID: "ethereum", OperationType: "receive", MinedAt: t2Time, Status: "confirmed", RawJSON: marshalDecodedTx(tx2), ProcessingStatus: pkgsync.ProcessingStatusPending},
+		{ID: uuid.New(), WalletID: walletID, ExternalID: "tx-1", TxHash: "0xaaa", ChainID: "ethereum", OperationType: "receive", MinedAt: t1Time, Status: "confirmed", RawJSON: marshalDecodedTx(tx1), ProcessingStatus: pkgsync.ProcessingStatusPending},
 	}
 	rawTxRepo.On("GetAllByWallet", ctx, walletID).Return(allRaws, nil)
 
@@ -430,15 +437,14 @@ func TestSyncWallet_InitialSync_ReconcileCreatesGenesis(t *testing.T) {
 	}
 
 	// Phase 1: Collect
-	provider.On("GetTransactions", ctx, walletAddr, mock.Anything).
-		Return([]pkgsync.DecodedTransaction{txSend}, nil)
+	expectChainTxs(provider, ctx, walletAddr, mock.Anything, []pkgsync.DecodedTransaction{txSend})
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
 
 	// Phase 2: Reconcile
 	rawTxRepo.On("DeleteSyntheticByWallet", ctx, walletID).Return(nil)
 	sendRaw := &pkgsync.RawTransaction{
-		ID: uuid.New(), WalletID: walletID, ZerionID: "tx-send-1", TxHash: "0xaaa",
+		ID: uuid.New(), WalletID: walletID, ExternalID: "tx-send-1", TxHash: "0xaaa",
 		ChainID: "ethereum", OperationType: "send", MinedAt: t1Time, Status: "confirmed",
 		RawJSON: marshalDecodedTx(txSend), ProcessingStatus: pkgsync.ProcessingStatusPending,
 	}
@@ -454,15 +460,15 @@ func TestSyncWallet_InitialSync_ReconcileCreatesGenesis(t *testing.T) {
 	genesisTime := t1Time.Add(-1 * time.Second)
 	genesisRaw := &pkgsync.RawTransaction{
 		ID: uuid.New(), WalletID: walletID,
-		ZerionID:  fmt.Sprintf("genesis:%s:ethereum:USDC", walletID.String()),
-		TxHash:    "genesis_ethereum_USDC", ChainID: "ethereum",
+		ExternalID: fmt.Sprintf("genesis:%s:ethereum:USDC", walletID.String()),
+		TxHash:     "genesis_ethereum_USDC", ChainID: "ethereum",
 		OperationType: "receive", MinedAt: genesisTime, Status: "confirmed",
 		ProcessingStatus: pkgsync.ProcessingStatusPending,
 		IsSynthetic:      true,
 	}
 	// Build the genesis RawJSON
 	genesisTx := pkgsync.DecodedTransaction{
-		ID:            genesisRaw.ZerionID,
+		ID:            genesisRaw.ExternalID,
 		TxHash:        genesisRaw.TxHash,
 		ChainID:       "ethereum",
 		OperationType: pkgsync.OpReceive,
@@ -552,7 +558,7 @@ func TestSyncWallet_ConsecutiveErrors_StopsAfterThreshold(t *testing.T) {
 		}
 		txs = append(txs, dt)
 		pendingRaws = append(pendingRaws, &pkgsync.RawTransaction{
-			ID: uuid.New(), WalletID: walletID, ZerionID: dt.ID, TxHash: dt.TxHash,
+			ID: uuid.New(), WalletID: walletID, ExternalID: dt.ID, TxHash: dt.TxHash,
 			ChainID: "ethereum", OperationType: "receive",
 			MinedAt: dt.MinedAt, Status: "confirmed",
 			RawJSON: marshalDecodedTx(dt), ProcessingStatus: pkgsync.ProcessingStatusPending,
@@ -560,7 +566,7 @@ func TestSyncWallet_ConsecutiveErrors_StopsAfterThreshold(t *testing.T) {
 	}
 
 	// Phase 1: Collect
-	provider.On("GetTransactions", ctx, walletAddr, mock.Anything).Return(txs, nil)
+	expectChainTxs(provider, ctx, walletAddr, mock.Anything, txs)
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
 
@@ -632,7 +638,7 @@ func TestSyncWallet_ProcessorSkipsErrorsAndContinues(t *testing.T) {
 		Transfers: []pkgsync.DecodedTransfer{{
 			AssetSymbol: "ETH", Decimals: 18, Amount: big.NewInt(1e18),
 			Direction: pkgsync.DirectionIn,
-			Sender: "0x9999999999999999999999999999999999999999", Recipient: walletAddr,
+			Sender:    "0x9999999999999999999999999999999999999999", Recipient: walletAddr,
 		}},
 		MinedAt: t1Time, Status: "confirmed",
 	}
@@ -642,7 +648,7 @@ func TestSyncWallet_ProcessorSkipsErrorsAndContinues(t *testing.T) {
 		Transfers: []pkgsync.DecodedTransfer{{
 			AssetSymbol: "USDC", Decimals: 6, Amount: big.NewInt(1_000_000),
 			Direction: pkgsync.DirectionOut,
-			Sender: walletAddr, Recipient: "0x9999999999999999999999999999999999999999",
+			Sender:    walletAddr, Recipient: "0x9999999999999999999999999999999999999999",
 		}},
 		MinedAt: t2Time, Status: "confirmed",
 	}
@@ -652,14 +658,13 @@ func TestSyncWallet_ProcessorSkipsErrorsAndContinues(t *testing.T) {
 		Transfers: []pkgsync.DecodedTransfer{{
 			AssetSymbol: "ETH", Decimals: 18, Amount: big.NewInt(2e18),
 			Direction: pkgsync.DirectionIn,
-			Sender: "0x8888888888888888888888888888888888888888", Recipient: walletAddr,
+			Sender:    "0x8888888888888888888888888888888888888888", Recipient: walletAddr,
 		}},
 		MinedAt: t3Time, Status: "confirmed",
 	}
 
 	// Collect
-	provider.On("GetTransactions", ctx, walletAddr, lastSync).
-		Return([]pkgsync.DecodedTransaction{txReceive1, txSend, txReceive2}, nil)
+	expectChainTxs(provider, ctx, walletAddr, lastSync, []pkgsync.DecodedTransaction{txReceive1, txSend, txReceive2})
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
 
@@ -668,9 +673,9 @@ func TestSyncWallet_ProcessorSkipsErrorsAndContinues(t *testing.T) {
 	rawID2 := uuid.New()
 	rawID3 := uuid.New()
 	pendingRaws := []*pkgsync.RawTransaction{
-		{ID: rawID1, WalletID: walletID, ZerionID: "tx-receive-1", TxHash: "0xaaa", ChainID: "ethereum", OperationType: "receive", MinedAt: t1Time, Status: "confirmed", RawJSON: marshalDecodedTx(txReceive1), ProcessingStatus: pkgsync.ProcessingStatusPending},
-		{ID: rawID2, WalletID: walletID, ZerionID: "tx-send", TxHash: "0xbbb", ChainID: "ethereum", OperationType: "send", MinedAt: t2Time, Status: "confirmed", RawJSON: marshalDecodedTx(txSend), ProcessingStatus: pkgsync.ProcessingStatusPending},
-		{ID: rawID3, WalletID: walletID, ZerionID: "tx-receive-2", TxHash: "0xccc", ChainID: "ethereum", OperationType: "receive", MinedAt: t3Time, Status: "confirmed", RawJSON: marshalDecodedTx(txReceive2), ProcessingStatus: pkgsync.ProcessingStatusPending},
+		{ID: rawID1, WalletID: walletID, ExternalID: "tx-receive-1", TxHash: "0xaaa", ChainID: "ethereum", OperationType: "receive", MinedAt: t1Time, Status: "confirmed", RawJSON: marshalDecodedTx(txReceive1), ProcessingStatus: pkgsync.ProcessingStatusPending},
+		{ID: rawID2, WalletID: walletID, ExternalID: "tx-send", TxHash: "0xbbb", ChainID: "ethereum", OperationType: "send", MinedAt: t2Time, Status: "confirmed", RawJSON: marshalDecodedTx(txSend), ProcessingStatus: pkgsync.ProcessingStatusPending},
+		{ID: rawID3, WalletID: walletID, ExternalID: "tx-receive-2", TxHash: "0xccc", ChainID: "ethereum", OperationType: "receive", MinedAt: t3Time, Status: "confirmed", RawJSON: marshalDecodedTx(txReceive2), ProcessingStatus: pkgsync.ProcessingStatusPending},
 	}
 	rawTxRepo.On("GetPendingByWallet", ctx, walletID).Return(pendingRaws, nil)
 	walletRepo.On("GetWalletsByAddressAndUserID", ctx, mock.Anything, userID).Return([]*wallet.Wallet{}, nil)

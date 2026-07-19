@@ -30,11 +30,10 @@ import (
 	"github.com/kislikjeka/moontrack/internal/module/transfer"
 	"github.com/kislikjeka/moontrack/internal/platform/asset"
 	"github.com/kislikjeka/moontrack/internal/platform/lendingposition"
-	"github.com/kislikjeka/moontrack/internal/platform/price"
 	"github.com/kislikjeka/moontrack/internal/platform/lpposition"
+	"github.com/kislikjeka/moontrack/internal/platform/price"
 	"github.com/kislikjeka/moontrack/internal/platform/sync"
 	"github.com/kislikjeka/moontrack/internal/platform/taxlot"
-	"github.com/kislikjeka/moontrack/pkg/money"
 	"github.com/kislikjeka/moontrack/internal/platform/user"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi"
@@ -42,6 +41,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
 	"github.com/kislikjeka/moontrack/pkg/config"
 	"github.com/kislikjeka/moontrack/pkg/logger"
+	"github.com/kislikjeka/moontrack/pkg/money"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -212,11 +212,11 @@ func main() {
 	lendingPositionSvc := lendingposition.NewService(lendingPositionRepo, log)
 	log.Info("Lending Position service initialized")
 
-	// Initialize decimal resolver (cascading: assets table → zerion_assets table → hardcoded)
-	zerionAssetRepo := postgres.NewZerionAssetRepository(db.Pool)
+	// Initialize decimal resolver (cascading: assets table → sync asset store → hardcoded)
+	syncAssetRepo := postgres.NewSyncAssetRepository(db.Pool)
 	assetDecimalSrc := asset.NewDecimalSource(assetRepo)
-	zerionDecimalSrc := sync.NewDecimalSource(zerionAssetRepo)
-	decimalResolver := money.NewDecimalResolver(assetDecimalSrc, zerionDecimalSrc)
+	syncDecimalSrc := sync.NewDecimalSource(syncAssetRepo)
+	decimalResolver := money.NewDecimalResolver(assetDecimalSrc, syncDecimalSrc)
 	log.Info("Decimal resolver initialized")
 
 	// Initialize portfolio service (using price adapter for symbol→CoinGecko resolution)
@@ -243,13 +243,13 @@ func main() {
 		syncAssetAdapter := sync.NewSyncAssetAdapter(assetSvc)
 
 		zerionClient := zerion.NewClient(cfg.ZerionAPIKey, log)
-		zerionProvider := zerion.NewSyncAdapter(zerionClient)
+		txProvider := zerion.NewSyncAdapter(zerionClient)
 		log.Info("Zerion sync provider initialized")
 
 		rawTxRepo := postgres.NewRawTransactionRepository(db.Pool)
 
 		priceBackfillJobRepo := postgres.NewPriceBackfillJobRepository(db.Pool)
-		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, zerionProvider, zerionProvider, rawTxRepo, zerionAssetRepo, lpPositionSvc, lendingPositionSvc, assetSvc, priceBackfillJobRepo)
+		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, txProvider, txProvider, rawTxRepo, syncAssetRepo, lpPositionSvc, lendingPositionSvc, assetSvc, priceBackfillJobRepo)
 		log.Info("Sync service initialized",
 			"poll_interval", cfg.SyncPollInterval,
 			"provider", "zerion")
@@ -288,19 +288,19 @@ func main() {
 
 	// Create HTTP router
 	routerCfg := httpapi.Config{
-		Logger:             log,
-		AllowedOrigins:     allowedOrigins,
-		AuthHandler:        authHandler,
-		WalletHandler:      walletHandler,
-		TransactionHandler: transactionHandler,
-		PortfolioHandler:   portfolioHandler,
-		AssetHandler:       assetHandler,
-		TaxLotHandler:      taxLotHandler,
+		Logger:                 log,
+		AllowedOrigins:         allowedOrigins,
+		AuthHandler:            authHandler,
+		WalletHandler:          walletHandler,
+		TransactionHandler:     transactionHandler,
+		PortfolioHandler:       portfolioHandler,
+		AssetHandler:           assetHandler,
+		TaxLotHandler:          taxLotHandler,
 		LotsHandler:            lotsHandler,
 		LPPositionHandler:      lpPositionHTTPHandler,
 		LendingPositionHandler: lendingPositionHTTPHandler,
 		DocsHandler:            docsHandler,
-		JWTMiddleware:      jwtMiddleware,
+		JWTMiddleware:          jwtMiddleware,
 	}
 	r := httpapi.NewRouter(routerCfg)
 

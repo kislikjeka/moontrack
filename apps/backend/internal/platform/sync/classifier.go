@@ -125,7 +125,7 @@ func (c *Classifier) isAAVE(protocol string) bool {
 }
 
 // hasAaveAssets detects AAVE lending transactions by transfer asset names/symbols
-// when Zerion doesn't tag the protocol. Aave aTokens and debt tokens have
+// when the provider does not tag the protocol. Aave aTokens and debt tokens have
 // distinctive naming: aEthWETH, variableDebtBasUSDC, stableDebtEthDAI, etc.
 func (c *Classifier) hasAaveAssets(transfers []DecodedTransfer) bool {
 	for _, t := range transfers {

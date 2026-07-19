@@ -6,8 +6,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// ZerionAsset represents token metadata discovered from Zerion API
-type ZerionAsset struct {
+// SyncAsset represents token metadata discovered from the sync provider
+type SyncAsset struct {
 	ID              uuid.UUID `db:"id"`
 	Symbol          string    `db:"symbol"`
 	Name            string    `db:"name"`

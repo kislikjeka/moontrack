@@ -142,13 +142,13 @@ func TestSync_LP_FullLifecycle(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewZerionProcessor(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil)
 	w := newTestWallet(userID, walletAddr)
 
 	// ─── Step 1: LP Deposit ───────────────────────────────────────────────
 	t.Run("deposit", func(t *testing.T) {
 		tx := sync.DecodedTransaction{
-			ID:            "zerion-deposit-1",
+			ID:            "ext-deposit-1",
 			TxHash:        "0xdepositabc",
 			ChainID:       "ethereum",
 			OperationType: sync.OpDeposit,
@@ -205,7 +205,7 @@ func TestSync_LP_FullLifecycle(t *testing.T) {
 	// ─── Step 2: Claim Fees ───────────────────────────────────────────────
 	t.Run("claim_fees", func(t *testing.T) {
 		tx := sync.DecodedTransaction{
-			ID:            "zerion-claim-1",
+			ID:            "ext-claim-1",
 			TxHash:        "0xclaim123",
 			ChainID:       "ethereum",
 			OperationType: sync.OpReceive,
@@ -258,7 +258,7 @@ func TestSync_LP_FullLifecycle(t *testing.T) {
 	// ─── Step 3: Full Withdraw ────────────────────────────────────────────
 	t.Run("full_withdraw", func(t *testing.T) {
 		tx := sync.DecodedTransaction{
-			ID:            "zerion-withdraw-1",
+			ID:            "ext-withdraw-1",
 			TxHash:        "0xwithdraw456",
 			ChainID:       "ethereum",
 			OperationType: sync.OpWithdraw,
@@ -340,12 +340,12 @@ func TestSync_LP_UniV3Mint_ClassifiesAsDeposit(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewZerionProcessor(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil)
 	w := newTestWallet(userID, walletAddr)
 
 	// Mint operation on Uniswap V3 should classify as lp_deposit
 	tx := sync.DecodedTransaction{
-		ID:            "zerion-mint-1",
+		ID:            "ext-mint-1",
 		TxHash:        "0xmint789",
 		ChainID:       "ethereum",
 		OperationType: sync.OpMint,
@@ -386,12 +386,12 @@ func TestSync_LP_AaveDeposit_IsLendingSupply(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewZerionProcessor(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil)
 	w := newTestWallet(userID, walletAddr)
 
 	// Aave deposit should be classified as lending_supply, not defi_deposit or lp_deposit
 	tx := sync.DecodedTransaction{
-		ID:            "zerion-aave-1",
+		ID:            "ext-aave-1",
 		TxHash:        "0xaave123",
 		ChainID:       "ethereum",
 		OperationType: sync.OpDeposit,

@@ -22,11 +22,11 @@ var negativeDeltaDustTolerance = big.NewInt(10)
 
 // Reconciler handles Phase 2: comparing transaction flows with on-chain balances
 type Reconciler struct {
-	rawTxRepo       RawTransactionRepository
-	posProvider     PositionDataProvider
-	walletRepo      WalletRepository
-	zerionAssetRepo ZerionAssetRepository
-	logger          *logger.Logger
+	rawTxRepo   RawTransactionRepository
+	posProvider PositionDataProvider
+	walletRepo  WalletRepository
+	assetRepo   SyncAssetRepository
+	logger      *logger.Logger
 }
 
 // NewReconciler creates a new Reconciler
@@ -34,15 +34,15 @@ func NewReconciler(
 	rawTxRepo RawTransactionRepository,
 	posProvider PositionDataProvider,
 	walletRepo WalletRepository,
-	zerionAssetRepo ZerionAssetRepository,
+	assetRepo SyncAssetRepository,
 	log *logger.Logger,
 ) *Reconciler {
 	return &Reconciler{
-		rawTxRepo:       rawTxRepo,
-		posProvider:     posProvider,
-		walletRepo:      walletRepo,
-		zerionAssetRepo: zerionAssetRepo,
-		logger:          log.WithField("component", "reconciler"),
+		rawTxRepo:   rawTxRepo,
+		posProvider: posProvider,
+		walletRepo:  walletRepo,
+		assetRepo:   assetRepo,
+		logger:      log.WithField("component", "reconciler"),
 	}
 }
 
@@ -215,7 +215,7 @@ func calculateNetFlows(raws []*RawTransaction) (map[string]*AssetFlow, error) {
 	for _, raw := range raws {
 		var dt DecodedTransaction
 		if err := json.Unmarshal(raw.RawJSON, &dt); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal raw tx %s: %w", raw.ZerionID, err)
+			return nil, fmt.Errorf("failed to unmarshal raw tx %s: %w", raw.ExternalID, err)
 		}
 
 		chainID := dt.ChainID
@@ -265,7 +265,7 @@ func calculateNetFlows(raws []*RawTransaction) (map[string]*AssetFlow, error) {
 
 // extractAssetsFromPositions upserts asset metadata from on-chain positions
 func (r *Reconciler) extractAssetsFromPositions(ctx context.Context, positions []OnChainPosition) {
-	if r.zerionAssetRepo == nil {
+	if r.assetRepo == nil {
 		return
 	}
 
@@ -273,7 +273,7 @@ func (r *Reconciler) extractAssetsFromPositions(ctx context.Context, positions [
 		if pos.AssetSymbol == "" {
 			continue
 		}
-		if err := r.zerionAssetRepo.Upsert(ctx, &ZerionAsset{
+		if err := r.assetRepo.Upsert(ctx, &SyncAsset{
 			Symbol:          pos.AssetSymbol,
 			Name:            pos.AssetName,
 			ChainID:         pos.ChainID,
@@ -281,7 +281,7 @@ func (r *Reconciler) extractAssetsFromPositions(ctx context.Context, positions [
 			Decimals:        pos.Decimals,
 			IconURL:         pos.IconURL,
 		}); err != nil {
-			r.logger.Warn("failed to upsert zerion asset from position",
+			r.logger.Warn("failed to upsert sync asset from position",
 				"symbol", pos.AssetSymbol,
 				"chain_id", pos.ChainID,
 				"error", err)
@@ -291,11 +291,11 @@ func (r *Reconciler) extractAssetsFromPositions(ctx context.Context, positions [
 
 // buildGenesisRaw creates a synthetic genesis RawTransaction for a missing balance delta
 func buildGenesisRaw(walletID uuid.UUID, pos OnChainPosition, delta *big.Int, genesisTime time.Time) *RawTransaction {
-	zerionID := fmt.Sprintf("genesis:%s:%s:%s", walletID.String(), pos.ChainID, pos.AssetSymbol)
+	externalID := fmt.Sprintf("genesis:%s:%s:%s", walletID.String(), pos.ChainID, pos.AssetSymbol)
 
 	// Build a synthetic DecodedTransaction that the Processor can process as genesis
 	genesisTx := DecodedTransaction{
-		ID:            zerionID,
+		ID:            externalID,
 		TxHash:        fmt.Sprintf("genesis_%s_%s", pos.ChainID, pos.AssetSymbol),
 		ChainID:       pos.ChainID,
 		OperationType: OpReceive,
@@ -321,7 +321,7 @@ func buildGenesisRaw(walletID uuid.UUID, pos OnChainPosition, delta *big.Int, ge
 
 	return &RawTransaction{
 		WalletID:         walletID,
-		ZerionID:         zerionID,
+		ExternalID:       externalID,
 		TxHash:           genesisTx.TxHash,
 		ChainID:          pos.ChainID,
 		OperationType:    string(OpReceive),

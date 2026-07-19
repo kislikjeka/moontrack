@@ -21,17 +21,17 @@ import (
 )
 
 // =============================================================================
-// Zerion Test Helpers
+// TxBuilder Test Helpers
 // =============================================================================
 
-func newZerionProcessor(walletRepo sync.WalletRepository, ledgerSvc sync.LedgerService) *sync.ZerionProcessor {
+func newTxBuilder(walletRepo sync.WalletRepository, ledgerSvc sync.LedgerService) *sync.TxBuilder {
 	log := logger.New("test", os.Stdout)
-	return sync.NewZerionProcessor(walletRepo, ledgerSvc, nil, nil, log, nil, nil)
+	return sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil)
 }
 
 func newDecodedTransaction(opType sync.OperationType, transfers []sync.DecodedTransfer) sync.DecodedTransaction {
 	return sync.DecodedTransaction{
-		ID:            "zerion-tx-" + uuid.New().String()[:8],
+		ID:            "ext-tx-" + uuid.New().String()[:8],
 		TxHash:        "0x" + uuid.New().String()[:32],
 		ChainID:       "ethereum",
 		OperationType: opType,
@@ -71,7 +71,7 @@ func newOutgoingTransfer(recipient string) sync.DecodedTransfer {
 // Tests
 // =============================================================================
 
-func TestZerionProcessor_TransferIn(t *testing.T) {
+func TestTxBuilder_TransferIn(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
@@ -85,7 +85,7 @@ func TestZerionProcessor_TransferIn(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := newZerionProcessor(walletRepo, ledgerSvc)
+	processor := newTxBuilder(walletRepo, ledgerSvc)
 	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpReceive, []sync.DecodedTransfer{
@@ -112,7 +112,7 @@ func TestZerionProcessor_TransferIn(t *testing.T) {
 	assert.Equal(t, tx.ID, rawData["unique_id"])
 }
 
-func TestZerionProcessor_TransferOut(t *testing.T) {
+func TestTxBuilder_TransferOut(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
@@ -126,7 +126,7 @@ func TestZerionProcessor_TransferOut(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferOut, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := newZerionProcessor(walletRepo, ledgerSvc)
+	processor := newTxBuilder(walletRepo, ledgerSvc)
 	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpSend, []sync.DecodedTransfer{
@@ -141,7 +141,7 @@ func TestZerionProcessor_TransferOut(t *testing.T) {
 	assert.Equal(t, "zerion", ledgerSvc.recordedTransactions[0].Source)
 }
 
-func TestZerionProcessor_Swap(t *testing.T) {
+func TestTxBuilder_Swap(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
@@ -152,7 +152,7 @@ func TestZerionProcessor_Swap(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeSwap, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := newZerionProcessor(walletRepo, ledgerSvc)
+	processor := newTxBuilder(walletRepo, ledgerSvc)
 	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpTrade, []sync.DecodedTransfer{
@@ -193,7 +193,7 @@ func TestZerionProcessor_Swap(t *testing.T) {
 	assert.Equal(t, "ETH", transfersOut[0]["asset_symbol"])
 }
 
-func TestZerionProcessor_InternalTransfer(t *testing.T) {
+func TestTxBuilder_InternalTransfer(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	sourceAddr := "0x1111111111111111111111111111111111111111"
@@ -210,7 +210,7 @@ func TestZerionProcessor_InternalTransfer(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeInternalTransfer, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := newZerionProcessor(walletRepo, ledgerSvc)
+	processor := newTxBuilder(walletRepo, ledgerSvc)
 	sourceWallet := newTestWallet(userID, sourceAddr)
 
 	tx := newDecodedTransaction(sync.OpSend, []sync.DecodedTransfer{
@@ -228,7 +228,7 @@ func TestZerionProcessor_InternalTransfer(t *testing.T) {
 	assert.Equal(t, destWalletID.String(), rawData["dest_wallet_id"])
 }
 
-func TestZerionProcessor_InternalTransfer_IncomingSkipped(t *testing.T) {
+func TestTxBuilder_InternalTransfer_IncomingSkipped(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	sourceAddr := "0x1111111111111111111111111111111111111111"
@@ -242,7 +242,7 @@ func TestZerionProcessor_InternalTransfer_IncomingSkipped(t *testing.T) {
 		{ID: sourceWalletID, UserID: userID, Address: sourceAddr},
 	}, nil)
 
-	processor := newZerionProcessor(walletRepo, ledgerSvc)
+	processor := newTxBuilder(walletRepo, ledgerSvc)
 	destWallet := newTestWallet(userID, destAddr)
 
 	transfer := newIncomingTransfer(sourceAddr)
@@ -256,7 +256,7 @@ func TestZerionProcessor_InternalTransfer_IncomingSkipped(t *testing.T) {
 	assert.Empty(t, ledgerSvc.recordedTransactions)
 }
 
-func TestZerionProcessor_ApproveSkipped(t *testing.T) {
+func TestTxBuilder_ApproveSkipped(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
@@ -264,7 +264,7 @@ func TestZerionProcessor_ApproveSkipped(t *testing.T) {
 	walletRepo := new(MockWalletRepository)
 	ledgerSvc := new(MockLedgerService)
 
-	processor := newZerionProcessor(walletRepo, ledgerSvc)
+	processor := newTxBuilder(walletRepo, ledgerSvc)
 	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpApprove, nil)
@@ -275,7 +275,7 @@ func TestZerionProcessor_ApproveSkipped(t *testing.T) {
 	assert.Empty(t, ledgerSvc.recordedTransactions)
 }
 
-func TestZerionProcessor_FailedTxSkipped(t *testing.T) {
+func TestTxBuilder_FailedTxSkipped(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
@@ -283,7 +283,7 @@ func TestZerionProcessor_FailedTxSkipped(t *testing.T) {
 	walletRepo := new(MockWalletRepository)
 	ledgerSvc := new(MockLedgerService)
 
-	processor := newZerionProcessor(walletRepo, ledgerSvc)
+	processor := newTxBuilder(walletRepo, ledgerSvc)
 	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpReceive, []sync.DecodedTransfer{
@@ -297,7 +297,7 @@ func TestZerionProcessor_FailedTxSkipped(t *testing.T) {
 	assert.Empty(t, ledgerSvc.recordedTransactions)
 }
 
-func TestZerionProcessor_DuplicateHandling(t *testing.T) {
+func TestTxBuilder_DuplicateHandling(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
@@ -312,7 +312,7 @@ func TestZerionProcessor_DuplicateHandling(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, duplicateError)
 
-	processor := newZerionProcessor(walletRepo, ledgerSvc)
+	processor := newTxBuilder(walletRepo, ledgerSvc)
 	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpReceive, []sync.DecodedTransfer{
@@ -323,7 +323,7 @@ func TestZerionProcessor_DuplicateHandling(t *testing.T) {
 	require.NoError(t, err, "duplicate error should be silently handled")
 }
 
-func TestZerionProcessor_USDPrices(t *testing.T) {
+func TestTxBuilder_USDPrices(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
@@ -336,7 +336,7 @@ func TestZerionProcessor_USDPrices(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := newZerionProcessor(walletRepo, ledgerSvc)
+	processor := newTxBuilder(walletRepo, ledgerSvc)
 	w := newTestWallet(userID, walletAddr)
 
 	ethPrice := big.NewInt(250000000000)
@@ -360,7 +360,7 @@ func TestZerionProcessor_USDPrices(t *testing.T) {
 	assert.Equal(t, ethPrice.String(), rawData["usd_rate"])
 }
 
-func TestZerionProcessor_GasFee(t *testing.T) {
+func TestTxBuilder_GasFee(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
@@ -373,7 +373,7 @@ func TestZerionProcessor_GasFee(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferOut, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := newZerionProcessor(walletRepo, ledgerSvc)
+	processor := newTxBuilder(walletRepo, ledgerSvc)
 	w := newTestWallet(userID, walletAddr)
 
 	feeUSDPrice := big.NewInt(500000000) // $5
@@ -403,7 +403,7 @@ func TestZerionProcessor_GasFee(t *testing.T) {
 	assert.Equal(t, feeUSDPrice.String(), rawData["gas_usd_rate"])
 }
 
-func TestZerionProcessor_DeFiDeposit(t *testing.T) {
+func TestTxBuilder_DeFiDeposit(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
@@ -415,7 +415,7 @@ func TestZerionProcessor_DeFiDeposit(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeLendingSupply, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := newZerionProcessor(walletRepo, ledgerSvc)
+	processor := newTxBuilder(walletRepo, ledgerSvc)
 	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpDeposit, []sync.DecodedTransfer{
@@ -442,7 +442,7 @@ func TestZerionProcessor_DeFiDeposit(t *testing.T) {
 	assert.Equal(t, "ETH", rawData["asset"])
 }
 
-func TestZerionProcessor_DeFiWithdraw(t *testing.T) {
+func TestTxBuilder_DeFiWithdraw(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
@@ -454,7 +454,7 @@ func TestZerionProcessor_DeFiWithdraw(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeLendingWithdraw, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := newZerionProcessor(walletRepo, ledgerSvc)
+	processor := newTxBuilder(walletRepo, ledgerSvc)
 	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpWithdraw, []sync.DecodedTransfer{
@@ -481,7 +481,7 @@ func TestZerionProcessor_DeFiWithdraw(t *testing.T) {
 	assert.Equal(t, "ETH", rawData["asset"])
 }
 
-func TestZerionProcessor_DeFiClaim(t *testing.T) {
+func TestTxBuilder_DeFiClaim(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
@@ -493,7 +493,7 @@ func TestZerionProcessor_DeFiClaim(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeLendingClaim, "zerion", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := newZerionProcessor(walletRepo, ledgerSvc)
+	processor := newTxBuilder(walletRepo, ledgerSvc)
 	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpClaim, []sync.DecodedTransfer{
@@ -521,13 +521,13 @@ func TestZerionProcessor_DeFiClaim(t *testing.T) {
 	assert.Equal(t, "AAVE", rawData["asset"])
 }
 
-// TestZerionProcessor_SanitizeLogField_StripsUTF8LineSeparators verifies that
-// the sanitizer used by zerion_processor for log fields (price.SanitizeLogField)
+// TestTxBuilder_SanitizeLogField_StripsUTF8LineSeparators verifies that
+// the sanitizer used by the tx builder for log fields (price.SanitizeLogField)
 // strips Unicode line separators that would otherwise allow log-line forging.
-// Regression guard: zerion_processor previously used a byte-walking sanitizer
+// Regression guard: the tx builder previously used a byte-walking sanitizer
 // that only stripped ASCII control chars, leaving U+2028/U+2029/U+0085
 // exploitable in structured-log parsers.
-func TestZerionProcessor_SanitizeLogField_StripsUTF8LineSeparators(t *testing.T) {
+func TestTxBuilder_SanitizeLogField_StripsUTF8LineSeparators(t *testing.T) {
 	cases := []struct {
 		name string
 		in   string

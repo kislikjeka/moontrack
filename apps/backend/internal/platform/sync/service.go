@@ -14,21 +14,21 @@ import (
 
 // Service handles blockchain wallet synchronization
 type Service struct {
-	config          *Config
-	walletRepo      WalletRepository
-	ledgerSvc       LedgerService
-	zerionProvider  TransactionDataProvider
-	zerionProcessor *ZerionProcessor
-	rawTxRepo       RawTransactionRepository
-	posProvider     PositionDataProvider
-	collector       *Collector
-	reconciler      *Reconciler
-	processor       *Processor
-	logger          *logger.Logger
-	wg              sync.WaitGroup
-	stopCh          chan struct{}
-	mu              sync.RWMutex
-	running         bool
+	config      *Config
+	walletRepo  WalletRepository
+	ledgerSvc   LedgerService
+	txProvider  TransactionDataProvider
+	txBuilder   *TxBuilder
+	rawTxRepo   RawTransactionRepository
+	posProvider PositionDataProvider
+	collector   *Collector
+	reconciler  *Reconciler
+	processor   *Processor
+	logger      *logger.Logger
+	wg          sync.WaitGroup
+	stopCh      chan struct{}
+	mu          sync.RWMutex
+	running     bool
 }
 
 // NewService creates a new sync service.
@@ -38,10 +38,10 @@ func NewService(
 	ledgerSvc LedgerService,
 	assetSvc AssetService,
 	logger *logger.Logger,
-	zerionProvider TransactionDataProvider,
+	txProvider TransactionDataProvider,
 	posProvider PositionDataProvider,
 	rawTxRepo RawTransactionRepository,
-	zerionAssetRepo ZerionAssetRepository,
+	assetRepo SyncAssetRepository,
 	lpPositionSvc LPPositionService,
 	lendingPositionSvc LendingPositionService,
 	assetUpsert AssetUpserter,
@@ -52,30 +52,30 @@ func NewService(
 	}
 	_ = config.Validate()
 
-	var zerionProc *ZerionProcessor
-	if zerionProvider != nil {
-		zerionProc = NewZerionProcessor(walletRepo, ledgerSvc, lpPositionSvc, lendingPositionSvc, logger, assetUpsert, jobEnqueuer)
+	var txBuilder *TxBuilder
+	if txProvider != nil {
+		txBuilder = NewTxBuilder(walletRepo, ledgerSvc, lpPositionSvc, lendingPositionSvc, logger, assetUpsert, jobEnqueuer)
 	}
 
 	svc := &Service{
-		config:          config,
-		walletRepo:      walletRepo,
-		ledgerSvc:       ledgerSvc,
-		zerionProvider:  zerionProvider,
-		zerionProcessor: zerionProc,
-		rawTxRepo:       rawTxRepo,
-		posProvider:     posProvider,
-		logger:          logger.WithField("component", "sync"),
-		stopCh:          make(chan struct{}),
+		config:      config,
+		walletRepo:  walletRepo,
+		ledgerSvc:   ledgerSvc,
+		txProvider:  txProvider,
+		txBuilder:   txBuilder,
+		rawTxRepo:   rawTxRepo,
+		posProvider: posProvider,
+		logger:      logger.WithField("component", "sync"),
+		stopCh:      make(chan struct{}),
 	}
 
 	// Create sub-services for the 3-phase sync pipeline
-	if zerionProvider != nil && rawTxRepo != nil {
-		svc.collector = NewCollector(zerionProvider, rawTxRepo, walletRepo, zerionAssetRepo, config, logger)
-		svc.processor = NewProcessor(rawTxRepo, walletRepo, zerionProc, ledgerSvc, logger)
+	if txProvider != nil && rawTxRepo != nil {
+		svc.collector = NewCollector(txProvider, rawTxRepo, walletRepo, assetRepo, config, logger)
+		svc.processor = NewProcessor(rawTxRepo, walletRepo, txBuilder, ledgerSvc, logger)
 	}
 	if posProvider != nil && rawTxRepo != nil {
-		svc.reconciler = NewReconciler(rawTxRepo, posProvider, walletRepo, zerionAssetRepo, logger)
+		svc.reconciler = NewReconciler(rawTxRepo, posProvider, walletRepo, assetRepo, logger)
 	}
 
 	return svc

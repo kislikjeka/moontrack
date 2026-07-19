@@ -21,11 +21,11 @@ func newTestCollector(
 	provider pkgsync.TransactionDataProvider,
 	rawTxRepo pkgsync.RawTransactionRepository,
 	walletRepo pkgsync.WalletRepository,
-	zerionAssetRepo pkgsync.ZerionAssetRepository,
+	assetRepo pkgsync.SyncAssetRepository,
 ) *pkgsync.Collector {
 	log := logger.New("test", os.Stdout)
 	config := pkgsync.DefaultConfig()
-	return pkgsync.NewCollector(provider, rawTxRepo, walletRepo, zerionAssetRepo, config, log)
+	return pkgsync.NewCollector(provider, rawTxRepo, walletRepo, assetRepo, config, log)
 }
 
 func TestCollectAll_ExtractAssets_UpsertsUniqueAssets(t *testing.T) {
@@ -41,7 +41,7 @@ func TestCollectAll_ExtractAssets_UpsertsUniqueAssets(t *testing.T) {
 	provider := new(MockTransactionDataProvider)
 	rawTxRepo := new(MockRawTransactionRepository)
 	walletRepo := new(MockWalletRepository)
-	zerionAssetRepo := new(MockZerionAssetRepository)
+	assetRepo := new(MockSyncAssetRepository)
 
 	walletRepo.On("SetSyncPhase", ctx, walletID, mock.Anything).Return(nil)
 
@@ -77,32 +77,31 @@ func TestCollectAll_ExtractAssets_UpsertsUniqueAssets(t *testing.T) {
 		Transfers: []pkgsync.DecodedTransfer{{
 			AssetSymbol: "USDC", AssetName: "USD Coin",
 			ContractAddress: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
-			Decimals: 6, Amount: big.NewInt(1_000_000),
+			Decimals:        6, Amount: big.NewInt(1_000_000),
 			Direction: pkgsync.DirectionIn,
 		}},
 		MinedAt: time.Now(), Status: "confirmed",
 	}
 
-	provider.On("GetTransactions", ctx, walletAddr, mock.Anything).
-		Return([]pkgsync.DecodedTransaction{tx1, tx2, tx3}, nil)
+	expectChainTxs(provider, ctx, walletAddr, mock.Anything, []pkgsync.DecodedTransaction{tx1, tx2, tx3})
 
 	// Expect exactly 2 Upsert calls: one for ETH, one for USDC (deduplicated)
-	zerionAssetRepo.On("Upsert", ctx, mock.MatchedBy(func(a *pkgsync.ZerionAsset) bool {
+	assetRepo.On("Upsert", ctx, mock.MatchedBy(func(a *pkgsync.SyncAsset) bool {
 		return a.Symbol == "ETH" && a.ChainID == "ethereum"
 	})).Return(nil).Once()
-	zerionAssetRepo.On("Upsert", ctx, mock.MatchedBy(func(a *pkgsync.ZerionAsset) bool {
+	assetRepo.On("Upsert", ctx, mock.MatchedBy(func(a *pkgsync.SyncAsset) bool {
 		return a.Symbol == "USDC" && a.ChainID == "ethereum"
 	})).Return(nil).Once()
 
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
 
-	collector := newTestCollector(provider, rawTxRepo, walletRepo, zerionAssetRepo)
+	collector := newTestCollector(provider, rawTxRepo, walletRepo, assetRepo)
 	count, err := collector.CollectAll(ctx, w)
 
 	require.NoError(t, err)
 	assert.Equal(t, 3, count)
-	zerionAssetRepo.AssertNumberOfCalls(t, "Upsert", 2)
+	assetRepo.AssertNumberOfCalls(t, "Upsert", 2)
 }
 
 func TestCollectAll_ExtractAssets_IncludesFeeAssets(t *testing.T) {
@@ -118,7 +117,7 @@ func TestCollectAll_ExtractAssets_IncludesFeeAssets(t *testing.T) {
 	provider := new(MockTransactionDataProvider)
 	rawTxRepo := new(MockRawTransactionRepository)
 	walletRepo := new(MockWalletRepository)
-	zerionAssetRepo := new(MockZerionAssetRepository)
+	assetRepo := new(MockSyncAssetRepository)
 
 	walletRepo.On("SetSyncPhase", ctx, walletID, mock.Anything).Return(nil)
 
@@ -136,19 +135,18 @@ func TestCollectAll_ExtractAssets_IncludesFeeAssets(t *testing.T) {
 		MinedAt: time.Now(), Status: "confirmed",
 	}
 
-	provider.On("GetTransactions", ctx, walletAddr, mock.Anything).
-		Return([]pkgsync.DecodedTransaction{tx}, nil)
+	expectChainTxs(provider, ctx, walletAddr, mock.Anything, []pkgsync.DecodedTransaction{tx})
 
-	zerionAssetRepo.On("Upsert", ctx, mock.Anything).Return(nil)
+	assetRepo.On("Upsert", ctx, mock.Anything).Return(nil)
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
 
-	collector := newTestCollector(provider, rawTxRepo, walletRepo, zerionAssetRepo)
+	collector := newTestCollector(provider, rawTxRepo, walletRepo, assetRepo)
 	_, err := collector.CollectAll(ctx, w)
 	require.NoError(t, err)
 
 	// Should have 2 Upsert calls: USDC (transfer) + ETH (fee)
-	zerionAssetRepo.AssertNumberOfCalls(t, "Upsert", 2)
+	assetRepo.AssertNumberOfCalls(t, "Upsert", 2)
 }
 
 func TestCollectAll_ExtractAssets_NilRepo_NoOp(t *testing.T) {
@@ -177,12 +175,11 @@ func TestCollectAll_ExtractAssets_NilRepo_NoOp(t *testing.T) {
 		MinedAt: time.Now(), Status: "confirmed",
 	}
 
-	provider.On("GetTransactions", ctx, walletAddr, mock.Anything).
-		Return([]pkgsync.DecodedTransaction{tx}, nil)
+	expectChainTxs(provider, ctx, walletAddr, mock.Anything, []pkgsync.DecodedTransaction{tx})
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
 
-	// nil zerionAssetRepo — should not panic
+	// nil assetRepo — should not panic
 	collector := newTestCollector(provider, rawTxRepo, walletRepo, nil)
 	count, err := collector.CollectAll(ctx, w)
 
@@ -203,7 +200,7 @@ func TestCollectAll_ExtractAssets_ZeroDecimalsIncluded(t *testing.T) {
 	provider := new(MockTransactionDataProvider)
 	rawTxRepo := new(MockRawTransactionRepository)
 	walletRepo := new(MockWalletRepository)
-	zerionAssetRepo := new(MockZerionAssetRepository)
+	assetRepo := new(MockSyncAssetRepository)
 
 	walletRepo.On("SetSyncPhase", ctx, walletID, mock.Anything).Return(nil)
 
@@ -218,19 +215,18 @@ func TestCollectAll_ExtractAssets_ZeroDecimalsIncluded(t *testing.T) {
 		MinedAt: time.Now(), Status: "confirmed",
 	}
 
-	provider.On("GetTransactions", ctx, walletAddr, mock.Anything).
-		Return([]pkgsync.DecodedTransaction{tx}, nil)
+	expectChainTxs(provider, ctx, walletAddr, mock.Anything, []pkgsync.DecodedTransaction{tx})
 
-	zerionAssetRepo.On("Upsert", ctx, mock.MatchedBy(func(a *pkgsync.ZerionAsset) bool {
+	assetRepo.On("Upsert", ctx, mock.MatchedBy(func(a *pkgsync.SyncAsset) bool {
 		return a.Symbol == "CK" && a.Decimals == 0
 	})).Return(nil).Once()
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
 
-	collector := newTestCollector(provider, rawTxRepo, walletRepo, zerionAssetRepo)
+	collector := newTestCollector(provider, rawTxRepo, walletRepo, assetRepo)
 	_, err := collector.CollectAll(ctx, w)
 	require.NoError(t, err)
 
 	// Zero-decimal asset should still be upserted
-	zerionAssetRepo.AssertNumberOfCalls(t, "Upsert", 1)
+	assetRepo.AssertNumberOfCalls(t, "Upsert", 1)
 }

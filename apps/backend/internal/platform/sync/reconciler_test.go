@@ -19,10 +19,10 @@ func newTestReconciler(
 	rawTxRepo pkgsync.RawTransactionRepository,
 	posProvider pkgsync.PositionDataProvider,
 	walletRepo pkgsync.WalletRepository,
-	zerionAssetRepo pkgsync.ZerionAssetRepository,
+	assetRepo pkgsync.SyncAssetRepository,
 ) *pkgsync.Reconciler {
 	log := logger.New("test", os.Stdout)
-	return pkgsync.NewReconciler(rawTxRepo, posProvider, walletRepo, zerionAssetRepo, log)
+	return pkgsync.NewReconciler(rawTxRepo, posProvider, walletRepo, assetRepo, log)
 }
 
 // buildSendRaw creates a raw transaction with a single outbound transfer of the
@@ -43,7 +43,7 @@ func buildSendRaw(walletID uuid.UUID, symbol string, decimals int, amount *big.I
 		Status:  "confirmed",
 	}
 	return &pkgsync.RawTransaction{
-		ID: uuid.New(), WalletID: walletID, ZerionID: "tx-send-1", TxHash: "0xaaa",
+		ID: uuid.New(), WalletID: walletID, ExternalID: "tx-send-1", TxHash: "0xaaa",
 		ChainID: "ethereum", OperationType: "send", MinedAt: minedAt, Status: "confirmed",
 		RawJSON: marshalDecodedTx(dt), ProcessingStatus: pkgsync.ProcessingStatusPending,
 	}
@@ -102,7 +102,7 @@ func TestReconcile_NegativeDeltaBeyondDust_MarksDegraded(t *testing.T) {
 	// Received 5 USDC (net inflow +5), but on-chain shows only 2 USDC.
 	// Delta = 2 - 5 = -3 USDC, far beyond dust → degraded.
 	recvRaw := &pkgsync.RawTransaction{
-		ID: uuid.New(), WalletID: w.ID, ZerionID: "tx-recv-1", TxHash: "0xbbb",
+		ID: uuid.New(), WalletID: w.ID, ExternalID: "tx-recv-1", TxHash: "0xbbb",
 		ChainID: "ethereum", OperationType: "receive", MinedAt: t1, Status: "confirmed",
 		RawJSON: marshalDecodedTx(pkgsync.DecodedTransaction{
 			ID: "tx-recv-1", TxHash: "0xbbb", ChainID: "ethereum", OperationType: pkgsync.OpReceive,
@@ -145,7 +145,7 @@ func TestReconcile_NegativeDeltaWithinDust_Skipped(t *testing.T) {
 
 	// Received 1000 base units; on-chain shows 995 → delta = -5, within dust (<=10).
 	recvRaw := &pkgsync.RawTransaction{
-		ID: uuid.New(), WalletID: w.ID, ZerionID: "tx-recv-1", TxHash: "0xbbb",
+		ID: uuid.New(), WalletID: w.ID, ExternalID: "tx-recv-1", TxHash: "0xbbb",
 		ChainID: "ethereum", OperationType: "receive", MinedAt: t1, Status: "confirmed",
 		RawJSON: marshalDecodedTx(pkgsync.DecodedTransaction{
 			ID: "tx-recv-1", TxHash: "0xbbb", ChainID: "ethereum", OperationType: pkgsync.OpReceive,

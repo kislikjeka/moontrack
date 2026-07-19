@@ -47,11 +47,11 @@ func TestMain(m *testing.M) {
 // =============================================================================
 
 type testEnv struct {
-	syncSvc    *sync.Service
-	ledgerSvc  *ledger.Service
-	ledgerRepo *postgres.LedgerRepository
-	zerionMock *mockZerionProvider
-	ctx        context.Context
+	syncSvc        *sync.Service
+	ledgerSvc      *ledger.Service
+	ledgerRepo     *postgres.LedgerRepository
+	txProviderMock *mockTxProvider
+	ctx            context.Context
 }
 
 func setupIntegrationTest(t *testing.T) *testEnv {
@@ -71,8 +71,8 @@ func setupIntegrationTest(t *testing.T) *testEnv {
 	registry.Register(transfer.NewInternalTransferHandler(walletRepo, log))
 	ledgerSvc := ledger.NewService(ledgerRepo, registry, log)
 
-	// Create mock Zerion provider
-	zerionMock := newMockZerionProvider()
+	// Create mock transaction data provider
+	txProviderMock := newMockTxProvider()
 
 	// Create sync config
 	config := &sync.Config{
@@ -83,14 +83,14 @@ func setupIntegrationTest(t *testing.T) *testEnv {
 	}
 
 	// Create sync service
-	syncSvc := sync.NewService(config, walletRepo, ledgerSvc, nil, log, zerionMock, nil, nil, nil, nil, nil, nil, nil)
+	syncSvc := sync.NewService(config, walletRepo, ledgerSvc, nil, log, txProviderMock, nil, nil, nil, nil, nil, nil, nil)
 
 	return &testEnv{
-		syncSvc:    syncSvc,
-		ledgerSvc:  ledgerSvc,
-		ledgerRepo: ledgerRepo,
-		zerionMock: zerionMock,
-		ctx:        ctx,
+		syncSvc:        syncSvc,
+		ledgerSvc:      ledgerSvc,
+		ledgerRepo:     ledgerRepo,
+		txProviderMock: txProviderMock,
+		ctx:            ctx,
 	}
 }
 
@@ -117,27 +117,32 @@ func createTestWallet(t *testing.T, ctx context.Context, pool *pgxpool.Pool, use
 }
 
 // =============================================================================
-// Mock Zerion Provider
+// Mock Transaction Data Provider
 // =============================================================================
 
-type mockZerionProvider struct {
+type mockTxProvider struct {
 	mu           gosync.Mutex
 	transactions map[string][]sync.DecodedTransaction // address -> transactions
 }
 
-func newMockZerionProvider() *mockZerionProvider {
-	return &mockZerionProvider{
+func newMockTxProvider() *mockTxProvider {
+	return &mockTxProvider{
 		transactions: make(map[string][]sync.DecodedTransaction),
 	}
 }
 
-func (m *mockZerionProvider) GetTransactions(ctx context.Context, address string, since time.Time) ([]sync.DecodedTransaction, error) {
+func (m *mockTxProvider) GetTransactions(ctx context.Context, address, chain string, since time.Time) ([]sync.DecodedTransaction, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// The collector fans out over chains, invoking this once per chain. Return only
+	// the transactions that belong to the requested chain so each tx is fetched once.
 	if txs, ok := m.transactions[address]; ok {
 		var result []sync.DecodedTransaction
 		for _, tx := range txs {
+			if tx.ChainID != chain {
+				continue
+			}
 			if !tx.MinedAt.Before(since) {
 				result = append(result, tx)
 			}
@@ -147,7 +152,7 @@ func (m *mockZerionProvider) GetTransactions(ctx context.Context, address string
 	return nil, nil
 }
 
-func (m *mockZerionProvider) AddTransaction(address string, tx sync.DecodedTransaction) {
+func (m *mockTxProvider) AddTransaction(address string, tx sync.DecodedTransaction) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.transactions[address] = append(m.transactions[address], tx)
@@ -165,9 +170,9 @@ func TestSyncService_SyncWallet_RecordsTransfers(t *testing.T) {
 	walletAddress := "0x1234567890123456789012345678901234567890"
 	walletID := createTestWallet(t, env.ctx, testDB.Pool, userID, walletAddress)
 
-	// Add incoming transfer via Zerion mock
-	env.zerionMock.AddTransaction(walletAddress, sync.DecodedTransaction{
-		ID:            "zerion-tx-1",
+	// Add incoming transfer via provider mock
+	env.txProviderMock.AddTransaction(walletAddress, sync.DecodedTransaction{
+		ID:            "ext-tx-1",
 		TxHash:        "0xincoming123",
 		ChainID:       "ethereum",
 		OperationType: sync.OpReceive,
@@ -214,8 +219,8 @@ func TestSyncService_SyncWallet_MultipleTransfers(t *testing.T) {
 
 	// Add multiple incoming transfers
 	for i := 0; i < 5; i++ {
-		env.zerionMock.AddTransaction(walletAddress, sync.DecodedTransaction{
-			ID:            "zerion-multi-" + string(rune('a'+i)),
+		env.txProviderMock.AddTransaction(walletAddress, sync.DecodedTransaction{
+			ID:            "ext-multi-" + string(rune('a'+i)),
 			TxHash:        "0xincoming" + string(rune('a'+i)),
 			ChainID:       "ethereum",
 			OperationType: sync.OpReceive,
@@ -265,8 +270,8 @@ func TestSyncService_InternalTransfer_RecordedOnce(t *testing.T) {
 	destWalletID := createTestWallet(t, env.ctx, testDB.Pool, userID, destAddress)
 
 	// Add outgoing transfer from source (will be classified as internal)
-	env.zerionMock.AddTransaction(sourceAddress, sync.DecodedTransaction{
-		ID:            "zerion-internal-out",
+	env.txProviderMock.AddTransaction(sourceAddress, sync.DecodedTransaction{
+		ID:            "ext-internal-out",
 		TxHash:        "0xinternal123",
 		ChainID:       "ethereum",
 		OperationType: sync.OpSend,
@@ -286,8 +291,8 @@ func TestSyncService_InternalTransfer_RecordedOnce(t *testing.T) {
 	})
 
 	// Add incoming transfer to dest (same transaction, should be skipped)
-	env.zerionMock.AddTransaction(destAddress, sync.DecodedTransaction{
-		ID:            "zerion-internal-in",
+	env.txProviderMock.AddTransaction(destAddress, sync.DecodedTransaction{
+		ID:            "ext-internal-in",
 		TxHash:        "0xinternal123",
 		ChainID:       "ethereum",
 		OperationType: sync.OpReceive,
@@ -357,8 +362,8 @@ func TestSyncService_ConcurrentWalletSync_NoRace(t *testing.T) {
 		walletIDs = append(walletIDs, walletID)
 
 		// Add transfer for each wallet
-		env.zerionMock.AddTransaction(address, sync.DecodedTransaction{
-			ID:            "zerion-concurrent-" + string(rune('a'+i)),
+		env.txProviderMock.AddTransaction(address, sync.DecodedTransaction{
+			ID:            "ext-concurrent-" + string(rune('a'+i)),
 			TxHash:        "0xtx" + string(rune('a'+i)),
 			ChainID:       "ethereum",
 			OperationType: sync.OpReceive,
@@ -414,8 +419,8 @@ func TestSyncService_Idempotency_DoubleSyncSameWallet(t *testing.T) {
 	walletID := createTestWallet(t, env.ctx, testDB.Pool, userID, walletAddress)
 
 	// Add a transfer
-	env.zerionMock.AddTransaction(walletAddress, sync.DecodedTransaction{
-		ID:            "zerion-idempotent",
+	env.txProviderMock.AddTransaction(walletAddress, sync.DecodedTransaction{
+		ID:            "ext-idempotent",
 		TxHash:        "0xidempotent123",
 		ChainID:       "ethereum",
 		OperationType: sync.OpReceive,
@@ -470,8 +475,8 @@ func TestSyncService_MixedTransfers_InOutExternal(t *testing.T) {
 	walletID := createTestWallet(t, env.ctx, testDB.Pool, userID, walletAddress)
 
 	// Add incoming transfer: +2 ETH
-	env.zerionMock.AddTransaction(walletAddress, sync.DecodedTransaction{
-		ID:            "zerion-in-1",
+	env.txProviderMock.AddTransaction(walletAddress, sync.DecodedTransaction{
+		ID:            "ext-in-1",
 		TxHash:        "0xin1",
 		ChainID:       "ethereum",
 		OperationType: sync.OpReceive,
@@ -491,8 +496,8 @@ func TestSyncService_MixedTransfers_InOutExternal(t *testing.T) {
 	})
 
 	// Add outgoing transfer: -0.5 ETH
-	env.zerionMock.AddTransaction(walletAddress, sync.DecodedTransaction{
-		ID:            "zerion-out-1",
+	env.txProviderMock.AddTransaction(walletAddress, sync.DecodedTransaction{
+		ID:            "ext-out-1",
 		TxHash:        "0xout1",
 		ChainID:       "ethereum",
 		OperationType: sync.OpSend,
@@ -512,8 +517,8 @@ func TestSyncService_MixedTransfers_InOutExternal(t *testing.T) {
 	})
 
 	// Add another incoming: +1 ETH
-	env.zerionMock.AddTransaction(walletAddress, sync.DecodedTransaction{
-		ID:            "zerion-in-2",
+	env.txProviderMock.AddTransaction(walletAddress, sync.DecodedTransaction{
+		ID:            "ext-in-2",
 		TxHash:        "0xin2",
 		ChainID:       "ethereum",
 		OperationType: sync.OpReceive,

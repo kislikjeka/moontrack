@@ -12,32 +12,32 @@ import (
 	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
-// Collector handles Phase 1: collecting raw transactions from Zerion API
+// Collector handles Phase 1: collecting raw transactions from the sync provider
 type Collector struct {
-	zerionProvider   TransactionDataProvider
-	rawTxRepo        RawTransactionRepository
-	walletRepo       WalletRepository
-	zerionAssetRepo  ZerionAssetRepository
-	config           *Config
-	logger           *logger.Logger
+	txProvider TransactionDataProvider
+	rawTxRepo  RawTransactionRepository
+	walletRepo WalletRepository
+	assetRepo  SyncAssetRepository
+	config     *Config
+	logger     *logger.Logger
 }
 
 // NewCollector creates a new Collector
 func NewCollector(
-	zerionProvider TransactionDataProvider,
+	txProvider TransactionDataProvider,
 	rawTxRepo RawTransactionRepository,
 	walletRepo WalletRepository,
-	zerionAssetRepo ZerionAssetRepository,
+	assetRepo SyncAssetRepository,
 	config *Config,
 	log *logger.Logger,
 ) *Collector {
 	return &Collector{
-		zerionProvider:  zerionProvider,
-		rawTxRepo:       rawTxRepo,
-		walletRepo:      walletRepo,
-		zerionAssetRepo: zerionAssetRepo,
-		config:          config,
-		logger:          log.WithField("component", "collector"),
+		txProvider: txProvider,
+		rawTxRepo:  rawTxRepo,
+		walletRepo: walletRepo,
+		assetRepo:  assetRepo,
+		config:     config,
+		logger:     log.WithField("component", "collector"),
 	}
 }
 
@@ -83,9 +83,15 @@ func (c *Collector) CollectIncremental(ctx context.Context, w *wallet.Wallet) (i
 }
 
 func (c *Collector) collect(ctx context.Context, w *wallet.Wallet, since time.Time) (int, error) {
-	txs, err := c.zerionProvider.GetTransactions(ctx, w.Address, since)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get transactions: %w", err)
+	// Fan out over the wallet's chains: the provider port is chain-aware, so the
+	// Collector owns the loop and invokes it once per chain, aggregating results.
+	var txs []DecodedTransaction
+	for _, chain := range wallet.GetSupportedChains() {
+		chainTxs, err := c.txProvider.GetTransactions(ctx, w.Address, chain, since)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get transactions for chain %s: %w", chain, err)
+		}
+		txs = append(txs, chainTxs...)
 	}
 
 	c.logger.Info("fetched transactions from provider",
@@ -103,7 +109,7 @@ func (c *Collector) collect(ctx context.Context, w *wallet.Wallet, since time.Ti
 		if err != nil {
 			c.logger.Warn("failed to serialize transaction, skipping",
 				"wallet_id", w.ID,
-				"zerion_id", dt.ID,
+				"external_id", dt.ID,
 				"error", err)
 			continue
 		}
@@ -111,7 +117,7 @@ func (c *Collector) collect(ctx context.Context, w *wallet.Wallet, since time.Ti
 		if err := c.rawTxRepo.UpsertRawTransaction(ctx, raw); err != nil {
 			c.logger.Error("failed to upsert raw transaction",
 				"wallet_id", w.ID,
-				"zerion_id", dt.ID,
+				"external_id", dt.ID,
 				"error", err)
 			continue
 		}
@@ -141,7 +147,7 @@ func (c *Collector) collect(ctx context.Context, w *wallet.Wallet, since time.Ti
 // extractAssets iterates over decoded transactions and upserts asset metadata
 // into the zerion_assets table. Deduplicates by symbol:chain within the batch.
 func (c *Collector) extractAssets(ctx context.Context, txs []DecodedTransaction) {
-	if c.zerionAssetRepo == nil {
+	if c.assetRepo == nil {
 		return
 	}
 
@@ -162,7 +168,7 @@ func (c *Collector) extractAssets(ctx context.Context, txs []DecodedTransaction)
 			}
 			seen[key] = true
 
-			if err := c.zerionAssetRepo.Upsert(ctx, &ZerionAsset{
+			if err := c.assetRepo.Upsert(ctx, &SyncAsset{
 				Symbol:          t.AssetSymbol,
 				Name:            t.AssetName,
 				ChainID:         dt.ChainID,
@@ -170,7 +176,7 @@ func (c *Collector) extractAssets(ctx context.Context, txs []DecodedTransaction)
 				Decimals:        t.Decimals,
 				IconURL:         t.IconURL,
 			}); err != nil {
-				c.logger.Warn("failed to upsert zerion asset",
+				c.logger.Warn("failed to upsert sync asset",
 					"symbol", t.AssetSymbol,
 					"chain_id", dt.ChainID,
 					"error", err)
@@ -181,14 +187,14 @@ func (c *Collector) extractAssets(ctx context.Context, txs []DecodedTransaction)
 			key := assetKey{dt.Fee.AssetSymbol, dt.ChainID}
 			if !seen[key] {
 				seen[key] = true
-				if err := c.zerionAssetRepo.Upsert(ctx, &ZerionAsset{
+				if err := c.assetRepo.Upsert(ctx, &SyncAsset{
 					Symbol:   dt.Fee.AssetSymbol,
 					Name:     dt.Fee.AssetName,
 					ChainID:  dt.ChainID,
 					Decimals: dt.Fee.Decimals,
 					IconURL:  dt.Fee.IconURL,
 				}); err != nil {
-					c.logger.Warn("failed to upsert zerion asset (fee)",
+					c.logger.Warn("failed to upsert sync asset (fee)",
 						"symbol", dt.Fee.AssetSymbol,
 						"chain_id", dt.ChainID,
 						"error", err)
@@ -207,7 +213,7 @@ func decodedTxToRawTx(walletID uuid.UUID, dt DecodedTransaction) (*RawTransactio
 
 	return &RawTransaction{
 		WalletID:         walletID,
-		ZerionID:         dt.ID,
+		ExternalID:       dt.ID,
 		TxHash:           dt.TxHash,
 		ChainID:          dt.ChainID,
 		OperationType:    string(dt.OperationType),

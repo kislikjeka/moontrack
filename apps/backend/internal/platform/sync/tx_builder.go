@@ -29,9 +29,9 @@ type JobEnqueuer interface {
 	Enqueue(ctx context.Context, assetID uuid.UUID, targetTime time.Time) (*price.BackfillJob, error)
 }
 
-// ZerionProcessor handles decoded transaction classification and ledger recording
-// for transactions fetched via the Zerion API.
-type ZerionProcessor struct {
+// TxBuilder handles decoded transaction classification and ledger recording
+// for transactions fetched via the sync provider.
+type TxBuilder struct {
 	walletRepo         WalletRepository
 	ledgerSvc          LedgerService
 	lpPositionSvc      LPPositionService
@@ -43,9 +43,9 @@ type ZerionProcessor struct {
 	addressCache       map[string][]uuid.UUID
 }
 
-// NewZerionProcessor creates a new ZerionProcessor.
-func NewZerionProcessor(walletRepo WalletRepository, ledgerSvc LedgerService, lpPositionSvc LPPositionService, lendingPositionSvc LendingPositionService, log *logger.Logger, assetUpsert AssetUpserter, jobEnqueuer JobEnqueuer) *ZerionProcessor {
-	return &ZerionProcessor{
+// NewTxBuilder creates a new TxBuilder.
+func NewTxBuilder(walletRepo WalletRepository, ledgerSvc LedgerService, lpPositionSvc LPPositionService, lendingPositionSvc LendingPositionService, log *logger.Logger, assetUpsert AssetUpserter, jobEnqueuer JobEnqueuer) *TxBuilder {
+	return &TxBuilder{
 		walletRepo:         walletRepo,
 		ledgerSvc:          ledgerSvc,
 		lpPositionSvc:      lpPositionSvc,
@@ -60,7 +60,7 @@ func NewZerionProcessor(walletRepo WalletRepository, ledgerSvc LedgerService, lp
 
 // ProcessTransaction classifies a decoded transaction and records it to the ledger.
 // Returns the ledger transaction ID on success, nil if skipped, or an error.
-func (p *ZerionProcessor) ProcessTransaction(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) (*uuid.UUID, error) {
+func (p *TxBuilder) ProcessTransaction(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) (*uuid.UUID, error) {
 	if tx.Status == "failed" {
 		p.logger.Debug("skipping failed transaction", "tx_hash", tx.TxHash)
 		return nil, nil
@@ -122,7 +122,7 @@ func (p *ZerionProcessor) ProcessTransaction(ctx context.Context, w *wallet.Wall
 		return nil, nil
 	}
 
-	ledgerTx, err := p.ledgerSvc.RecordTransaction(ctx, txType, "zerion", &externalID, tx.MinedAt, data)
+	ledgerTx, err := p.ledgerSvc.RecordTransaction(ctx, txType, sourceName, &externalID, tx.MinedAt, data)
 	if err != nil {
 		if isDuplicateError(err) {
 			p.logger.Debug("transaction already recorded (idempotent)", "external_id", externalID)
@@ -166,7 +166,7 @@ func (p *ZerionProcessor) ProcessTransaction(ctx context.Context, w *wallet.Wall
 
 // detectInternalTransfer checks if a transfer_in/transfer_out is actually an internal
 // transfer between user wallets.
-func (p *ZerionProcessor) detectInternalTransfer(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction, txType ledger.TransactionType) (ledger.TransactionType, *uuid.UUID) {
+func (p *TxBuilder) detectInternalTransfer(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction, txType ledger.TransactionType) (ledger.TransactionType, *uuid.UUID) {
 	if txType != ledger.TxTypeTransferIn && txType != ledger.TxTypeTransferOut {
 		return txType, nil
 	}
@@ -198,7 +198,7 @@ func (p *ZerionProcessor) detectInternalTransfer(ctx context.Context, w *wallet.
 }
 
 // isIncomingSide checks if the wallet is on the receiving side of transfers.
-func (p *ZerionProcessor) isIncomingSide(w *wallet.Wallet, tx DecodedTransaction) bool {
+func (p *TxBuilder) isIncomingSide(w *wallet.Wallet, tx DecodedTransaction) bool {
 	walletAddr := strings.ToLower(w.Address)
 	for _, t := range tx.Transfers {
 		if t.Direction == DirectionIn && strings.ToLower(t.Recipient) == walletAddr {
@@ -209,7 +209,7 @@ func (p *ZerionProcessor) isIncomingSide(w *wallet.Wallet, tx DecodedTransaction
 }
 
 // isUserWallet checks if an address belongs to any of the user's wallets.
-func (p *ZerionProcessor) isUserWallet(ctx context.Context, address string, userID uuid.UUID) bool {
+func (p *TxBuilder) isUserWallet(ctx context.Context, address string, userID uuid.UUID) bool {
 	address = strings.ToLower(address)
 	if _, ok := p.addressCache[address]; ok {
 		return true
@@ -231,7 +231,7 @@ func (p *ZerionProcessor) isUserWallet(ctx context.Context, address string, user
 }
 
 // getWalletByAddress returns the wallet ID for an address belonging to a specific user.
-func (p *ZerionProcessor) getWalletByAddress(ctx context.Context, address string, userID uuid.UUID) *uuid.UUID {
+func (p *TxBuilder) getWalletByAddress(ctx context.Context, address string, userID uuid.UUID) *uuid.UUID {
 	address = strings.ToLower(address)
 	wallets, err := p.walletRepo.GetWalletsByAddressAndUserID(ctx, address, userID)
 	if err != nil || len(wallets) == 0 {
@@ -241,13 +241,13 @@ func (p *ZerionProcessor) getWalletByAddress(ctx context.Context, address string
 }
 
 // ClearCache clears the address cache.
-func (p *ZerionProcessor) ClearCache() {
+func (p *TxBuilder) ClearCache() {
 	p.addressCache = make(map[string][]uuid.UUID)
 }
 
 // --- LP position post-processing ---
 
-func (p *ZerionProcessor) handleLPDeposit(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
+func (p *TxBuilder) handleLPDeposit(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
 	token0, token1 := p.extractTokenPair(tx.Transfers, DirectionOut)
 	if token0.AssetSymbol == "" {
 		p.logger.Warn("LP deposit: no outgoing transfers for token pair extraction", "tx_hash", tx.TxHash)
@@ -271,7 +271,7 @@ func (p *ZerionProcessor) handleLPDeposit(ctx context.Context, w *wallet.Wallet,
 	}
 }
 
-func (p *ZerionProcessor) handleLPWithdraw(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
+func (p *TxBuilder) handleLPWithdraw(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
 	token0, token1 := p.extractTokenPair(tx.Transfers, DirectionIn)
 	if token0.AssetSymbol == "" {
 		p.logger.Warn("LP withdraw: no incoming transfers for token pair extraction", "tx_hash", tx.TxHash)
@@ -307,7 +307,7 @@ func (p *ZerionProcessor) handleLPWithdraw(ctx context.Context, w *wallet.Wallet
 	}
 }
 
-func (p *ZerionProcessor) handleLPClaimFees(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
+func (p *TxBuilder) handleLPClaimFees(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
 	token0, token1 := p.extractTokenPair(tx.Transfers, DirectionIn)
 	if token0.AssetSymbol == "" {
 		p.logger.Warn("LP claim fees: no incoming transfers for token pair extraction", "tx_hash", tx.TxHash)
@@ -344,7 +344,7 @@ func (p *ZerionProcessor) handleLPClaimFees(ctx context.Context, w *wallet.Walle
 
 // extractTokenPair extracts token0 and token1 from transfers matching the given direction.
 // Returns up to two unique tokens. If only one token, token1 is returned with empty symbol.
-func (p *ZerionProcessor) extractTokenPair(transfers []DecodedTransfer, dir TransferDirection) (DecodedTransfer, DecodedTransfer) {
+func (p *TxBuilder) extractTokenPair(transfers []DecodedTransfer, dir TransferDirection) (DecodedTransfer, DecodedTransfer) {
 	var token0, token1 DecodedTransfer
 	seen := make(map[string]bool)
 	for _, t := range transfers {
@@ -366,7 +366,7 @@ func (p *ZerionProcessor) extractTokenPair(transfers []DecodedTransfer, dir Tran
 
 // calcLPAmounts calculates token0/token1 amounts and total USD value from transfers
 // matching a given direction, mapped to the position's token pair.
-func (p *ZerionProcessor) calcLPAmounts(transfers []DecodedTransfer, dir TransferDirection, pos *lpposition.LPPosition) (*big.Int, *big.Int, *big.Int) {
+func (p *TxBuilder) calcLPAmounts(transfers []DecodedTransfer, dir TransferDirection, pos *lpposition.LPPosition) (*big.Int, *big.Int, *big.Int) {
 	token0Amt := big.NewInt(0)
 	token1Amt := big.NewInt(0)
 	usdValue := big.NewInt(0)
@@ -392,11 +392,11 @@ func (p *ZerionProcessor) calcLPAmounts(transfers []DecodedTransfer, dir Transfe
 
 // --- Raw data builders ---
 
-func (p *ZerionProcessor) buildTransferInData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+func (p *TxBuilder) buildTransferInData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 	data["unique_id"] = tx.ID
 
-	// Collect ALL incoming transfers. Zerion can emit multiple transfers of
+	// Collect ALL incoming transfers. The provider can emit multiple transfers of
 	// different assets in a single on-chain tx (e.g. Aave borrow returns
 	// a debt receipt token + the real borrowed asset). Prior to this change
 	// only the first matching transfer was kept, silently dropping the rest.
@@ -444,7 +444,7 @@ func (p *ZerionProcessor) buildTransferInData(ctx context.Context, w *wallet.Wal
 	return data
 }
 
-func (p *ZerionProcessor) buildTransferOutData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+func (p *TxBuilder) buildTransferOutData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 	data["unique_id"] = tx.ID
 
@@ -504,7 +504,7 @@ func (p *ZerionProcessor) buildTransferOutData(ctx context.Context, w *wallet.Wa
 // consumed by transfer/lending handlers (the "transfers" array element).
 // Emits amount as a decimal string (money.BigInt-compatible) and omits
 // usd_rate when unknown so handlers treat missing price as nil.
-func (p *ZerionProcessor) buildTransferEntry(t *DecodedTransfer) map[string]interface{} {
+func (p *TxBuilder) buildTransferEntry(t *DecodedTransfer) map[string]interface{} {
 	m := map[string]interface{}{
 		"asset_id":         t.AssetSymbol,
 		"amount":           money.NewBigInt(t.Amount).String(),
@@ -530,7 +530,7 @@ func (p *ZerionProcessor) buildTransferEntry(t *DecodedTransfer) map[string]inte
 // Upsert failures are logged at WARN (sanitized fields) rather than
 // swallowed silently, so the silent-dataloss pattern caught in Bug C is
 // observable in logs and metrics.
-func (p *ZerionProcessor) ensureBackfillJob(ctx context.Context, t *DecodedTransfer, chainID string, occurredAt time.Time) {
+func (p *TxBuilder) ensureBackfillJob(ctx context.Context, t *DecodedTransfer, chainID string, occurredAt time.Time) {
 	if t == nil || t.ContractAddress == "" || chainID == "" {
 		return
 	}
@@ -546,7 +546,7 @@ func (p *ZerionProcessor) ensureBackfillJob(ctx context.Context, t *DecodedTrans
 	case err == nil && a != nil:
 		_, _ = p.jobEnqueuer.Enqueue(ctx, a.ID, occurredAt)
 	case errors.Is(err, asset.ErrInvalidContractAddress):
-		p.logger.Warn("invalid contract address from zerion, asset cannot be priced",
+		p.logger.Warn("invalid contract address from provider, asset cannot be priced",
 			"chain_id", price.SanitizeLogField(chainID),
 			"contract_address", price.SanitizeLogField(t.ContractAddress),
 			"asset_symbol", price.SanitizeLogField(t.AssetSymbol),
@@ -560,7 +560,7 @@ func (p *ZerionProcessor) ensureBackfillJob(ctx context.Context, t *DecodedTrans
 	}
 }
 
-func (p *ZerionProcessor) buildSwapData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+func (p *TxBuilder) buildSwapData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 
 	var transfersIn, transfersOut []map[string]interface{}
@@ -577,7 +577,7 @@ func (p *ZerionProcessor) buildSwapData(ctx context.Context, w *wallet.Wallet, t
 	return data
 }
 
-func (p *ZerionProcessor) buildInternalTransferData(w *wallet.Wallet, tx DecodedTransaction, destWalletID *uuid.UUID) map[string]interface{} {
+func (p *TxBuilder) buildInternalTransferData(w *wallet.Wallet, tx DecodedTransaction, destWalletID *uuid.UUID) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 	data["source_wallet_id"] = w.ID.String()
 	if destWalletID != nil {
@@ -621,28 +621,28 @@ func (p *ZerionProcessor) buildInternalTransferData(w *wallet.Wallet, tx Decoded
 	return data
 }
 
-func (p *ZerionProcessor) buildDeFiDepositData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+func (p *TxBuilder) buildDeFiDepositData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 	data["transfers"] = p.buildTransferArray(ctx, tx.Transfers, tx.ChainID, tx.MinedAt)
 	data["operation_type"] = string(tx.OperationType)
 	return data
 }
 
-func (p *ZerionProcessor) buildDeFiWithdrawData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+func (p *TxBuilder) buildDeFiWithdrawData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 	data["transfers"] = p.buildTransferArray(ctx, tx.Transfers, tx.ChainID, tx.MinedAt)
 	data["operation_type"] = string(tx.OperationType)
 	return data
 }
 
-func (p *ZerionProcessor) buildDeFiClaimData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+func (p *TxBuilder) buildDeFiClaimData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 	data["transfers"] = p.buildTransferArray(ctx, tx.Transfers, tx.ChainID, tx.MinedAt)
 	data["operation_type"] = string(tx.OperationType)
 	return data
 }
 
-func (p *ZerionProcessor) buildLPDepositData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+func (p *TxBuilder) buildLPDepositData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 	data["transfers"] = p.buildTransferArray(ctx, tx.Transfers, tx.ChainID, tx.MinedAt)
 	data["operation_type"] = string(tx.OperationType)
@@ -652,21 +652,21 @@ func (p *ZerionProcessor) buildLPDepositData(ctx context.Context, w *wallet.Wall
 	return data
 }
 
-func (p *ZerionProcessor) buildLPWithdrawData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+func (p *TxBuilder) buildLPWithdrawData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 	data["transfers"] = p.buildTransferArray(ctx, tx.Transfers, tx.ChainID, tx.MinedAt)
 	data["operation_type"] = string(tx.OperationType)
 	return data
 }
 
-func (p *ZerionProcessor) buildLPClaimFeesData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+func (p *TxBuilder) buildLPClaimFeesData(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 	data["transfers"] = p.buildTransferArray(ctx, tx.Transfers, tx.ChainID, tx.MinedAt)
 	data["operation_type"] = string(tx.OperationType)
 	return data
 }
 
-func (p *ZerionProcessor) buildBaseData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+func (p *TxBuilder) buildBaseData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	data := map[string]interface{}{
 		"wallet_id":   w.ID.String(),
 		"tx_hash":     tx.TxHash,
@@ -689,7 +689,7 @@ func (p *ZerionProcessor) buildBaseData(w *wallet.Wallet, tx DecodedTransaction)
 	return data
 }
 
-func (p *ZerionProcessor) buildTransferArray(ctx context.Context, transfers []DecodedTransfer, chainID string, occurredAt time.Time) []map[string]interface{} {
+func (p *TxBuilder) buildTransferArray(ctx context.Context, transfers []DecodedTransfer, chainID string, occurredAt time.Time) []map[string]interface{} {
 	result := make([]map[string]interface{}, 0, len(transfers))
 	for _, t := range transfers {
 		result = append(result, p.buildSingleTransfer(ctx, t, chainID, occurredAt))
@@ -697,7 +697,7 @@ func (p *ZerionProcessor) buildTransferArray(ctx context.Context, transfers []De
 	return result
 }
 
-func (p *ZerionProcessor) buildSingleTransfer(ctx context.Context, t DecodedTransfer, chainID string, occurredAt time.Time) map[string]interface{} {
+func (p *TxBuilder) buildSingleTransfer(ctx context.Context, t DecodedTransfer, chainID string, occurredAt time.Time) map[string]interface{} {
 	m := map[string]interface{}{
 		"asset_symbol":     t.AssetSymbol,
 		"amount":           money.NewBigInt(t.Amount).String(),
@@ -709,10 +709,10 @@ func (p *ZerionProcessor) buildSingleTransfer(ctx context.Context, t DecodedTran
 	}
 
 	if t.USDPrice != nil {
-		// Price provided by Zerion — use it directly.
+		// Price provided by the provider — use it directly.
 		m["usd_price"] = t.USDPrice.String()
 	} else if t.ContractAddress != "" && chainID != "" {
-		// Zerion has no price for this token. Upsert the asset by on-chain
+		// The provider has no price for this token. Upsert the asset by on-chain
 		// identity and enqueue a backfill job so the price is resolved later.
 		// Downstream readers treat the absence of the usd_price key as a
 		// pending price (USDRate = nil, TaxLotHook creates a pending lot).
@@ -729,12 +729,12 @@ func (p *ZerionProcessor) buildSingleTransfer(ctx context.Context, t DecodedTran
 					_, _ = p.jobEnqueuer.Enqueue(ctx, a.ID, occurredAt)
 				}
 			case errors.Is(err, asset.ErrInvalidContractAddress):
-				// Zerion returned a contract address that failed our shape-check.
+				// The provider returned a contract address that failed our shape-check.
 				// We cannot create an asset row for it, so there is nothing the
 				// backfill worker could ever resolve. Proceed without a USD
 				// rate; emit a WARN (sanitized) so the silent-dataloss pattern
 				// is observable in logs / metrics.
-				p.logger.Warn("invalid contract address from zerion, asset cannot be priced",
+				p.logger.Warn("invalid contract address from provider, asset cannot be priced",
 					"chain_id", price.SanitizeLogField(chainID),
 					"contract_address", price.SanitizeLogField(t.ContractAddress),
 					"asset_symbol", price.SanitizeLogField(t.AssetSymbol),
@@ -757,18 +757,18 @@ func (p *ZerionProcessor) buildSingleTransfer(ctx context.Context, t DecodedTran
 
 // --- Lending data builders ---
 
-func (p *ZerionProcessor) buildLendingSupplyData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+func (p *TxBuilder) buildLendingSupplyData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	// Supply: the primary asset being supplied flows OUT of the wallet.
 	// A receipt token (aToken) flows IN simultaneously — capture both.
 	return p.buildLendingData(w, tx, DirectionOut)
 }
 
-func (p *ZerionProcessor) buildLendingWithdrawData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+func (p *TxBuilder) buildLendingWithdrawData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	// Withdraw: the principal asset flows IN to the wallet, aToken flows OUT.
 	return p.buildLendingData(w, tx, DirectionIn)
 }
 
-func (p *ZerionProcessor) buildLendingBorrowData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+func (p *TxBuilder) buildLendingBorrowData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	// Borrow: both the debt receipt token AND the real borrowed asset
 	// arrive as IN transfers. Prior to multi-asset support only the first
 	// of these was persisted, so either the debt or the borrowed asset
@@ -776,12 +776,12 @@ func (p *ZerionProcessor) buildLendingBorrowData(w *wallet.Wallet, tx DecodedTra
 	return p.buildLendingData(w, tx, DirectionIn)
 }
 
-func (p *ZerionProcessor) buildLendingRepayData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+func (p *TxBuilder) buildLendingRepayData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	// Repay: the repayment asset flows OUT; debt-token burn flows OUT too.
 	return p.buildLendingData(w, tx, DirectionOut)
 }
 
-func (p *ZerionProcessor) buildLendingClaimData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
+func (p *TxBuilder) buildLendingClaimData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
 	// Claim: rewards/interest flow IN; rarely a receipt-adjustment transfer.
 	return p.buildLendingData(w, tx, DirectionIn)
 }
@@ -790,7 +790,7 @@ func (p *ZerionProcessor) buildLendingClaimData(w *wallet.Wallet, tx DecodedTran
 // transfers matching the primary direction into `transfers`, picks the first
 // such transfer for legacy flat fields (`asset`, `amount`, etc.), and always
 // includes the full array so handlers can route receipt vs. liquid assets.
-func (p *ZerionProcessor) buildLendingData(w *wallet.Wallet, tx DecodedTransaction, primary TransferDirection) map[string]interface{} {
+func (p *TxBuilder) buildLendingData(w *wallet.Wallet, tx DecodedTransaction, primary TransferDirection) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 
 	transfers := make([]map[string]interface{}, 0, len(tx.Transfers))
@@ -823,7 +823,7 @@ func (p *ZerionProcessor) buildLendingData(w *wallet.Wallet, tx DecodedTransacti
 	return data
 }
 
-func (p *ZerionProcessor) findTransfer(transfers []DecodedTransfer, dir TransferDirection) *DecodedTransfer {
+func (p *TxBuilder) findTransfer(transfers []DecodedTransfer, dir TransferDirection) *DecodedTransfer {
 	for i := range transfers {
 		if transfers[i].Direction == dir {
 			return &transfers[i]
@@ -835,7 +835,7 @@ func (p *ZerionProcessor) findTransfer(transfers []DecodedTransfer, dir Transfer
 	return nil
 }
 
-func (p *ZerionProcessor) setLendingAssetFields(data map[string]interface{}, t *DecodedTransfer) {
+func (p *TxBuilder) setLendingAssetFields(data map[string]interface{}, t *DecodedTransfer) {
 	data["asset"] = t.AssetSymbol
 	data["amount"] = money.NewBigInt(t.Amount).String()
 	data["decimals"] = t.Decimals
@@ -847,7 +847,7 @@ func (p *ZerionProcessor) setLendingAssetFields(data map[string]interface{}, t *
 
 // --- Lending position post-processing ---
 
-func (p *ZerionProcessor) handleLendingSupply(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
+func (p *TxBuilder) handleLendingSupply(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
 	t := p.findTransfer(tx.Transfers, DirectionOut)
 	if t == nil {
 		p.logger.Warn("lending supply: no outgoing transfer", "tx_hash", tx.TxHash)
@@ -868,7 +868,7 @@ func (p *ZerionProcessor) handleLendingSupply(ctx context.Context, w *wallet.Wal
 	}
 }
 
-func (p *ZerionProcessor) handleLendingWithdraw(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
+func (p *TxBuilder) handleLendingWithdraw(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
 	t := p.findTransfer(tx.Transfers, DirectionIn)
 	if t == nil {
 		p.logger.Warn("lending withdraw: no incoming transfer", "tx_hash", tx.TxHash)
@@ -889,7 +889,7 @@ func (p *ZerionProcessor) handleLendingWithdraw(ctx context.Context, w *wallet.W
 	}
 }
 
-func (p *ZerionProcessor) handleLendingBorrow(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
+func (p *TxBuilder) handleLendingBorrow(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
 	t := p.findTransfer(tx.Transfers, DirectionIn)
 	if t == nil {
 		p.logger.Warn("lending borrow: no incoming transfer", "tx_hash", tx.TxHash)
@@ -910,7 +910,7 @@ func (p *ZerionProcessor) handleLendingBorrow(ctx context.Context, w *wallet.Wal
 	}
 }
 
-func (p *ZerionProcessor) handleLendingRepay(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
+func (p *TxBuilder) handleLendingRepay(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
 	t := p.findTransfer(tx.Transfers, DirectionOut)
 	if t == nil {
 		p.logger.Warn("lending repay: no outgoing transfer", "tx_hash", tx.TxHash)
@@ -931,7 +931,7 @@ func (p *ZerionProcessor) handleLendingRepay(ctx context.Context, w *wallet.Wall
 	}
 }
 
-func (p *ZerionProcessor) handleLendingClaim(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
+func (p *TxBuilder) handleLendingClaim(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) {
 	t := p.findTransfer(tx.Transfers, DirectionIn)
 	if t == nil {
 		p.logger.Warn("lending claim: no incoming transfer", "tx_hash", tx.TxHash)
@@ -953,15 +953,15 @@ func (p *ZerionProcessor) handleLendingClaim(ctx context.Context, w *wallet.Wall
 }
 
 // lendingProtocol returns the protocol name for lending operations,
-// defaulting to "AAVE" when Zerion doesn't tag the protocol.
-func (p *ZerionProcessor) lendingProtocol(tx DecodedTransaction) string {
+// defaulting to "AAVE" when the provider does not tag the protocol.
+func (p *TxBuilder) lendingProtocol(tx DecodedTransaction) string {
 	if tx.Protocol != "" {
 		return tx.Protocol
 	}
 	return "AAVE"
 }
 
-func (p *ZerionProcessor) calcLendingUSD(t *DecodedTransfer) *big.Int {
+func (p *TxBuilder) calcLendingUSD(t *DecodedTransfer) *big.Int {
 	if t.USDPrice != nil && t.Amount != nil {
 		return money.CalcUSDValue(t.Amount, t.USDPrice, t.Decimals)
 	}

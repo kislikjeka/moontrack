@@ -111,7 +111,7 @@ func TestSyncAdapter_FullConversion(t *testing.T) {
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
-	txs, err := adapter.GetTransactions(context.Background(), "0xSender", time.Now().Add(-24*time.Hour))
+	txs, err := adapter.GetTransactions(context.Background(), "0xSender", "ethereum", time.Now().Add(-24*time.Hour))
 	require.NoError(t, err)
 	require.Len(t, txs, 1)
 
@@ -227,7 +227,7 @@ func TestSyncAdapter_DecimalsResolution(t *testing.T) {
 			client.SetBaseURL(server.URL)
 			adapter := zerion.NewSyncAdapter(client)
 
-			txs, err := adapter.GetTransactions(context.Background(), "0xb", time.Time{})
+			txs, err := adapter.GetTransactions(context.Background(), "0xb", "ethereum", time.Time{})
 			require.NoError(t, err)
 			require.Len(t, txs, 1)
 			require.Len(t, txs[0].Transfers, 1)
@@ -297,7 +297,7 @@ func TestSyncAdapter_USDPriceGuards(t *testing.T) {
 			client.SetBaseURL(server.URL)
 			adapter := zerion.NewSyncAdapter(client)
 
-			txs, err := adapter.GetTransactions(context.Background(), "0xb", time.Time{})
+			txs, err := adapter.GetTransactions(context.Background(), "0xb", "ethereum", time.Time{})
 			require.NoError(t, err)
 			require.Len(t, txs, 1)
 			require.Len(t, txs[0].Transfers, 1)
@@ -349,7 +349,7 @@ func TestSyncAdapter_SkipsUnsupportedChain(t *testing.T) {
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
-	txs, err := adapter.GetTransactions(context.Background(), "0xtest", time.Time{})
+	txs, err := adapter.GetTransactions(context.Background(), "0xtest", "ethereum", time.Time{})
 	require.NoError(t, err)
 	require.Len(t, txs, 1)
 	assert.Equal(t, "tx-supported", txs[0].ID)
@@ -384,7 +384,7 @@ func TestSyncAdapter_SkipsEmptyChain(t *testing.T) {
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
-	txs, err := adapter.GetTransactions(context.Background(), "0xtest", time.Time{})
+	txs, err := adapter.GetTransactions(context.Background(), "0xtest", "ethereum", time.Time{})
 	require.NoError(t, err)
 	assert.Len(t, txs, 0)
 }
@@ -426,7 +426,7 @@ func TestSyncAdapter_NilFungibleInfo_SkipsNFTTransfers(t *testing.T) {
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
-	txs, err := adapter.GetTransactions(context.Background(), "0xB", time.Time{})
+	txs, err := adapter.GetTransactions(context.Background(), "0xB", "ethereum", time.Time{})
 	require.NoError(t, err)
 	require.Len(t, txs, 1)
 
@@ -459,7 +459,7 @@ func TestSyncAdapter_NilFee(t *testing.T) {
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
-	txs, err := adapter.GetTransactions(context.Background(), "0xtest", time.Time{})
+	txs, err := adapter.GetTransactions(context.Background(), "0xtest", "ethereum", time.Time{})
 	require.NoError(t, err)
 	require.Len(t, txs, 1)
 	assert.Nil(t, txs[0].Fee)
@@ -490,7 +490,7 @@ func TestSyncAdapter_NilApplicationMetadata(t *testing.T) {
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
-	txs, err := adapter.GetTransactions(context.Background(), "0xtest", time.Time{})
+	txs, err := adapter.GetTransactions(context.Background(), "0xtest", "ethereum", time.Time{})
 	require.NoError(t, err)
 	require.Len(t, txs, 1)
 	assert.Equal(t, "", txs[0].Protocol)
@@ -533,7 +533,7 @@ func TestSyncAdapter_EmptyQuantityInt(t *testing.T) {
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
-	txs, err := adapter.GetTransactions(context.Background(), "0xb", time.Time{})
+	txs, err := adapter.GetTransactions(context.Background(), "0xb", "ethereum", time.Time{})
 	require.NoError(t, err)
 	require.Len(t, txs, 1)
 	assert.Equal(t, 0, txs[0].Transfers[0].Amount.Cmp(big.NewInt(0)))
@@ -587,7 +587,7 @@ func TestSyncAdapter_DirectionMapping(t *testing.T) {
 			client.SetBaseURL(server.URL)
 			adapter := zerion.NewSyncAdapter(client)
 
-			txs, err := adapter.GetTransactions(context.Background(), "0xtest", time.Time{})
+			txs, err := adapter.GetTransactions(context.Background(), "0xtest", "ethereum", time.Time{})
 			require.NoError(t, err)
 			require.Len(t, txs, 1)
 			assert.Equal(t, tt.expected, txs[0].Transfers[0].Direction)
@@ -632,7 +632,7 @@ func TestSyncAdapter_SkipsInvalidMinedAt(t *testing.T) {
 	client.SetBaseURL(server.URL)
 	adapter := zerion.NewSyncAdapter(client)
 
-	txs, err := adapter.GetTransactions(context.Background(), "0xtest", time.Time{})
+	txs, err := adapter.GetTransactions(context.Background(), "0xtest", "ethereum", time.Time{})
 	require.NoError(t, err)
 	// Bad transaction should be skipped, only good one remains
 	require.Len(t, txs, 1)

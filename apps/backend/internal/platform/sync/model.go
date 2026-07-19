@@ -7,6 +7,12 @@ import (
 	"github.com/google/uuid"
 )
 
+// sourceName is the ledger `source` tag stamped on every transaction recorded by
+// the sync pipeline. It is provider-neutral at the identifier level; the string
+// value is flipped to the new provider's name together with the data-clearing
+// migration, not in this rename step.
+const sourceName = "zerion"
+
 // SyncPhase represents the current phase of a wallet's sync process
 type SyncPhase string
 
@@ -28,11 +34,11 @@ const (
 	ProcessingStatusError     ProcessingStatus = "error"
 )
 
-// RawTransaction stores a raw transaction from Zerion before ledger processing
+// RawTransaction stores a raw transaction from the sync provider before ledger processing
 type RawTransaction struct {
 	ID               uuid.UUID        `db:"id"`
 	WalletID         uuid.UUID        `db:"wallet_id"`
-	ZerionID         string           `db:"zerion_id"`
+	ExternalID       string           `db:"zerion_id"`
 	TxHash           string           `db:"tx_hash"`
 	ChainID          string           `db:"chain_id"`
 	OperationType    string           `db:"operation_type"`
@@ -62,7 +68,7 @@ func (f *AssetFlow) NetFlow() *big.Int {
 	return new(big.Int).Sub(f.Inflow, f.Outflow)
 }
 
-// OnChainPosition represents an on-chain token balance from Zerion Positions API
+// OnChainPosition represents an on-chain token balance from the sync provider positions API
 type OnChainPosition struct {
 	ChainID         string
 	AssetSymbol     string

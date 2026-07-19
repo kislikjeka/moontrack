@@ -10,18 +10,18 @@ import (
 	"github.com/kislikjeka/moontrack/internal/platform/sync"
 )
 
-// mockZerionAssetRepo is a minimal mock for testing sync.DecimalSource.
-type mockZerionAssetRepo struct {
-	assets map[string]*sync.ZerionAsset // keyed by "SYMBOL:chainID" or "SYMBOL:"
+// mockSyncAssetRepo is a minimal mock for testing sync.DecimalSource.
+type mockSyncAssetRepo struct {
+	assets map[string]*sync.SyncAsset // keyed by "SYMBOL:chainID" or "SYMBOL:"
 	err    error
 }
 
-func (m *mockZerionAssetRepo) Upsert(_ context.Context, _ *sync.ZerionAsset) error { return nil }
-func (m *mockZerionAssetRepo) GetAllBySymbol(_ context.Context, _ string) ([]sync.ZerionAsset, error) {
+func (m *mockSyncAssetRepo) Upsert(_ context.Context, _ *sync.SyncAsset) error { return nil }
+func (m *mockSyncAssetRepo) GetAllBySymbol(_ context.Context, _ string) ([]sync.SyncAsset, error) {
 	return nil, nil
 }
 
-func (m *mockZerionAssetRepo) GetBySymbol(_ context.Context, symbol, chainID string) (*sync.ZerionAsset, error) {
+func (m *mockSyncAssetRepo) GetBySymbol(_ context.Context, symbol, chainID string) (*sync.SyncAsset, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -34,8 +34,8 @@ func (m *mockZerionAssetRepo) GetBySymbol(_ context.Context, symbol, chainID str
 }
 
 func TestSyncDecimalSource_Found(t *testing.T) {
-	repo := &mockZerionAssetRepo{
-		assets: map[string]*sync.ZerionAsset{
+	repo := &mockSyncAssetRepo{
+		assets: map[string]*sync.SyncAsset{
 			"ETH:ethereum": {Symbol: "ETH", ChainID: "ethereum", Decimals: 18},
 		},
 	}
@@ -48,7 +48,7 @@ func TestSyncDecimalSource_Found(t *testing.T) {
 }
 
 func TestSyncDecimalSource_NotFound(t *testing.T) {
-	repo := &mockZerionAssetRepo{assets: map[string]*sync.ZerionAsset{}}
+	repo := &mockSyncAssetRepo{assets: map[string]*sync.SyncAsset{}}
 
 	src := sync.NewDecimalSource(repo)
 	d, ok := src.GetDecimalsBySymbol(context.Background(), "UNKNOWN", "")
@@ -58,7 +58,7 @@ func TestSyncDecimalSource_NotFound(t *testing.T) {
 }
 
 func TestSyncDecimalSource_DBError(t *testing.T) {
-	repo := &mockZerionAssetRepo{err: errors.New("db error")}
+	repo := &mockSyncAssetRepo{err: errors.New("db error")}
 
 	src := sync.NewDecimalSource(repo)
 	d, ok := src.GetDecimalsBySymbol(context.Background(), "ETH", "ethereum")
@@ -68,8 +68,8 @@ func TestSyncDecimalSource_DBError(t *testing.T) {
 }
 
 func TestSyncDecimalSource_EmptyChainID(t *testing.T) {
-	repo := &mockZerionAssetRepo{
-		assets: map[string]*sync.ZerionAsset{
+	repo := &mockSyncAssetRepo{
+		assets: map[string]*sync.SyncAsset{
 			"USDC:": {Symbol: "USDC", Decimals: 6},
 		},
 	}

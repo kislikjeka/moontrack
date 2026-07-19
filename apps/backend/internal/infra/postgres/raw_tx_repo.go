@@ -49,7 +49,7 @@ func (r *RawTransactionRepository) UpsertRawTransaction(ctx context.Context, raw
 	}
 
 	_, err := r.pool.Exec(ctx, query,
-		raw.ID, raw.WalletID, raw.ZerionID, raw.TxHash, raw.ChainID,
+		raw.ID, raw.WalletID, raw.ExternalID, raw.TxHash, raw.ChainID,
 		raw.OperationType, raw.MinedAt, raw.Status, raw.RawJSON,
 		raw.ProcessingStatus, raw.ProcessingError, raw.LedgerTxID,
 		raw.IsSynthetic, raw.CreatedAt, raw.ProcessedAt,
@@ -186,7 +186,7 @@ func (r *RawTransactionRepository) queryRawTransactions(ctx context.Context, que
 	for rows.Next() {
 		rt := &sync.RawTransaction{}
 		err := rows.Scan(
-			&rt.ID, &rt.WalletID, &rt.ZerionID, &rt.TxHash, &rt.ChainID,
+			&rt.ID, &rt.WalletID, &rt.ExternalID, &rt.TxHash, &rt.ChainID,
 			&rt.OperationType, &rt.MinedAt, &rt.Status, &rt.RawJSON,
 			&rt.ProcessingStatus, &rt.ProcessingError, &rt.LedgerTxID,
 			&rt.IsSynthetic, &rt.CreatedAt, &rt.ProcessedAt,

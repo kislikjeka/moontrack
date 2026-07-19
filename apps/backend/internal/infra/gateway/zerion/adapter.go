@@ -26,24 +26,31 @@ func NewSyncAdapter(client *Client) *SyncAdapter {
 	return &SyncAdapter{client: client}
 }
 
-// GetTransactions fetches decoded transactions and converts them to domain types
-func (a *SyncAdapter) GetTransactions(ctx context.Context, address string, since time.Time) ([]sync.DecodedTransaction, error) {
-	chainIDs := wallet.GetSupportedChains()
+// GetTransactions fetches decoded transactions for a single chain and converts
+// them to domain types. The sync.TransactionDataProvider port is chain-aware; the
+// Collector owns the fan-out loop and invokes this once per chain. Zerion's
+// endpoint is all-chains-in-one-call, so as a temporary stopgap this fetches the
+// requested chain and filters to it — to be replaced by a natively per-chain
+// provider (Noves).
+func (a *SyncAdapter) GetTransactions(ctx context.Context, address, chain string, since time.Time) ([]sync.DecodedTransaction, error) {
+	if !wallet.IsValidChain(chain) {
+		return nil, nil // unsupported chain: nothing to fetch
+	}
 
-	txs, err := a.client.GetTransactions(ctx, address, chainIDs, since)
+	txs, err := a.client.GetTransactions(ctx, address, []string{chain}, since)
 	if err != nil {
 		return nil, err
 	}
 
 	result := make([]sync.DecodedTransaction, 0, len(txs))
 	for _, td := range txs {
-		// Get chain from relationships
-		chain := td.Relationships.Chain.Data.ID
-		if chain == "" || !wallet.IsValidChain(chain) {
-			continue // skip unsupported chains
+		// Filter to the requested chain (Zerion may return other chains).
+		txChain := td.Relationships.Chain.Data.ID
+		if txChain != chain {
+			continue
 		}
 
-		dt, err := convertTransaction(td, chain)
+		dt, err := convertTransaction(td, txChain)
 		if err != nil {
 			continue // skip individual conversion failures
 		}

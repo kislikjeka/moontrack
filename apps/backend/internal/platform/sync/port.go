@@ -100,14 +100,14 @@ type DecodedTransaction struct {
 	MinedAt       time.Time
 	Status        string   // "confirmed", "pending", "failed"
 	NFTTokenID    string   // Uniswap V3 NFT position ID, empty if not applicable
-	Acts          []string // Action types from Zerion acts array (e.g., ["claim", "execute"])
+	Acts          []string // Action types from the provider acts array (e.g., ["claim", "execute"])
 }
 
 // DecodedTransfer represents a single token movement within a decoded transaction
 type DecodedTransfer struct {
 	AssetSymbol     string
-	AssetName       string            // Human-readable name (e.g. "Ethereum"), empty if unknown
-	ContractAddress string            // Lowercase, empty for native tokens
+	AssetName       string // Human-readable name (e.g. "Ethereum"), empty if unknown
+	ContractAddress string // Lowercase, empty for native tokens
 	Decimals        int
 	Amount          *big.Int          // Amount in base units (never nil)
 	Direction       TransferDirection // "in" or "out"
@@ -127,9 +127,11 @@ type DecodedFee struct {
 	IconURL     string   // Token icon URL, empty if unavailable
 }
 
-// TransactionDataProvider fetches decoded transactions from an external API
+// TransactionDataProvider fetches decoded transactions from an external API.
+// GetTransactions is chain-aware: the caller (Collector) owns the fan-out loop
+// over a wallet's chains and invokes the provider once per chain.
 type TransactionDataProvider interface {
-	GetTransactions(ctx context.Context, address string, since time.Time) ([]DecodedTransaction, error)
+	GetTransactions(ctx context.Context, address, chain string, since time.Time) ([]DecodedTransaction, error)
 }
 
 // LPPositionService manages LP position lifecycle

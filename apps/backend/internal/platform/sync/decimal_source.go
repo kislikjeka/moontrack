@@ -2,18 +2,18 @@ package sync
 
 import "context"
 
-// DecimalSource adapts ZerionAssetRepository to money.AssetDecimalSource.
-// It queries the zerion_assets table for token metadata discovered during sync.
+// DecimalSource adapts SyncAssetRepository to money.AssetDecimalSource.
+// It queries the sync asset store (zerion_assets table) for token metadata discovered during sync.
 type DecimalSource struct {
-	repo ZerionAssetRepository
+	repo SyncAssetRepository
 }
 
-// NewDecimalSource creates a new DecimalSource backed by zerion_assets.
-func NewDecimalSource(repo ZerionAssetRepository) *DecimalSource {
+// NewDecimalSource creates a new DecimalSource backed by the sync asset store.
+func NewDecimalSource(repo SyncAssetRepository) *DecimalSource {
 	return &DecimalSource{repo: repo}
 }
 
-// GetDecimalsBySymbol looks up decimals in the zerion_assets table.
+// GetDecimalsBySymbol looks up decimals in the sync asset store.
 func (s *DecimalSource) GetDecimalsBySymbol(ctx context.Context, symbol, chainID string) (int, bool) {
 	asset, err := s.repo.GetBySymbol(ctx, symbol, chainID)
 	if err != nil || asset == nil {

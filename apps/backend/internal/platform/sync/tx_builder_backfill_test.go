@@ -68,13 +68,13 @@ var _ sync.JobEnqueuer = (*fakeJobEnqueuer)(nil)
 // Tests
 // =============================================================================
 
-// TestZerionProcessor_MissingPrice_UpsertAndEnqueue verifies that when a decoded
+// TestTxBuilder_MissingPrice_UpsertAndEnqueue verifies that when a decoded
 // transfer has no USD price but has an on-chain contract address, the processor:
-// 1. Calls AssetUpserter.UpsertByOnChainIdentity with the correct chain + contract.
-// 2. Calls JobEnqueuer.Enqueue with the resulting asset UUID and the tx timestamp.
-// 3. Omits "usd_price" from the built transfer map so downstream readers treat
-//    the transfer as pending (USDRate = nil).
-func TestZerionProcessor_MissingPrice_UpsertAndEnqueue(t *testing.T) {
+//  1. Calls AssetUpserter.UpsertByOnChainIdentity with the correct chain + contract.
+//  2. Calls JobEnqueuer.Enqueue with the resulting asset UUID and the tx timestamp.
+//  3. Omits "usd_price" from the built transfer map so downstream readers treat
+//     the transfer as pending (USDRate = nil).
+func TestTxBuilder_MissingPrice_UpsertAndEnqueue(t *testing.T) {
 	ctx := context.Background()
 	log := logger.New("test", os.Stdout)
 
@@ -98,14 +98,14 @@ func TestZerionProcessor_MissingPrice_UpsertAndEnqueue(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewZerionProcessor(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
 	w := newTestWallet(userID, walletAddr)
 
 	// Build a swap with one OUT transfer (priced) and one IN transfer (no price, has contract).
 	tx := sync.DecodedTransaction{
-		ID:            "zerion-tx-backfill-test",
+		ID:            "ext-tx-backfill-test",
 		TxHash:        "0xdeadbeef",
 		ChainID:       "ethereum",
 		OperationType: sync.OpTrade,
@@ -128,7 +128,7 @@ func TestZerionProcessor_MissingPrice_UpsertAndEnqueue(t *testing.T) {
 				Direction:       sync.DirectionIn,
 				Sender:          "0xrouter",
 				Recipient:       walletAddr,
-				USDPrice:        nil, // No Zerion price for this token
+				USDPrice:        nil, // No provider price for this token
 			},
 		},
 		MinedAt: txTime,
@@ -161,10 +161,10 @@ func TestZerionProcessor_MissingPrice_UpsertAndEnqueue(t *testing.T) {
 	assert.False(t, hasPrice, "usd_price key should be absent when no price available")
 }
 
-// TestZerionProcessor_MissingPrice_NativeToken verifies that when a transfer has
+// TestTxBuilder_MissingPrice_NativeToken verifies that when a transfer has
 // no price AND no contract address (native coin), the processor does NOT call
 // the asset upserter (can't upsert by on-chain identity without a contract address).
-func TestZerionProcessor_MissingPrice_NativeToken(t *testing.T) {
+func TestTxBuilder_MissingPrice_NativeToken(t *testing.T) {
 	ctx := context.Background()
 	log := logger.New("test", os.Stdout)
 
@@ -180,13 +180,13 @@ func TestZerionProcessor_MissingPrice_NativeToken(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewZerionProcessor(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
 	w := newTestWallet(userID, walletAddr)
 
 	tx := sync.DecodedTransaction{
-		ID:            "zerion-tx-native-no-price",
+		ID:            "ext-tx-native-no-price",
 		TxHash:        "0xdeadbeef2",
 		ChainID:       "ethereum",
 		OperationType: sync.OpTrade,
@@ -224,13 +224,13 @@ func TestZerionProcessor_MissingPrice_NativeToken(t *testing.T) {
 	assert.Len(t, enqueuer.calls, 0, "Enqueue should NOT be called for native coins")
 }
 
-// TestZerionProcessor_OutgoingOnly_MissingPrice_EnqueuesJob verifies that a
+// TestTxBuilder_OutgoingOnly_MissingPrice_EnqueuesJob verifies that a
 // standalone transfer_out of an unpriced token (no matching incoming transfer)
 // still enqueues a price-backfill job. Prior to the fix, the enqueue lived
 // only in buildSingleTransfer (used by swaps) — standalone transfer_out went
 // through buildTransferOutData and dropped the job, so the pending disposal
 // was stuck at proceeds_status='pending' indefinitely.
-func TestZerionProcessor_OutgoingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
+func TestTxBuilder_OutgoingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 	ctx := context.Background()
 	log := logger.New("test", os.Stdout)
 
@@ -256,14 +256,14 @@ func TestZerionProcessor_OutgoingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewZerionProcessor(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
 	w := newTestWallet(userID, walletAddr)
 
 	// Outgoing-only: one OUT transfer, no matching IN transfer.
 	tx := sync.DecodedTransaction{
-		ID:            "zerion-tx-out-only-nopri",
+		ID:            "ext-tx-out-only-nopri",
 		TxHash:        "0xdeadbeef3",
 		ChainID:       "ethereum",
 		OperationType: sync.OpSend, // classifies to TransferOut
@@ -298,11 +298,11 @@ func TestZerionProcessor_OutgoingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 	assert.Equal(t, txTime, enqueuer.calls[0].targetTime)
 }
 
-// TestZerionProcessor_IncomingOnly_MissingPrice_EnqueuesJob is the symmetric
+// TestTxBuilder_IncomingOnly_MissingPrice_EnqueuesJob is the symmetric
 // case: transfer_in of an unpriced token also needs to enqueue a job. Prior
 // to the fix, buildTransferInData silently dropped the price without
 // registering the asset / enqueuing a job.
-func TestZerionProcessor_IncomingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
+func TestTxBuilder_IncomingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 	ctx := context.Background()
 	log := logger.New("test", os.Stdout)
 
@@ -325,13 +325,13 @@ func TestZerionProcessor_IncomingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewZerionProcessor(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
 	userID := uuid.New()
 	walletAddr := "0x2222222222222222222222222222222222222222"
 	w := newTestWallet(userID, walletAddr)
 
 	tx := sync.DecodedTransaction{
-		ID:            "zerion-tx-in-only-nopri",
+		ID:            "ext-tx-in-only-nopri",
 		TxHash:        "0xbeefcafe",
 		ChainID:       "ethereum",
 		OperationType: sync.OpReceive,
@@ -360,17 +360,17 @@ func TestZerionProcessor_IncomingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 	assert.Equal(t, txTime, enqueuer.calls[0].targetTime)
 }
 
-// TestZerionProcessor_InvalidContractAddress_NoEnqueue verifies that when
-// AssetUpserter returns asset.ErrInvalidContractAddress (Zerion emitted a
+// TestTxBuilder_InvalidContractAddress_NoEnqueue verifies that when
+// AssetUpserter returns asset.ErrInvalidContractAddress (the provider emitted a
 // malformed/bogus contract address that fails our shape check), the
 // processor:
-//   1. Does NOT enqueue a backfill job (there is no asset row for the worker
-//      to resolve, so a pending lot would be stranded forever).
-//   2. Emits no usd_price key (same reason — downstream treats this like a
-//      native-coin fallback).
-//   3. Still allows the transfer to flow through to the ledger (no panic,
-//      no return error).
-func TestZerionProcessor_InvalidContractAddress_NoEnqueue(t *testing.T) {
+//  1. Does NOT enqueue a backfill job (there is no asset row for the worker
+//     to resolve, so a pending lot would be stranded forever).
+//  2. Emits no usd_price key (same reason — downstream treats this like a
+//     native-coin fallback).
+//  3. Still allows the transfer to flow through to the ledger (no panic,
+//     no return error).
+func TestTxBuilder_InvalidContractAddress_NoEnqueue(t *testing.T) {
 	ctx := context.Background()
 	log := logger.New("test", os.Stdout)
 
@@ -388,14 +388,14 @@ func TestZerionProcessor_InvalidContractAddress_NoEnqueue(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewZerionProcessor(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
 	w := newTestWallet(userID, walletAddr)
 
 	// Swap with a bogus contract address that the repo will reject.
 	tx := sync.DecodedTransaction{
-		ID:            "zerion-tx-invalid-contract",
+		ID:            "ext-tx-invalid-contract",
 		TxHash:        "0xdeadbeef3",
 		ChainID:       "ethereum",
 		OperationType: sync.OpTrade,
