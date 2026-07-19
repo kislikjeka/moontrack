@@ -398,17 +398,13 @@ func (r *WalletRepository) SetSyncInProgress(ctx context.Context, walletID uuid.
 	return nil
 }
 
-// SetSyncCompletedAt marks a wallet sync as completed at a given time. All chain
-// rows are flipped to 'synced' with the same last_sync_at so the wallet-level
-// status stays a rollup over the chain set (issue #27).
+// SetSyncCompletedAt marks the wallet-level row as synced at a given time. It
+// touches only the wallets row; per-chain completion is owned by
+// SetChainSyncCompleted and the wallet-level status is a rollup derived by
+// RollupWalletSyncStatus (issue #28). Retained for callers that legitimately set
+// a wallet-wide completion outside the per-chain pipeline.
 func (r *WalletRepository) SetSyncCompletedAt(ctx context.Context, walletID uuid.UUID, syncAt time.Time) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	result, err := tx.Exec(ctx, `
+	result, err := r.pool.Exec(ctx, `
 		UPDATE wallets
 		SET sync_status = $1, last_sync_at = $2, sync_error = NULL, updated_at = $3
 		WHERE id = $4
@@ -419,32 +415,15 @@ func (r *WalletRepository) SetSyncCompletedAt(ctx context.Context, walletID uuid
 	if result.RowsAffected() == 0 {
 		return wallet.ErrWalletNotFound
 	}
-
-	if _, err := tx.Exec(ctx, `
-		UPDATE wallet_chain_sync
-		SET sync_status = $1, last_sync_at = $2, sync_error = NULL, sync_phase = 'idle', updated_at = now()
-		WHERE wallet_id = $3
-	`, wallet.SyncStatusSynced, syncAt, walletID); err != nil {
-		return fmt.Errorf("failed to mark chain rows synced: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit sync completed: %w", err)
-	}
 	return nil
 }
 
-// SetSyncError marks a wallet sync as failed with an error message. All chain
-// rows are flipped to 'error' so the wallet-level status stays a rollup over the
-// chain set (issue #27). Per-chain failure isolation is deferred to #28.
+// SetSyncError marks the wallet-level row as failed. It touches only the wallets
+// row; per-chain failure is owned by SetChainSyncError and the wallet-level status
+// is a rollup derived by RollupWalletSyncStatus (issue #28). One chain's failure
+// no longer blanket-errors every chain.
 func (r *WalletRepository) SetSyncError(ctx context.Context, walletID uuid.UUID, errMsg string) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	result, err := tx.Exec(ctx, `
+	result, err := r.pool.Exec(ctx, `
 		UPDATE wallets
 		SET sync_status = $1, sync_error = $2, updated_at = $3
 		WHERE id = $4
@@ -454,18 +433,6 @@ func (r *WalletRepository) SetSyncError(ctx context.Context, walletID uuid.UUID,
 	}
 	if result.RowsAffected() == 0 {
 		return wallet.ErrWalletNotFound
-	}
-
-	if _, err := tx.Exec(ctx, `
-		UPDATE wallet_chain_sync
-		SET sync_status = $1, sync_error = $2, updated_at = now()
-		WHERE wallet_id = $3
-	`, wallet.SyncStatusError, errMsg, walletID); err != nil {
-		return fmt.Errorf("failed to mark chain rows errored: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit sync error: %w", err)
 	}
 	return nil
 }
@@ -563,6 +530,72 @@ func (r *WalletRepository) SetChainCollectCursor(ctx context.Context, walletID u
 	result, err := r.pool.Exec(ctx, query, cursor, walletID, chain)
 	if err != nil {
 		return fmt.Errorf("failed to set chain collect cursor: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return wallet.ErrWalletNotFound
+	}
+	return nil
+}
+
+// SetChainSyncError marks a single (wallet, chain) row as errored WITHOUT touching
+// its collect cursor, so the failed chain resumes from where it left off next
+// cycle. Sibling chains are unaffected (issue #28 failure isolation).
+func (r *WalletRepository) SetChainSyncError(ctx context.Context, walletID uuid.UUID, chain, errMsg string) error {
+	query := `
+		UPDATE wallet_chain_sync
+		SET sync_status = $1, sync_error = $2, updated_at = now()
+		WHERE wallet_id = $3 AND chain = $4
+	`
+	result, err := r.pool.Exec(ctx, query, wallet.SyncStatusError, errMsg, walletID, chain)
+	if err != nil {
+		return fmt.Errorf("failed to set chain sync error: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return wallet.ErrWalletNotFound
+	}
+	return nil
+}
+
+// SetChainSyncCompleted marks a single (wallet, chain) row as synced at syncAt,
+// clearing its error and returning its phase to idle (issue #28).
+func (r *WalletRepository) SetChainSyncCompleted(ctx context.Context, walletID uuid.UUID, chain string, syncAt time.Time) error {
+	query := `
+		UPDATE wallet_chain_sync
+		SET sync_status = $1, last_sync_at = $2, sync_error = NULL, sync_phase = 'idle', updated_at = now()
+		WHERE wallet_id = $3 AND chain = $4
+	`
+	result, err := r.pool.Exec(ctx, query, wallet.SyncStatusSynced, syncAt, walletID, chain)
+	if err != nil {
+		return fmt.Errorf("failed to set chain sync completed: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return wallet.ErrWalletNotFound
+	}
+	return nil
+}
+
+// RollupWalletSyncStatus derives the wallet-level sync_status from its per-chain
+// rows and writes it to the wallets row. The status is the wallet.RollupStatus
+// fold (error if any chain errored, else syncing, else synced, else pending); the
+// wallet-level sync_error is set to the first errored chain's message, or cleared
+// when no chain is in error. This keeps wallets.sync_status a true rollup now that
+// chains advance independently (issue #28).
+func (r *WalletRepository) RollupWalletSyncStatus(ctx context.Context, walletID uuid.UUID) error {
+	rows, err := r.GetChainSyncRows(ctx, walletID)
+	if err != nil {
+		return fmt.Errorf("failed to load chain rows for rollup: %w", err)
+	}
+
+	status := wallet.RollupStatus(rows)
+	syncErr := wallet.RollupError(rows)
+
+	result, err := r.pool.Exec(ctx, `
+		UPDATE wallets
+		SET sync_status = $1, sync_error = $2, updated_at = now()
+		WHERE id = $3
+	`, status, syncErr, walletID)
+	if err != nil {
+		return fmt.Errorf("failed to write rolled-up sync status: %w", err)
 	}
 	if result.RowsAffected() == 0 {
 		return wallet.ErrWalletNotFound

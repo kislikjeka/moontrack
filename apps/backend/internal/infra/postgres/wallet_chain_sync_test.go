@@ -89,10 +89,12 @@ func TestChainSync_CollectCursor(t *testing.T) {
 	assert.Nil(t, byChain["ethereum"].CollectCursorAt)
 }
 
-// TestWalletStatus_RollupOverChainRows verifies the wallet-level sync_status
-// stays a rollup over its chain rows across the lifecycle setters: claim flips
-// all chains + wallet to syncing; SetSyncError flips all to error; completion to
-// synced.
+// TestWalletStatus_RollupOverChainRows verifies the wallet-level sync_status is a
+// TRUE rollup DERIVED from the per-chain rows (issue #28). Chains now advance
+// independently: claim flips all chains + wallet to syncing; a per-chain error on
+// ONE chain, followed by RollupWalletSyncStatus, rolls the wallet up to error
+// while the other chains keep their own status; per-chain completion + rollup
+// yields synced.
 func TestWalletStatus_RollupOverChainRows(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
@@ -118,15 +120,105 @@ func TestWalletStatus_RollupOverChainRows(t *testing.T) {
 	require.True(t, claimed)
 	assertWalletStatus(wallet.SyncStatusSyncing)
 
-	// Error → error across the board.
-	require.NoError(t, repo.SetSyncError(ctx, w.ID, "boom"))
+	// Isolated per-chain failure on ONE chain; the others stay syncing. After the
+	// rollup the wallet reflects error (severity fold: any error wins).
+	require.NoError(t, repo.SetChainSyncError(ctx, w.ID, "base", "boom"))
+	require.NoError(t, repo.RollupWalletSyncStatus(ctx, w.ID))
 	assertWalletStatus(wallet.SyncStatusError)
 
-	// Re-claim then complete → synced across the board.
-	_, err = repo.ClaimWalletForSync(ctx, w.ID)
+	// The failed chain's error message propagates to the wallet-level sync_error.
+	got, err := repo.GetByID(ctx, w.ID)
 	require.NoError(t, err)
-	require.NoError(t, repo.SetSyncCompletedAt(ctx, w.ID, time.Now()))
+	require.NotNil(t, got.SyncError)
+	assert.Contains(t, *got.SyncError, "boom")
+
+	// Complete every chain, then roll up → synced across the board, error cleared.
+	for _, chain := range wallet.EnabledChains() {
+		require.NoError(t, repo.SetChainSyncCompleted(ctx, w.ID, chain, time.Now()))
+	}
+	require.NoError(t, repo.RollupWalletSyncStatus(ctx, w.ID))
 	assertWalletStatus(wallet.SyncStatusSynced)
+
+	got, err = repo.GetByID(ctx, w.ID)
+	require.NoError(t, err)
+	assert.Nil(t, got.SyncError, "rollup clears wallet error once no chain is errored")
+}
+
+// TestChainSyncError_LeavesCursorAndSiblings verifies the #28 isolation invariant
+// at the repo level: SetChainSyncError marks exactly one chain errored, leaves
+// that chain's collect cursor untouched (so it resumes where it left off), and
+// does not disturb sibling chain rows.
+func TestChainSyncError_LeavesCursorAndSiblings(t *testing.T) {
+	ctx := context.Background()
+	require.NoError(t, testDB.Reset(ctx))
+
+	userID := createUserForChainSync(t, ctx)
+	repo := NewWalletRepository(testDB.Pool)
+	w := &wallet.Wallet{UserID: userID, Name: "Isolate Wallet", Address: "0x5555555555555555555555555555555555555555"}
+	require.NoError(t, repo.Create(ctx, w))
+
+	// base has a prior cursor; error it and confirm the cursor survives.
+	cursor := time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, repo.SetChainCollectCursor(ctx, w.ID, "base", cursor))
+	require.NoError(t, repo.SetChainSyncError(ctx, w.ID, "base", "provider 503"))
+
+	rows, err := repo.GetChainSyncRows(ctx, w.ID)
+	require.NoError(t, err)
+	byChain := map[string]wallet.WalletChainSync{}
+	for _, r := range rows {
+		byChain[r.Chain] = r
+	}
+
+	assert.Equal(t, wallet.SyncStatusError, byChain["base"].SyncStatus)
+	require.NotNil(t, byChain["base"].CollectCursorAt)
+	assert.True(t, cursor.Equal(*byChain["base"].CollectCursorAt), "failed chain's cursor is preserved for resume")
+
+	assert.Equal(t, wallet.SyncStatusPending, byChain["ethereum"].SyncStatus, "sibling untouched")
+	assert.Nil(t, byChain["ethereum"].SyncError)
+}
+
+// TestClaimResetsErroredChainForRetry is the cross-cycle half of #28's "resumes
+// from its own cursor on the next cycle": after a chain is isolated as errored
+// (with its cursor preserved), the next cycle's claim must re-pend that chain —
+// flip it back to syncing and CLEAR its error — WITHOUT disturbing its collect
+// cursor. That is what lets the failed chain retry from exactly where it left off.
+func TestClaimResetsErroredChainForRetry(t *testing.T) {
+	ctx := context.Background()
+	require.NoError(t, testDB.Reset(ctx))
+
+	userID := createUserForChainSync(t, ctx)
+	repo := NewWalletRepository(testDB.Pool)
+	w := &wallet.Wallet{UserID: userID, Name: "Retry Wallet", Address: "0x6666666666666666666666666666666666666666"}
+	require.NoError(t, repo.Create(ctx, w))
+
+	// Cycle 1 outcome: base errored at a preserved cursor; the wallet rolls up to error.
+	cursor := time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, repo.SetChainCollectCursor(ctx, w.ID, "base", cursor))
+	require.NoError(t, repo.SetChainSyncError(ctx, w.ID, "base", "provider 503"))
+	require.NoError(t, repo.RollupWalletSyncStatus(ctx, w.ID))
+
+	got, err := repo.GetByID(ctx, w.ID)
+	require.NoError(t, err)
+	require.Equal(t, wallet.SyncStatusError, got.SyncStatus, "errored wallet is re-selected next cycle")
+
+	// Cycle 2: claim re-pends every chain (syncing, error cleared) but preserves cursors.
+	claimed, err := repo.ClaimWalletForSync(ctx, w.ID)
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	rows, err := repo.GetChainSyncRows(ctx, w.ID)
+	require.NoError(t, err)
+	byChain := map[string]wallet.WalletChainSync{}
+	for _, r := range rows {
+		byChain[r.Chain] = r
+	}
+
+	base := byChain["base"]
+	assert.Equal(t, wallet.SyncStatusSyncing, base.SyncStatus, "previously-errored chain is re-pended")
+	assert.Nil(t, base.SyncError, "its error is cleared for the retry")
+	require.NotNil(t, base.CollectCursorAt)
+	assert.True(t, cursor.Equal(*base.CollectCursorAt),
+		"cursor preserved so the retry resumes from where it left off, skipping nothing")
 }
 
 // TestMigration29_SeedsExistingWallets verifies migration 000029 seeded the

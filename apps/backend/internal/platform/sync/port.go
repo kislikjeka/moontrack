@@ -64,6 +64,24 @@ type WalletRepository interface {
 
 	// SetChainCollectCursor updates a single (wallet, chain) row's collect cursor.
 	SetChainCollectCursor(ctx context.Context, walletID uuid.UUID, chain string, cursor time.Time) error
+
+	// SetChainSyncError marks a single (wallet, chain) row as errored. It does NOT
+	// touch that chain's collect cursor, so the failed chain resumes from where it
+	// left off next cycle. Only this chain's row changes — sibling chains are
+	// unaffected (issue #28 failure isolation).
+	SetChainSyncError(ctx context.Context, walletID uuid.UUID, chain, errMsg string) error
+
+	// SetChainSyncCompleted marks a single (wallet, chain) row as synced at syncAt,
+	// clearing its error and returning its phase to idle. Per-chain analogue of
+	// SetSyncCompletedAt (issue #28).
+	SetChainSyncCompleted(ctx context.Context, walletID uuid.UUID, chain string, syncAt time.Time) error
+
+	// RollupWalletSyncStatus derives the wallet-level sync_status from its per-chain
+	// rows (wallet.RollupStatus fold: error if any chain errored, else syncing, else
+	// synced, else pending) and writes it to the wallets row, along with the first
+	// errored chain's message as sync_error (NULL if none). This keeps
+	// wallets.sync_status a true rollup once chains advance independently (issue #28).
+	RollupWalletSyncStatus(ctx context.Context, walletID uuid.UUID) error
 }
 
 // PositionDataProvider fetches on-chain positions (balances) from an external

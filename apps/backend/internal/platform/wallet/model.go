@@ -72,6 +72,19 @@ func RollupStatus(rows []WalletChainSync) SyncStatus {
 	}
 }
 
+// RollupError returns the wallet-level sync_error derived from the chain rows: the
+// first errored chain's message (rows are iterated in the order given), or nil if
+// no chain is in error. Companion to RollupStatus so the rollup semantics live in
+// one place in the domain rather than being re-derived by the persistence layer.
+func RollupError(rows []WalletChainSync) *string {
+	for _, r := range rows {
+		if r.SyncStatus == SyncStatusError && r.SyncError != nil {
+			return r.SyncError
+		}
+	}
+	return nil
+}
+
 // Wallet represents an EVM blockchain wallet for tracking crypto assets
 type Wallet struct {
 	ID              uuid.UUID  `json:"id" db:"id"`
