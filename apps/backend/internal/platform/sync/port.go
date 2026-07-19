@@ -101,6 +101,16 @@ type DecodedTransaction struct {
 	Status        string   // "confirmed", "pending", "failed"
 	NFTTokenID    string   // Uniswap V3 NFT position ID, empty if not applicable
 	Acts          []string // Action types from the provider acts array (e.g., ["claim", "execute"])
+
+	// NeedsReview is set when the adapter could not convert a value exactly
+	// (e.g. an amount carried more fractional digits than the token's decimals,
+	// so base-unit conversion would truncate). The downstream processor routes
+	// such transactions to manual review rather than silently flooring. Zero
+	// (false) for every existing producer — additive, backward-compatible.
+	NeedsReview bool
+	// ReviewReason is a human-readable explanation of why NeedsReview is set;
+	// empty when NeedsReview is false.
+	ReviewReason string
 }
 
 // DecodedTransfer represents a single token movement within a decoded transaction

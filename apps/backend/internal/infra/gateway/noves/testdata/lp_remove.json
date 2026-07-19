@@ -1,0 +1,76 @@
+{
+  "accountAddress": "0x9afcd847C633b820a2F291794d28d374B555811B",
+  "chain": "base",
+  "classificationData": {
+    "description": "Removed 0.74 ETH from a liquidity pool.",
+    "protocol": {
+      "name": null
+    },
+    "received": [
+      {
+        "action": "liquidityRemoved",
+        "amount": "0.748601473294037695",
+        "from": {
+          "address": "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
+          "name": "Uniswap V3 Positions NFT-V1 Contract"
+        },
+        "to": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "token": {
+          "address": "ETH",
+          "decimals": 18,
+          "name": "ETH",
+          "symbol": "ETH"
+        }
+      }
+    ],
+    "sent": [
+      {
+        "action": "paidGas",
+        "amount": "0.000001167920676636",
+        "from": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "to": {
+          "address": null,
+          "name": null
+        },
+        "token": {
+          "address": "ETH",
+          "decimals": 18,
+          "name": "ETH",
+          "symbol": "ETH"
+        }
+      }
+    ],
+    "source": {
+      "type": "inference"
+    },
+    "type": "removeLiquidity"
+  },
+  "rawTransactionData": {
+    "blockNumber": 47278791,
+    "fromAddress": "0x9afcd847C633b820a2F291794d28d374B555811B",
+    "gas": 368244,
+    "gasPrice": 6000000,
+    "gasUsed": 194183,
+    "l1Gas": 3829,
+    "l1GasPrice": 132553934,
+    "timestamp": 1781346929,
+    "toAddress": "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
+    "transactionFee": {
+      "amount": "0.000001167920676636",
+      "token": {
+        "address": "ETH",
+        "decimals": 18,
+        "name": "ETH",
+        "symbol": "ETH"
+      }
+    },
+    "transactionHash": "0xb2330b6b8bb2b7363162c10d26887352510145c2f9c05f3c3bd4aa6bc576182d"
+  },
+  "txTypeVersion": 2
+}

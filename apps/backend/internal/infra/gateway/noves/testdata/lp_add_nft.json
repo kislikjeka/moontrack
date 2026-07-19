@@ -1,0 +1,130 @@
+{
+  "accountAddress": "0x9afcd847C633b820a2F291794d28d374B555811B",
+  "chain": "base",
+  "classificationData": {
+    "description": "Added 933.17 USDC and 0.75 ETH to a liquidity pool.",
+    "protocol": {
+      "name": null
+    },
+    "received": [
+      {
+        "action": "refundedByContract",
+        "amount": "0.000000000240215894",
+        "from": {
+          "address": "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
+          "name": "Uniswap V3 Positions NFT-V1 Contract"
+        },
+        "to": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "token": {
+          "address": "ETH",
+          "decimals": 18,
+          "name": "ETH",
+          "symbol": "ETH"
+        }
+      },
+      {
+        "action": "lpTokensMinted",
+        "amount": "1",
+        "from": {
+          "address": "0x0000000000000000000000000000000000000000",
+          "name": "Null address"
+        },
+        "nft": {
+          "address": "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
+          "id": "5325584",
+          "name": "Uniswap V3 Positions NFT-V1",
+          "symbol": "UNI-V3-POS"
+        },
+        "to": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        }
+      }
+    ],
+    "sent": [
+      {
+        "action": "liquidityAdded",
+        "amount": "933.170616",
+        "from": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "to": {
+          "address": "0x6c561B446416E1A00E8E93E221854d6eA4171372",
+          "name": "Liquidity pool"
+        },
+        "token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "decimals": 6,
+          "name": "USD Coin",
+          "symbol": "USDC"
+        }
+      },
+      {
+        "action": "liquidityAdded",
+        "amount": "0.753257824827890051",
+        "from": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "to": {
+          "address": "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
+          "name": "Uniswap V3 Positions NFT-V1 Contract"
+        },
+        "token": {
+          "address": "ETH",
+          "decimals": 18,
+          "name": "ETH",
+          "symbol": "ETH"
+        }
+      },
+      {
+        "action": "paidGas",
+        "amount": "0.000002699862062026",
+        "from": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "to": {
+          "address": null,
+          "name": null
+        },
+        "token": {
+          "address": "ETH",
+          "decimals": 18,
+          "name": "ETH",
+          "symbol": "ETH"
+        }
+      }
+    ],
+    "source": {
+      "type": "inference"
+    },
+    "type": "addLiquidity"
+  },
+  "rawTransactionData": {
+    "blockNumber": 47279606,
+    "fromAddress": "0x9afcd847C633b820a2F291794d28d374B555811B",
+    "gas": 707613,
+    "gasPrice": 6000000,
+    "gasUsed": 449478,
+    "l1Gas": 3588,
+    "l1GasPrice": 146881073,
+    "timestamp": 1781348559,
+    "toAddress": "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
+    "transactionFee": {
+      "amount": "0.000002699862062026",
+      "token": {
+        "address": "ETH",
+        "decimals": 18,
+        "name": "ETH",
+        "symbol": "ETH"
+      }
+    },
+    "transactionHash": "0x3799d5bbbaea30aa1b20b83647b53781c1ac24986ac88169848bcf09bf9c6b7f"
+  },
+  "txTypeVersion": 2
+}

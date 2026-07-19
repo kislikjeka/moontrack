@@ -1,0 +1,57 @@
+{
+  "accountAddress": "0x9afcd847C633b820a2F291794d28d374B555811B",
+  "chain": "base",
+  "classificationData": {
+    "description": "Received 1368.15 USDC.",
+    "protocol": {
+      "name": "Circle"
+    },
+    "sent": [],
+    "received": [
+      {
+        "action": "received",
+        "amount": "1368.15487",
+        "from": {
+          "address": "0xf70da97812CB96acDF810712Aa562db8dfA3dbEF",
+          "name": null
+        },
+        "to": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "decimals": 6,
+          "name": "USD Coin",
+          "symbol": "USDC"
+        }
+      }
+    ],
+    "source": {
+      "type": "human"
+    },
+    "type": "receiveToken"
+  },
+  "rawTransactionData": {
+    "blockNumber": 39468233,
+    "fromAddress": "0x494e119Db01767585117900A27957c395cc7b9c1",
+    "gas": 622086,
+    "gasPrice": 3840454,
+    "gasUsed": 616030,
+    "l1Gas": 70668,
+    "l1GasPrice": 48250870,
+    "timestamp": 1765725813,
+    "toAddress": "0xEC5292103B193a9B0993fEDD6672afefc723426C",
+    "transactionFee": {
+      "amount": "0.000002387988852403",
+      "token": {
+        "address": "ETH",
+        "decimals": 18,
+        "name": "ETH",
+        "symbol": "ETH"
+      }
+    },
+    "transactionHash": "0xa7cd94e4035bacd3b9c801dbbbda7ae159e6c7eabff27465aebf052d90a541a1"
+  },
+  "txTypeVersion": 2
+}

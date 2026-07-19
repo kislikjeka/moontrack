@@ -1,0 +1,94 @@
+{
+  "accountAddress": "0x9afcd847C633b820a2F291794d28d374B555811B",
+  "chain": "base",
+  "classificationData": {
+    "description": "Swapped 120.55 USDC for 0.002 cbBTC.",
+    "protocol": {
+      "name": null
+    },
+    "received": [
+      {
+        "action": "bought",
+        "amount": "0.0019956",
+        "from": {
+          "address": "0x111111125421cA6dc452d289314280a0f8842A65",
+          "name": null
+        },
+        "to": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "token": {
+          "address": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+          "decimals": 8,
+          "name": "Coinbase Wrapped BTC",
+          "symbol": "cbBTC"
+        }
+      }
+    ],
+    "sent": [
+      {
+        "action": "paid",
+        "amount": "120.559701",
+        "from": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "to": {
+          "address": "0x7F51C134230eB9e5aBa42BC364D3d3EbA26d9712",
+          "name": null
+        },
+        "token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "decimals": 6,
+          "name": "USD Coin",
+          "symbol": "USDC"
+        }
+      },
+      {
+        "action": "paidGas",
+        "amount": "0.000001904071203646",
+        "from": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "to": {
+          "address": null,
+          "name": null
+        },
+        "token": {
+          "address": "ETH",
+          "decimals": 18,
+          "name": "ETH",
+          "symbol": "ETH"
+        }
+      }
+    ],
+    "source": {
+      "type": "human"
+    },
+    "type": "swap"
+  },
+  "rawTransactionData": {
+    "blockNumber": 47879256,
+    "fromAddress": "0x9afcd847C633b820a2F291794d28d374B555811B",
+    "gas": 469401,
+    "gasPrice": 6900000,
+    "gasUsed": 275445,
+    "l1Gas": 5783,
+    "l1GasPrice": 99625357,
+    "timestamp": 1782547859,
+    "toAddress": "0x111111125421cA6dc452d289314280a0f8842A65",
+    "transactionFee": {
+      "amount": "0.000001904071203646",
+      "token": {
+        "address": "ETH",
+        "decimals": 18,
+        "name": "ETH",
+        "symbol": "ETH"
+      }
+    },
+    "transactionHash": "0xf7ae9d268cb73d4868b00b463d971879e9d37da577b359198d08d0b774564c9c"
+  },
+  "txTypeVersion": 2
+}

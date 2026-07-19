@@ -1,0 +1,58 @@
+{
+  "accountAddress": "0x9afcd847C633b820a2F291794d28d374B555811B",
+  "chain": "base",
+  "classificationData": {
+    "description": "Transaction failed to execute. The intended action was: swap.",
+    "intendedTxType": "swap",
+    "protocol": {
+      "name": null
+    },
+    "received": [],
+    "sent": [
+      {
+        "action": "paidGas",
+        "amount": "0.000001231886619206",
+        "from": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "to": {
+          "address": null,
+          "name": null
+        },
+        "token": {
+          "address": "ETH",
+          "decimals": 18,
+          "name": "ETH",
+          "symbol": "ETH"
+        }
+      }
+    ],
+    "source": {
+      "type": "human"
+    },
+    "type": "failed"
+  },
+  "rawTransactionData": {
+    "blockNumber": 39472596,
+    "fromAddress": "0x9afcd847C633b820a2F291794d28d374B555811B",
+    "gas": 1234185,
+    "gasPrice": 3071756,
+    "gasUsed": 399197,
+    "l1Gas": 19033,
+    "l1GasPrice": 45968204,
+    "timestamp": 1765734539,
+    "toAddress": "0x6131B5fae19EA4f9D964eAc0408E4408b66337b5",
+    "transactionFee": {
+      "amount": "0.000001231886619206",
+      "token": {
+        "address": "ETH",
+        "decimals": 18,
+        "name": "ETH",
+        "symbol": "ETH"
+      }
+    },
+    "transactionHash": "0x9a16f6d6d41775686d11a257ffea739e2821816769a0fa8faaaff5f87f8a2038"
+  },
+  "txTypeVersion": 2
+}
