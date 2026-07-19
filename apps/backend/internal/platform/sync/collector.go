@@ -83,63 +83,82 @@ func (c *Collector) CollectIncremental(ctx context.Context, w *wallet.Wallet) (i
 }
 
 func (c *Collector) collect(ctx context.Context, w *wallet.Wallet, since time.Time) (int, error) {
-	// Fan out over the wallet's chains: the provider port is chain-aware, so the
-	// Collector owns the loop and invokes it once per chain, aggregating results.
-	var txs []DecodedTransaction
-	for _, chain := range wallet.GetSupportedChains() {
-		chainTxs, err := c.txProvider.GetTransactions(ctx, w.Address, chain, since)
-		if err != nil {
-			return 0, fmt.Errorf("failed to get transactions for chain %s: %w", chain, err)
-		}
-		txs = append(txs, chainTxs...)
+	// Fan out over the wallet's chain set: the rows of wallet_chain_sync ARE the
+	// chains this wallet is synced on (issue #27). The provider port is
+	// chain-aware, so the Collector owns the loop and invokes it once per enabled
+	// chain, aggregating results and advancing each chain's own collect cursor.
+	chainRows, err := c.walletRepo.GetChainSyncRows(ctx, w.ID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to load wallet chain set: %w", err)
 	}
 
-	c.logger.Info("fetched transactions from provider",
-		"wallet_id", w.ID,
-		"count", len(txs))
-
-	// Extract and upsert asset metadata before storing raw txs
-	c.extractAssets(ctx, txs)
-
-	var maxMinedAt *time.Time
+	var allTxs []DecodedTransaction
 	count := 0
+	var globalMaxMinedAt *time.Time
 
-	for _, dt := range txs {
-		raw, err := decodedTxToRawTx(w.ID, dt)
+	for _, cr := range chainRows {
+		chainTxs, err := c.txProvider.GetTransactions(ctx, w.Address, cr.Chain, since)
 		if err != nil {
-			c.logger.Warn("failed to serialize transaction, skipping",
-				"wallet_id", w.ID,
-				"external_id", dt.ID,
-				"error", err)
-			continue
+			return count, fmt.Errorf("failed to get transactions for chain %s: %w", cr.Chain, err)
 		}
 
-		if err := c.rawTxRepo.UpsertRawTransaction(ctx, raw); err != nil {
-			c.logger.Error("failed to upsert raw transaction",
-				"wallet_id", w.ID,
-				"external_id", dt.ID,
-				"error", err)
-			continue
+		// Extract asset metadata for this chain's batch before storing raw txs.
+		c.extractAssets(ctx, chainTxs)
+		allTxs = append(allTxs, chainTxs...)
+
+		var maxMinedAt *time.Time
+		for _, dt := range chainTxs {
+			raw, err := decodedTxToRawTx(w.ID, dt)
+			if err != nil {
+				c.logger.Warn("failed to serialize transaction, skipping",
+					"wallet_id", w.ID,
+					"chain", cr.Chain,
+					"external_id", dt.ID,
+					"error", err)
+				continue
+			}
+
+			if err := c.rawTxRepo.UpsertRawTransaction(ctx, raw); err != nil {
+				c.logger.Error("failed to upsert raw transaction",
+					"wallet_id", w.ID,
+					"chain", cr.Chain,
+					"external_id", dt.ID,
+					"error", err)
+				continue
+			}
+
+			count++
+			if maxMinedAt == nil || dt.MinedAt.After(*maxMinedAt) {
+				t := dt.MinedAt
+				maxMinedAt = &t
+			}
 		}
 
-		count++
-		if maxMinedAt == nil || dt.MinedAt.After(*maxMinedAt) {
-			t := dt.MinedAt
-			maxMinedAt = &t
+		// Advance this chain's own collect cursor to its high-water mark.
+		if maxMinedAt != nil {
+			if err := c.walletRepo.SetChainCollectCursor(ctx, w.ID, cr.Chain, *maxMinedAt); err != nil {
+				return count, fmt.Errorf("failed to update collect cursor for chain %s: %w", cr.Chain, err)
+			}
+			if globalMaxMinedAt == nil || maxMinedAt.After(*globalMaxMinedAt) {
+				globalMaxMinedAt = maxMinedAt
+			}
 		}
 	}
 
-	// Update collect cursor to max mined_at
-	if maxMinedAt != nil {
-		if err := c.walletRepo.SetCollectCursor(ctx, w.ID, *maxMinedAt); err != nil {
-			return count, fmt.Errorf("failed to update collect cursor: %w", err)
+	// Maintain the wallet-level collect cursor as the max across chains. It is the
+	// incremental-sync baseline today; per-chain independent incremental cursors
+	// land in #28. Keeping it in step preserves current incremental behavior.
+	if globalMaxMinedAt != nil {
+		if err := c.walletRepo.SetCollectCursor(ctx, w.ID, *globalMaxMinedAt); err != nil {
+			return count, fmt.Errorf("failed to update wallet collect cursor: %w", err)
 		}
 	}
 
 	c.logger.Info("collection complete",
 		"wallet_id", w.ID,
+		"chains", len(chainRows),
 		"stored", count,
-		"total_fetched", len(txs))
+		"total_fetched", len(allTxs))
 
 	return count, nil
 }

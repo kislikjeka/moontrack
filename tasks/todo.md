@@ -1,109 +1,96 @@
-# Issue #26 — Wire Noves as sole sync provider; remove Zerion (contract)
+# #27 — wallet_chain_sync table + Enabled-set default + chain fan-out
 
-Contract step of the Zerion→Noves migration (parent #23). Wire Noves as the only
-sync provider, delete Zerion, de-vendor DB/source vocabulary, forward migration
-000028 to rename + TRUNCATE sync data + reset sync state, verify one chain
-end-to-end. Later tickets (#27–#33) own per-chain fan-out tables, cursors,
-idempotency, and bridge stitching — NOT in scope here.
+Parent: #23 (Noves migration). Scope: **strictly #27** — introduce the per-(wallet, chain)
+sync-state table, make the collector/reconciler fan out over a wallet's *enabled chains read
+from the rows*, and make wallet-level `sync_status` a derived rollup. Per-chain independent
+cursors + failure isolation + resume-without-skip are **#28** and out of scope here.
 
-Decisions (confirmed with user):
-- Build a Noves **positions provider** (balances endpoint) so reconcile stays in
-  the pipeline per the AC. `/evm/{chain}/tokens/balancesOf/{addr}` verified working.
-- De-vendor `source = 'noves'` (flip literal + wipe function + TRUNCATE).
+## Design decisions
 
-## Plan
+- The **rows of `wallet_chain_sync` ARE the wallet chain set.** One row per enabled chain.
+  Columns: `wallet_id`, `chain` (domain slug), `collect_cursor_at`, `sync_status`, `sync_error`,
+  `last_sync_at`, `sync_phase`, `created_at`, `updated_at`. PK `(wallet_id, chain)`.
+- New wallet defaults its chain set to the **Enabled** set (`ethereum`, `base`, `arbitrum`) —
+  seeded at wallet creation.
+- Wallet identity stays `UNIQUE(user_id, address)` — unchanged. Chain set is orthogonal.
+- Collector loops the **wallet's enabled chain rows** (not the global `GetSupportedChains()`),
+  invoking the chain-aware provider per chain. Per-chain collect cursor is written as a
+  side-effect (not yet independent-failure-isolated — that's #28).
+- Reconciler runs **per enabled chain**: the reconciler drives the fan-out over the wallet's
+  chain set and calls the position provider per chain, so a wallet reconciles only its enabled
+  chains (moving the fan-out loop out of the Noves adapter into the reconciler).
+- Wallet-level `sync_status` becomes a **derived rollup** over the chain rows:
+  error if any errored; syncing if any syncing; else synced (pending if all pending).
 
-### 1. Noves positions provider (adapter seam) — TDD
-- [ ] `noves/types.go`: add `BalanceItem` + `BalancesResponse` types (top-level
-      array of `{balance, usdValue, token{symbol,name,decimals,address,price}}`;
-      also the `{detail}` too-many-tokens error object).
-- [ ] `noves/client.go`: add `GetBalances(ctx, chain, address) ([]BalanceItem, error)`;
-      handle the `detail` error body (surface as error, don't crash on non-array).
-- [ ] `noves/positions.go` (or extend adapter.go): `GetPositions(ctx, address)` on
-      `SyncAdapter` — fan out over `wallet.GetSupportedChains()`, map each domain
-      chain → noves slug, convert balances → `[]sync.OnChainPosition`. Reuse
-      `amountToBaseUnits` / `isNativeAddress` / `normalizeContract`. Skip zero/dust.
-- [ ] `var _ sync.PositionDataProvider = (*SyncAdapter)(nil)`.
-- [ ] Tests: `positions_test.go` off `testdata/balances.json` fixture (native +
-      USDC + cbBTC, mixed decimals). Assert base-unit conversion, native contract="",
-      per-chain ChainID stamping. Add too-many-tokens error-path test.
+## Tasks
 
-### 2. De-vendor source + DB names (code)
-- [ ] `sync/model.go`: `sourceName = "noves"`; `db:"zerion_id"` → `db:"external_id"`.
-- [ ] `infra/postgres/raw_tx_repo.go`: `zerion_id` → `external_id` (columns +
-      ON CONFLICT `(wallet_id, external_id)`).
-- [ ] `infra/postgres/sync_asset_repo.go`: `zerion_assets` → `chain_assets`.
-- [ ] Update comments referencing zerion_assets/zerion_id in decimal_source.go,
-      collector.go (cosmetic, keep accurate).
+- [ ] **Migration 000029** (`wallet_chain_sync`): create table; seed every existing wallet with
+      the Enabled set (eth/base/arbitrum), copying its current wallet-level cursor/status as the
+      starting per-chain state; down drops the table.
+- [ ] **Domain model** (`wallet/model.go`): `WalletChainSync` struct; `EnabledChains()` returns the
+      default Enabled set; keep `GetSupportedChains()`/`IsValidChain()` etc.
+- [ ] **Rollup helper** (`wallet` pkg): `RollupStatus([]WalletChainSync) SyncStatus` — pure fn + unit tests.
+- [ ] **Wallet repo** (`postgres/wallet_repo.go`): seed chain-set rows on `Create`; add
+      `GetChainSyncRows(walletID)`, `SetChainCollectCursor(walletID, chain, cursor)`,
+      `SetChainSyncPhase(walletID, chain, phase)`; derive+persist the rollup onto `wallets.sync_status`.
+- [ ] **sync port** (`sync/port.go`): extend `WalletRepository` with the per-chain setters +
+      `GetChainSyncRows`; extend `PositionDataProvider` to be **chain-aware**
+      (`GetPositions(ctx, address, chain)`), so the reconciler owns the fan-out.
+- [ ] **Collector** (`collector.go`): fan out over the wallet's chain-set rows; write per-chain
+      cursor. Keep aggregate behavior otherwise.
+- [ ] **Reconciler** (`reconciler.go`): fan out over the wallet's chain-set rows; call
+      `posProvider.GetPositions(ctx, addr, chain)` per chain; per-chain flow/genesis unchanged.
+- [ ] **Noves positions adapter** (`noves/positions.go`): make `GetPositions` chain-aware
+      (single chain), dropping its internal fan-out loop (now owned by the reconciler).
+- [ ] **Wiring** (`cmd/api/main.go`): verify `Create` seeding path; no new services expected.
 
-### 3. Forward migration 000028 (de-vendor + truncate + reset)
-- [ ] `000028_devendor_sync_noves.up.sql`:
-      - `ALTER TABLE raw_transactions RENAME COLUMN zerion_id TO external_id;`
-        + rename the `UNIQUE(wallet_id, zerion_id)` constraint.
-      - `ALTER TABLE zerion_assets RENAME TO chain_assets;` (+ rename indexes/constraints).
-      - `CREATE OR REPLACE FUNCTION wipe_wallet_ledger` → `source IN ('noves','sync_genesis')`.
-      - TRUNCATE sync-derived financial data: delete from transactions/entries/
-        tax_lots/lot_disposals/raw_transactions/account_balances for
-        `source IN ('zerion','sync_genesis')` (FK-safe order); truncate chain_assets.
-      - Reset wallet sync state: `sync_status='pending'`, clear `last_sync_at`,
-        `sync_error`, `collect_cursor_at`, `sync_phase='idle'`. KEEP users + wallets.
-- [ ] `000028_...down.sql`: reverse renames (data truncation is not reversible —
-      document that; down only restores names + wipe-function literal).
+## Tests (TDD at the two agreed seams)
 
-### 4. Wire Noves in DI; remove Zerion
-- [ ] `pkg/config/config.go`: add `NovesAPIKey` (`getEnv("NOVES_API_KEY","")`);
-      remove `ZerionAPIKey`.
-- [ ] `cmd/api/main.go`: import noves not zerion; gate on `cfg.NovesAPIKey`;
-      `novesClient := noves.NewClient(...)`; `adapter := noves.NewSyncAdapter(novesClient)`;
-      pass `adapter, adapter` (tx + pos); log "provider":"noves"; warn on missing key.
-- [ ] Delete `internal/infra/gateway/zerion/` entirely.
-- [ ] `price/model.go` + `price_reader.go`: `SourceZerion` is a **price** source
-      (CoinGecko/backfill pipeline), independent of sync provider — leave as-is
-      (out of scope; price pipeline untouched per #23). Note in review.
-
-### 5. Docs
-- [ ] `docs/sync-and-price-flow.md`: rewrite Zerion/Alchemy sections → Noves;
-      remove stale syncWalletAlchemy fallback; Alchemy already gone per ADR-001.
-
-### 6. Verify
-- [ ] `go build ./...` passes.
-- [ ] `go test ./internal/platform/sync/... ./internal/infra/gateway/noves/... -short`
-      (rename any stale mockZerion references in sync tests if they break).
-- [ ] Full backend suite `go test ./... -short`.
-- [ ] End-to-end single-chain: register user, add wallet, run migration, sync a
-      real Base wallet via Noves; confirm collect→reconcile→process→ledger/tax-lots.
-- [ ] `/code-review`, then commit.
+- [ ] **Port seam** (`service_test.go` / new `chain_fanout_test.go`): a wallet with 3 enabled
+      chain rows → provider invoked once per chain; txs on all 3 chains → ledger data on all 3.
+- [ ] **Rollup unit test**: mixed chain statuses → correct wallet rollup.
+- [ ] **Reconciler per-chain**: reconcile invokes positions per enabled chain; genesis per chain.
+- [ ] Update existing mocks (`MockWalletRepository`, `MockPositionDataProvider`) for new methods.
+- [ ] Full suite (`go test ./... -short`) green at the end.
 
 ## Review
 
-Implemented all of #26 plus two bugs surfaced during the real end-to-end sync:
+Implemented #27 strictly (per user decision): table + chain-set fan-out + rollup; failure
+isolation and per-chain independent incremental cursors deferred to #28.
 
 **Delivered**
-- Noves **positions provider**: `noves/GetBalances` client method + `SyncAdapter.GetPositions`
-  fanning out over enabled chains via `/evm/{chain}/tokens/balancesOf/{addr}`, converting
-  decimal balances → `OnChainPosition`. New `positions.go` + `positions_test.go` + `testdata/balances.json`.
-  Handles the `{detail}` too-many-tokens error envelope.
-- De-vendored: `sourceName='noves'`; `zerion_id`→`external_id`; `zerion_assets`→`chain_assets` (repos + tags).
-- Migration `000028_devendor_sync_noves` (up+down): renames (column/table/constraint/pk/index),
-  rewrites `wipe_wallet_ledger` to `source IN ('noves','sync_genesis')`, TRUNCATEs sync-derived
-  data for `source IN ('zerion','sync_genesis')`, resets wallet sync state, keeps users+wallets.
-  Verified apply + full reversibility against real Postgres.
-- DI: `config.NovesAPIKey` (removed `ZerionAPIKey`); `main.go` injects the Noves adapter for both
-  ports; deleted `infra/gateway/zerion/`. Backend boots with `provider:noves`.
-- Docs: `sync-and-price-flow.md` rewritten to Noves (two-phase pipeline, no embedded prices);
-  no active Zerion/Alchemy references.
-- Updated all sync/postgres test `source` literals `"zerion"`→`"noves"`.
+- **Migration 000029** (`wallet_chain_sync.up/down.sql`): `(wallet_id, chain)` PK table with
+  per-chain `sync_status`/`sync_error`/`sync_phase`/`collect_cursor_at`/`last_sync_at` + check
+  constraints + index; seeds every existing wallet with eth/base/arbitrum via `CROSS JOIN`.
+  Verified up→down→up on the real dev DB (1 wallet → 3 rows; down drops table; re-up re-seeds).
+- **Domain** (`wallet/model.go`): `WalletChainSync` struct; `RollupStatus()` pure fold
+  (error>syncing>synced>pending, empty→pending) + `EnabledChains()`. Unit-tested (`rollup_test.go`).
+- **Wallet repo** (`postgres/wallet_repo.go`): `Create` seeds the Enabled chain set in one tx;
+  `GetChainSyncRows`, `SetChainSyncPhase`, `SetChainCollectCursor`; the three lifecycle setters
+  (`ClaimWalletForSync`/`SetSyncCompletedAt`/`SetSyncError`) mirror status into the chain rows so
+  `wallets.sync_status` stays a true rollup. Integration-tested (`wallet_chain_sync_test.go`, 4 tests).
+- **sync port**: `WalletRepository` gains the three chain methods; `PositionDataProvider` is now
+  chain-aware (`GetPositions(ctx, address, chain)`).
+- **Collector**: fans out over the wallet's chain-set rows (not the global set), advancing each
+  chain's own collect cursor + the wallet-level max (incremental baseline).
+- **Reconciler**: owns the position fan-out over the wallet's chain set, calling the provider per
+  enabled chain; genesis synthesis per chain unchanged.
+- **Noves adapter**: `GetPositions` is single-chain (fan-out moved to the reconciler).
+- **Port-seam tests** (`chain_fanout_test.go`): 3-enabled-chain wallet → provider invoked once per
+  chain, raw stored + cursor advanced per chain; reconciler → genesis per chain.
 
-**Two bugs fixed during E2E (both blocked real sync):**
-1. `defaultPageSize` was 100 → Noves rejects with HTTP 400 (`pageSize ∈ [1,50]`). Set to 50.
-2. Per user request + #23 Enabled set: reduced `supportedEVMChains` from 7 → **ethereum, base,
-   arbitrum**. Adapter stays Compatible with more (noves/chains.go unchanged).
+**Verification**
+- `go build ./...`, `go vet`, full `go test ./... -short` all green.
+- Real-DB integration: 4 new wallet-chain-sync tests pass (seeding, per-chain setters, rollup
+  invariant across lifecycle, migration seed shape). Migration up/down/up verified on dev DB.
 
-**E2E result (real Base wallet, single chain):** collect→reconcile→process→ledger/tax-lots all ran.
-`source='noves'` transfer_in/out, swaps (lp_deposit/withdraw/claim_fees), lending_supply; 3 genesis
-(from the new positions provider); 16 tax lots; `external_id = chain:txHash`. 3 lending
-negative-balance errors are pre-existing accounting edge cases (MT-SYNC-12/#14 ordering), not from this work.
+**Not changed / deferred**
+- Per-chain failure isolation + independent incremental cursors + resume-without-skip → **#28**.
+- Wallet handler still advertises `GetSupportedChains()` (Compatible set); frontend/API chain-set
+  editing is a #23 follow-up.
 
-**Known pre-existing (not in scope, confirmed on clean `main`):** two integration tests fail —
-`TestPriceReader_*` (32-char test contract fails EVM validator) and `TestLedgerRepository_*`
-(inserts dropped `wallets.chain_id`). Both predate this branch.
+**Pre-existing failures (confirmed on clean `main`, not from this work)**
+- `TestSyncService_*` integration tests panic: `setupIntegrationTest` passes `nil` rawTxRepo →
+  collector nil. Broken before this branch (verified by stashing).
+- `TestLedgerRepository_*` / `ledger_precision_test.go`: insert dropped `wallets.chain_id`.
+- `TestPriceReader_*`: 32-char test contract fails EVM validator.

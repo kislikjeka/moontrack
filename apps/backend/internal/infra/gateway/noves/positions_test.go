@@ -73,10 +73,12 @@ func TestConvertBalance_DropsZeroAndNil(t *testing.T) {
 	assert.False(t, ok, "nil token dropped")
 }
 
-// TestGetPositions_FansOutPerChain drives the adapter against a fake Noves
-// balances endpoint and asserts it fans out over supported chains, stamping the
-// canonical chain slug on each position.
-func TestGetPositions_FansOutPerChain(t *testing.T) {
+// TestGetPositions_SingleChain drives the adapter against a fake Noves balances
+// endpoint for one chain and asserts it maps the domain slug to the Noves short
+// slug, stamping the canonical chain slug on each converted position. The
+// Reconciler owns the fan-out over the wallet's chain set (issue #27); the
+// adapter handles exactly the chain it is asked for.
+func TestGetPositions_SingleChain(t *testing.T) {
 	balances := loadBalances(t, "balances.json")
 
 	var hitChains []string
@@ -97,7 +99,7 @@ func TestGetPositions_FansOutPerChain(t *testing.T) {
 	client.SetBaseURL(server.URL)
 	adapter := NewSyncAdapter(client)
 
-	positions, err := adapter.GetPositions(context.Background(), "0xabc")
+	positions, err := adapter.GetPositions(context.Background(), "0xabc", "ethereum")
 	require.NoError(t, err)
 
 	// The three fixture balances come back exactly once, on the ethereum chain.
@@ -106,6 +108,17 @@ func TestGetPositions_FansOutPerChain(t *testing.T) {
 		assert.Equal(t, "ethereum", p.ChainID, "eth balances mapped to canonical 'ethereum'")
 	}
 	assert.Contains(t, hitChains, "eth")
+}
+
+// TestGetPositions_UnmappedChain asserts a non-Compatible chain (no Noves slug)
+// yields no positions and no error, so the reconciler simply gets nothing for it.
+func TestGetPositions_UnmappedChain(t *testing.T) {
+	client := NewClient("key", logger.New("development", os.NewFile(0, os.DevNull)))
+	adapter := NewSyncAdapter(client)
+
+	positions, err := adapter.GetPositions(context.Background(), "0xabc", "not-a-real-chain")
+	require.NoError(t, err)
+	assert.Empty(t, positions)
 }
 
 // TestGetBalances_TooManyTokensError asserts the `{detail}` error envelope the

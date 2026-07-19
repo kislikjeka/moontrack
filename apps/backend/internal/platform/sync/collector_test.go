@@ -95,6 +95,7 @@ func TestCollectAll_ExtractAssets_UpsertsUniqueAssets(t *testing.T) {
 
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
+	expectSingleChainSet(walletRepo, ctx, walletID)
 
 	collector := newTestCollector(provider, rawTxRepo, walletRepo, assetRepo)
 	count, err := collector.CollectAll(ctx, w)
@@ -140,6 +141,7 @@ func TestCollectAll_ExtractAssets_IncludesFeeAssets(t *testing.T) {
 	assetRepo.On("Upsert", ctx, mock.Anything).Return(nil)
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
+	expectSingleChainSet(walletRepo, ctx, walletID)
 
 	collector := newTestCollector(provider, rawTxRepo, walletRepo, assetRepo)
 	_, err := collector.CollectAll(ctx, w)
@@ -178,6 +180,7 @@ func TestCollectAll_ExtractAssets_NilRepo_NoOp(t *testing.T) {
 	expectChainTxs(provider, ctx, walletAddr, mock.Anything, []pkgsync.DecodedTransaction{tx})
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
+	expectSingleChainSet(walletRepo, ctx, walletID)
 
 	// nil assetRepo — should not panic
 	collector := newTestCollector(provider, rawTxRepo, walletRepo, nil)
@@ -222,6 +225,7 @@ func TestCollectAll_ExtractAssets_ZeroDecimalsIncluded(t *testing.T) {
 	})).Return(nil).Once()
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
+	expectSingleChainSet(walletRepo, ctx, walletID)
 
 	collector := newTestCollector(provider, rawTxRepo, walletRepo, assetRepo)
 	_, err := collector.CollectAll(ctx, w)

@@ -74,14 +74,29 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, erro
 		"wallet_id", w.ID,
 		"assets", len(flows))
 
-	// Fetch on-chain positions
-	positions, err := r.posProvider.GetPositions(ctx, w.Address)
+	// Fetch on-chain positions per enabled chain. The rows of wallet_chain_sync
+	// ARE the wallet chain set (issue #27), so reconciliation iterates exactly
+	// this set: the position provider is chain-aware and the Reconciler owns the
+	// fan-out. A per-chain fetch error aborts the whole reconcile rather than
+	// reconciling against a partial balance set (which could fabricate a genesis
+	// for an asset whose real balance simply failed to load).
+	chainRows, err := r.walletRepo.GetChainSyncRows(ctx, w.ID)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get on-chain positions: %w", err)
+		return 0, fmt.Errorf("failed to load wallet chain set: %w", err)
+	}
+
+	var positions []OnChainPosition
+	for _, cr := range chainRows {
+		chainPositions, err := r.posProvider.GetPositions(ctx, w.Address, cr.Chain)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get on-chain positions for chain %s: %w", cr.Chain, err)
+		}
+		positions = append(positions, chainPositions...)
 	}
 
 	r.logger.Info("fetched on-chain positions",
 		"wallet_id", w.ID,
+		"chains", len(chainRows),
 		"positions", len(positions))
 
 	// Extract and upsert asset metadata from positions

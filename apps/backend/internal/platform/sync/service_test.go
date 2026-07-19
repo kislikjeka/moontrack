@@ -36,13 +36,25 @@ func (m *MockTransactionDataProvider) GetTransactions(ctx context.Context, addre
 var _ pkgsync.TransactionDataProvider = (*MockTransactionDataProvider)(nil)
 
 // expectChainTxs sets up the chain-aware provider fan-out: the collector invokes
-// GetTransactions once per supported chain. Test fixtures live on "ethereum", so
-// the configured txs are returned for that chain and every other chain returns
-// empty. This preserves the pre-fan-out behavior (txs fetched exactly once).
+// GetTransactions once per enabled chain in the wallet's chain set. Test fixtures
+// live on "ethereum", so the configured txs are returned for that chain and every
+// other chain returns empty. This preserves the pre-fan-out behavior (txs fetched
+// exactly once). Pair with expectSingleChainSet so the wallet's chain set is just
+// "ethereum".
 func expectChainTxs(provider *MockTransactionDataProvider, ctx context.Context, addr string, since interface{}, txs []pkgsync.DecodedTransaction) {
 	provider.On("GetTransactions", ctx, addr, "ethereum", since).Return(txs, nil)
 	provider.On("GetTransactions", ctx, addr, mock.Anything, mock.Anything).
 		Return([]pkgsync.DecodedTransaction{}, nil)
+}
+
+// expectSingleChainSet stubs the wallet's chain set as a single "ethereum" row so
+// the collector/reconciler fan-out iterates exactly one chain, matching the
+// ethereum-only fixtures. SetChainCollectCursor is accepted for that chain.
+func expectSingleChainSet(walletRepo *MockWalletRepository, ctx context.Context, walletID uuid.UUID) {
+	walletRepo.On("GetChainSyncRows", ctx, walletID).Return([]wallet.WalletChainSync{
+		{WalletID: walletID, Chain: "ethereum", SyncStatus: wallet.SyncStatusPending},
+	}, nil)
+	walletRepo.On("SetChainCollectCursor", ctx, walletID, "ethereum", mock.Anything).Return(nil)
 }
 
 // =============================================================================
@@ -146,6 +158,7 @@ func TestSyncWallet_InitialSync_ProcessesAllPhases(t *testing.T) {
 
 	// Collector updates cursor
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
+	expectSingleChainSet(walletRepo, ctx, walletID)
 
 	// --- Phase 2: Reconcile ---
 	rawTxRepo.On("DeleteSyntheticByWallet", ctx, walletID).Return(nil)
@@ -160,7 +173,7 @@ func TestSyncWallet_InitialSync_ProcessesAllPhases(t *testing.T) {
 	rawTxRepo.On("GetAllByWallet", ctx, walletID).Return(allRaws, nil)
 
 	// On-chain shows exact balance match (3 ETH total = 1+2 ETH received) → no genesis needed
-	posProvider.On("GetPositions", ctx, walletAddr).Return([]pkgsync.OnChainPosition{
+	posProvider.On("GetPositions", ctx, walletAddr, "ethereum").Return([]pkgsync.OnChainPosition{
 		{ChainID: "ethereum", AssetSymbol: "ETH", Decimals: 18, Quantity: new(big.Int).Add(big.NewInt(1e18), big.NewInt(2e18))},
 	}, nil)
 	rawTxRepo.On("GetEarliestMinedAt", ctx, walletID).Return(&t1Time, nil)
@@ -245,6 +258,7 @@ func TestSyncWallet_IncrementalSync_CollectAndProcess(t *testing.T) {
 	expectChainTxs(provider, ctx, walletAddr, lastSync, []pkgsync.DecodedTransaction{txReceive})
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
+	expectSingleChainSet(walletRepo, ctx, walletID)
 
 	// Processor gets pending transactions
 	rawID := uuid.New()
@@ -341,12 +355,13 @@ func TestSyncWallet_TransactionsProcessedOldestFirst(t *testing.T) {
 	expectChainTxs(provider, ctx, walletAddr, mock.Anything, []pkgsync.DecodedTransaction{tx3, tx2, tx1})
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
+	expectSingleChainSet(walletRepo, ctx, walletID)
 
 	// Reconcile: no genesis needed (exact balance match)
 	rawTxRepo.On("DeleteSyntheticByWallet", ctx, walletID).Return(nil)
 	totalETH := new(big.Int).Add(big.NewInt(1e18), big.NewInt(2e18))
 	totalETH.Add(totalETH, big.NewInt(3e18))
-	posProvider.On("GetPositions", ctx, walletAddr).Return([]pkgsync.OnChainPosition{
+	posProvider.On("GetPositions", ctx, walletAddr, "ethereum").Return([]pkgsync.OnChainPosition{
 		{ChainID: "ethereum", AssetSymbol: "ETH", Decimals: 18, Quantity: totalETH},
 	}, nil)
 	rawTxRepo.On("GetEarliestMinedAt", ctx, walletID).Return(&t1Time, nil)
@@ -440,6 +455,7 @@ func TestSyncWallet_InitialSync_ReconcileCreatesGenesis(t *testing.T) {
 	expectChainTxs(provider, ctx, walletAddr, mock.Anything, []pkgsync.DecodedTransaction{txSend})
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
+	expectSingleChainSet(walletRepo, ctx, walletID)
 
 	// Phase 2: Reconcile
 	rawTxRepo.On("DeleteSyntheticByWallet", ctx, walletID).Return(nil)
@@ -451,7 +467,7 @@ func TestSyncWallet_InitialSync_ReconcileCreatesGenesis(t *testing.T) {
 	rawTxRepo.On("GetAllByWallet", ctx, walletID).Return([]*pkgsync.RawTransaction{sendRaw}, nil)
 
 	// On-chain shows 2 USDC. Net flow is -1 USDC (outflow). Delta = 2 - (-1) = 3 USDC genesis needed.
-	posProvider.On("GetPositions", ctx, walletAddr).Return([]pkgsync.OnChainPosition{
+	posProvider.On("GetPositions", ctx, walletAddr, "ethereum").Return([]pkgsync.OnChainPosition{
 		{ChainID: "ethereum", AssetSymbol: "USDC", Decimals: 6, Quantity: big.NewInt(2_000_000)},
 	}, nil)
 	rawTxRepo.On("GetEarliestMinedAt", ctx, walletID).Return(&t1Time, nil)
@@ -569,12 +585,13 @@ func TestSyncWallet_ConsecutiveErrors_StopsAfterThreshold(t *testing.T) {
 	expectChainTxs(provider, ctx, walletAddr, mock.Anything, txs)
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
+	expectSingleChainSet(walletRepo, ctx, walletID)
 
 	// Phase 2: Reconcile
 	rawTxRepo.On("DeleteSyntheticByWallet", ctx, walletID).Return(nil)
 	rawTxRepo.On("GetAllByWallet", ctx, walletID).Return(pendingRaws, nil)
 	totalETH := new(big.Int).Mul(big.NewInt(1e18), big.NewInt(8))
-	posProvider.On("GetPositions", ctx, walletAddr).Return([]pkgsync.OnChainPosition{
+	posProvider.On("GetPositions", ctx, walletAddr, "ethereum").Return([]pkgsync.OnChainPosition{
 		{ChainID: "ethereum", AssetSymbol: "ETH", Decimals: 18, Quantity: totalETH},
 	}, nil)
 	rawTxRepo.On("GetEarliestMinedAt", ctx, walletID).Return(&txs[0].MinedAt, nil)
@@ -667,6 +684,7 @@ func TestSyncWallet_ProcessorSkipsErrorsAndContinues(t *testing.T) {
 	expectChainTxs(provider, ctx, walletAddr, lastSync, []pkgsync.DecodedTransaction{txReceive1, txSend, txReceive2})
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).Return(nil)
 	walletRepo.On("SetCollectCursor", ctx, walletID, mock.Anything).Return(nil)
+	expectSingleChainSet(walletRepo, ctx, walletID)
 
 	// Process (incremental — no reconcile)
 	rawID1 := uuid.New()

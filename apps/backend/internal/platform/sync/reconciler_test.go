@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pkgsync "github.com/kislikjeka/moontrack/internal/platform/sync"
+	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
@@ -63,11 +64,14 @@ func TestReconcile_PositiveDelta_SynthesizesGenesis(t *testing.T) {
 
 	walletRepo.On("SetSyncPhase", ctx, w.ID, mock.Anything).Return(nil)
 	rawTxRepo.On("DeleteSyntheticByWallet", ctx, w.ID).Return(nil)
+	walletRepo.On("GetChainSyncRows", ctx, w.ID).Return([]wallet.WalletChainSync{
+		{WalletID: w.ID, Chain: "ethereum", SyncStatus: wallet.SyncStatusPending},
+	}, nil)
 
 	// Sent 1 USDC out; on-chain shows 2 USDC → delta = 2 - (-1) = 3 USDC genesis.
 	sendRaw := buildSendRaw(w.ID, "USDC", 6, big.NewInt(1_000_000), t1)
 	rawTxRepo.On("GetAllByWallet", ctx, w.ID).Return([]*pkgsync.RawTransaction{sendRaw}, nil)
-	posProvider.On("GetPositions", ctx, w.Address).Return([]pkgsync.OnChainPosition{
+	posProvider.On("GetPositions", ctx, w.Address, "ethereum").Return([]pkgsync.OnChainPosition{
 		{ChainID: "ethereum", AssetSymbol: "USDC", Decimals: 6, Quantity: big.NewInt(2_000_000)},
 	}, nil)
 	rawTxRepo.On("GetEarliestMinedAt", ctx, w.ID).Return(&t1, nil)
@@ -98,6 +102,9 @@ func TestReconcile_NegativeDeltaBeyondDust_MarksDegraded(t *testing.T) {
 	walletRepo.On("SetSyncPhase", ctx, w.ID, mock.Anything).Return(nil)
 	walletRepo.On("SetSyncError", ctx, w.ID, mock.Anything).Return(nil)
 	rawTxRepo.On("DeleteSyntheticByWallet", ctx, w.ID).Return(nil)
+	walletRepo.On("GetChainSyncRows", ctx, w.ID).Return([]wallet.WalletChainSync{
+		{WalletID: w.ID, Chain: "ethereum", SyncStatus: wallet.SyncStatusPending},
+	}, nil)
 
 	// Received 5 USDC (net inflow +5), but on-chain shows only 2 USDC.
 	// Delta = 2 - 5 = -3 USDC, far beyond dust → degraded.
@@ -114,7 +121,7 @@ func TestReconcile_NegativeDeltaBeyondDust_MarksDegraded(t *testing.T) {
 		ProcessingStatus: pkgsync.ProcessingStatusPending,
 	}
 	rawTxRepo.On("GetAllByWallet", ctx, w.ID).Return([]*pkgsync.RawTransaction{recvRaw}, nil)
-	posProvider.On("GetPositions", ctx, w.Address).Return([]pkgsync.OnChainPosition{
+	posProvider.On("GetPositions", ctx, w.Address, "ethereum").Return([]pkgsync.OnChainPosition{
 		{ChainID: "ethereum", AssetSymbol: "USDC", Decimals: 6, Quantity: big.NewInt(2_000_000)},
 	}, nil)
 	rawTxRepo.On("GetEarliestMinedAt", ctx, w.ID).Return(&t1, nil)
@@ -142,6 +149,9 @@ func TestReconcile_NegativeDeltaWithinDust_Skipped(t *testing.T) {
 
 	walletRepo.On("SetSyncPhase", ctx, w.ID, mock.Anything).Return(nil)
 	rawTxRepo.On("DeleteSyntheticByWallet", ctx, w.ID).Return(nil)
+	walletRepo.On("GetChainSyncRows", ctx, w.ID).Return([]wallet.WalletChainSync{
+		{WalletID: w.ID, Chain: "ethereum", SyncStatus: wallet.SyncStatusPending},
+	}, nil)
 
 	// Received 1000 base units; on-chain shows 995 → delta = -5, within dust (<=10).
 	recvRaw := &pkgsync.RawTransaction{
@@ -157,7 +167,7 @@ func TestReconcile_NegativeDeltaWithinDust_Skipped(t *testing.T) {
 		ProcessingStatus: pkgsync.ProcessingStatusPending,
 	}
 	rawTxRepo.On("GetAllByWallet", ctx, w.ID).Return([]*pkgsync.RawTransaction{recvRaw}, nil)
-	posProvider.On("GetPositions", ctx, w.Address).Return([]pkgsync.OnChainPosition{
+	posProvider.On("GetPositions", ctx, w.Address, "ethereum").Return([]pkgsync.OnChainPosition{
 		{ChainID: "ethereum", AssetSymbol: "USDC", Decimals: 6, Quantity: big.NewInt(995)},
 	}, nil)
 	rawTxRepo.On("GetEarliestMinedAt", ctx, w.ID).Return(&t1, nil)
@@ -187,11 +197,14 @@ func TestReconcile_DecimalsMismatch_MarksDegraded(t *testing.T) {
 	walletRepo.On("SetSyncPhase", ctx, w.ID, mock.Anything).Return(nil)
 	walletRepo.On("SetSyncError", ctx, w.ID, mock.Anything).Return(nil)
 	rawTxRepo.On("DeleteSyntheticByWallet", ctx, w.ID).Return(nil)
+	walletRepo.On("GetChainSyncRows", ctx, w.ID).Return([]wallet.WalletChainSync{
+		{WalletID: w.ID, Chain: "ethereum", SyncStatus: wallet.SyncStatusPending},
+	}, nil)
 
 	// Flow decimals recorded as 18 (from the transfer), but on-chain position is 6.
 	sendRaw := buildSendRaw(w.ID, "USDC", 18, big.NewInt(1_000_000), t1)
 	rawTxRepo.On("GetAllByWallet", ctx, w.ID).Return([]*pkgsync.RawTransaction{sendRaw}, nil)
-	posProvider.On("GetPositions", ctx, w.Address).Return([]pkgsync.OnChainPosition{
+	posProvider.On("GetPositions", ctx, w.Address, "ethereum").Return([]pkgsync.OnChainPosition{
 		{ChainID: "ethereum", AssetSymbol: "USDC", Decimals: 6, Quantity: big.NewInt(2_000_000)},
 	}, nil)
 	rawTxRepo.On("GetEarliestMinedAt", ctx, w.ID).Return(&t1, nil)
