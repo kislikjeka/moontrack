@@ -203,3 +203,7 @@ Canonical five-role vocabulary, label strings equal to role names (`needs-triage
 ### Domain docs
 
 Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Noves API capture
+
+Rules for using the Noves Translate API key (from `.env`, never printed; ≤12 requests/session; reuse testdata via `jq`, no re-querying). See `docs/agents/noves-api-capture.md`.

@@ -1,0 +1,52 @@
+{
+  "accountAddress": "0x9afcd847C633b820a2F291794d28d374B555811B",
+  "chain": "base",
+  "classificationData": {
+    "description": "Received a token amount with more precision than the token supports.",
+    "protocol": {
+      "name": null
+    },
+    "sent": [],
+    "received": [
+      {
+        "action": "received",
+        "amount": "1.23456789",
+        "from": {
+          "address": "0x1111111111111111111111111111111111111111",
+          "name": null
+        },
+        "to": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "decimals": 6,
+          "name": "USD Coin",
+          "symbol": "USDC"
+        }
+      }
+    ],
+    "source": {
+      "type": "inference"
+    },
+    "type": "receiveToken"
+  },
+  "rawTransactionData": {
+    "blockNumber": 40000001,
+    "fromAddress": "0x1111111111111111111111111111111111111111",
+    "timestamp": 1765800100,
+    "toAddress": "0x9afcd847C633b820a2F291794d28d374B555811B",
+    "transactionFee": {
+      "amount": "0.000001",
+      "token": {
+        "address": "ETH",
+        "decimals": 18,
+        "name": "ETH",
+        "symbol": "ETH"
+      }
+    },
+    "transactionHash": "0x0000000000000000000000000000000000000000000000000000000000000def"
+  },
+  "txTypeVersion": 2
+}

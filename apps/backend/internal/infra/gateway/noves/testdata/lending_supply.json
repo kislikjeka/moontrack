@@ -1,0 +1,94 @@
+{
+  "accountAddress": "0x9afcd847C633b820a2F291794d28d374B555811B",
+  "chain": "base",
+  "classificationData": {
+    "description": "Deposited 0.002 cbBTC as collateral and received 0.002 aBascbBTC.",
+    "protocol": {
+      "name": null
+    },
+    "received": [
+      {
+        "action": "collateralSharesMinted",
+        "amount": "0.00199564",
+        "from": {
+          "address": "0x0000000000000000000000000000000000000000",
+          "name": "Null address"
+        },
+        "to": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "Recipient (this wallet)"
+        },
+        "token": {
+          "address": "0xbdb9300b7cde636d9cd4aff00f6f009ffbbc8ee6",
+          "decimals": 8,
+          "name": "Aave Base cbBTC",
+          "symbol": "aBascbBTC"
+        }
+      }
+    ],
+    "sent": [
+      {
+        "action": "deposited",
+        "amount": "0.0019956",
+        "from": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "Depositor (this wallet)"
+        },
+        "to": {
+          "address": "0xBdb9300b7CDE636d9cD4AFF00f6F009fFBBc8EE6",
+          "name": "Lending protocol"
+        },
+        "token": {
+          "address": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+          "decimals": 8,
+          "name": "Coinbase Wrapped BTC",
+          "symbol": "cbBTC"
+        }
+      },
+      {
+        "action": "paidGas",
+        "amount": "0.00000108567020941",
+        "from": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "to": {
+          "address": null,
+          "name": null
+        },
+        "token": {
+          "address": "ETH",
+          "decimals": 18,
+          "name": "ETH",
+          "symbol": "ETH"
+        }
+      }
+    ],
+    "source": {
+      "type": "human"
+    },
+    "type": "depositCollateral"
+  },
+  "rawTransactionData": {
+    "blockNumber": 47879265,
+    "fromAddress": "0x9afcd847C633b820a2F291794d28d374B555811B",
+    "gas": 300000,
+    "gasPrice": 6600000,
+    "gasUsed": 164312,
+    "l1Gas": 1794,
+    "l1GasPrice": 124511595,
+    "timestamp": 1782547877,
+    "toAddress": "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
+    "transactionFee": {
+      "amount": "0.00000108567020941",
+      "token": {
+        "address": "ETH",
+        "decimals": 18,
+        "name": "ETH",
+        "symbol": "ETH"
+      }
+    },
+    "transactionHash": "0x25a2274a0d4fdf9464d8ecb5ca1bef1df87865ce65457c5a59bdb2f807de1468"
+  },
+  "txTypeVersion": 2
+}

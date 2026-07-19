@@ -1,0 +1,94 @@
+{
+  "accountAddress": "0x9afcd847C633b820a2F291794d28d374B555811B",
+  "chain": "base",
+  "classificationData": {
+    "description": "Claimed 1.22 USDC and 0.0008 ETH in rewards.",
+    "protocol": {
+      "name": null
+    },
+    "received": [
+      {
+        "action": "rewardsReceived",
+        "amount": "1.228815",
+        "from": {
+          "address": "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
+          "name": "Uniswap V3 Positions NFT-V1 Contract"
+        },
+        "to": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "decimals": 6,
+          "name": "USD Coin",
+          "symbol": "USDC"
+        }
+      },
+      {
+        "action": "rewardsReceived",
+        "amount": "0.000778307027860423",
+        "from": {
+          "address": "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
+          "name": "Uniswap V3 Positions NFT-V1 Contract"
+        },
+        "to": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "token": {
+          "address": "ETH",
+          "decimals": 18,
+          "name": "ETH",
+          "symbol": "ETH"
+        }
+      }
+    ],
+    "sent": [
+      {
+        "action": "paidGas",
+        "amount": "0.000001508593992919",
+        "from": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "to": {
+          "address": null,
+          "name": null
+        },
+        "token": {
+          "address": "ETH",
+          "decimals": 18,
+          "name": "ETH",
+          "symbol": "ETH"
+        }
+      }
+    ],
+    "source": {
+      "type": "inference"
+    },
+    "type": "claimRewards"
+  },
+  "rawTransactionData": {
+    "blockNumber": 47847001,
+    "fromAddress": "0x9afcd847C633b820a2F291794d28d374B555811B",
+    "gas": 368303,
+    "gasPrice": 7711202,
+    "gasUsed": 194215,
+    "l1Gas": 3173,
+    "l1GasPrice": 524009391,
+    "timestamp": 1782483349,
+    "toAddress": "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
+    "transactionFee": {
+      "amount": "0.000001508593992919",
+      "token": {
+        "address": "ETH",
+        "decimals": 18,
+        "name": "ETH",
+        "symbol": "ETH"
+      }
+    },
+    "transactionHash": "0x2cd7d67bc042bb0c87c7608d53eefc804648087fd2faa534f7879125a08324a2"
+  },
+  "txTypeVersion": 2
+}

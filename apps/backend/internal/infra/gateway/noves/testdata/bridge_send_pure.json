@@ -1,0 +1,75 @@
+{
+  "accountAddress": "0x9afcd847C633b820a2F291794d28d374B555811B",
+  "chain": "base",
+  "classificationData": {
+    "description": "Sent 151.05 GM: ETH/USD [WETH-USDC] to a bridge.",
+    "protocol": {
+      "name": null
+    },
+    "received": [],
+    "sent": [
+      {
+        "action": "bridged",
+        "amount": "151.057598",
+        "from": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "to": {
+          "address": "0x0000000000000000000000000000000000000000",
+          "name": "Null address"
+        },
+        "token": {
+          "address": "0xfcff5015627b8ce9ceaa7f5b38a6679f65fe39a7",
+          "decimals": 18,
+          "name": "GMX Market",
+          "symbol": "GM: ETH/USD [WETH-USDC]"
+        }
+      },
+      {
+        "action": "paidGas",
+        "amount": "0.000003495676498368",
+        "from": {
+          "address": "0x9afcd847C633b820a2F291794d28d374B555811B",
+          "name": "This wallet"
+        },
+        "to": {
+          "address": null,
+          "name": null
+        },
+        "token": {
+          "address": "ETH",
+          "decimals": 18,
+          "name": "ETH",
+          "symbol": "ETH"
+        }
+      }
+    ],
+    "source": {
+      "type": "human"
+    },
+    "type": "sendToBridge"
+  },
+  "rawTransactionData": {
+    "blockNumber": 47847019,
+    "fromAddress": "0x9afcd847C633b820a2F291794d28d374B555811B",
+    "gas": 714098,
+    "gasPrice": 7472343,
+    "gasUsed": 463011,
+    "l1Gas": 10869,
+    "l1GasPrice": 497305167,
+    "timestamp": 1782483385,
+    "toAddress": "0xfcff5015627B8ce9CeAA7F5b38a6679F65fE39a7",
+    "transactionFee": {
+      "amount": "0.000003495676498368",
+      "token": {
+        "address": "ETH",
+        "decimals": 18,
+        "name": "ETH",
+        "symbol": "ETH"
+      }
+    },
+    "transactionHash": "0x91567136770a3821c0b9c4284511e72382e6b0515dedcc16a7eb9bc40ea1d9c8"
+  },
+  "txTypeVersion": 2
+}

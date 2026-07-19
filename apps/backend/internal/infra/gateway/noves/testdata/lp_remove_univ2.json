@@ -1,0 +1,110 @@
+{
+  "accountAddress": "0x9B1054d24dC31a54739B6d8950af5a7dbAa56815",
+  "chain": "polygon",
+  "classificationData": {
+    "description": "Removed 109,853.84 USDC and 97,129.56 agEUR from a liquidity pool.",
+    "protocol": {
+      "name": "QuickSwap"
+    },
+    "received": [
+      {
+        "action": "liquidityRemoved",
+        "amount": "109853.843065",
+        "from": {
+          "address": "0x82A54e66c05FCd555ADAE593848a4257C9e51AD9",
+          "name": "QuickSwap: v2 pool"
+        },
+        "to": {
+          "address": "0x9B1054d24dC31a54739B6d8950af5a7dbAa56815",
+          "name": "This wallet"
+        },
+        "token": {
+          "address": "0x2791bca1f2de4661ed88a30c99a7a9449aa84174",
+          "decimals": 6,
+          "name": "USD Coin (PoS)",
+          "symbol": "USDC"
+        }
+      },
+      {
+        "action": "liquidityRemoved",
+        "amount": "97129.565093482015299955",
+        "from": {
+          "address": "0x82A54e66c05FCd555ADAE593848a4257C9e51AD9",
+          "name": "QuickSwap: v2 pool"
+        },
+        "to": {
+          "address": "0x9B1054d24dC31a54739B6d8950af5a7dbAa56815",
+          "name": "This wallet"
+        },
+        "token": {
+          "address": "0xe0b52e49357fd4daf2c15e02058dce6bc0057db4",
+          "decimals": 18,
+          "name": "agEUR",
+          "symbol": "agEUR"
+        }
+      }
+    ],
+    "sent": [
+      {
+        "action": "lpTokenBurned",
+        "amount": "0.103002419939394076",
+        "from": {
+          "address": "0x9B1054d24dC31a54739B6d8950af5a7dbAa56815",
+          "name": "This wallet"
+        },
+        "to": {
+          "address": "0x82A54e66c05FCd555ADAE593848a4257C9e51AD9",
+          "name": "QuickSwap: v2 pool"
+        },
+        "token": {
+          "address": "0x82a54e66c05fcd555adae593848a4257c9e51ad9",
+          "decimals": 18,
+          "name": "Uniswap V2",
+          "symbol": "UNI-V2"
+        }
+      },
+      {
+        "action": "paidGas",
+        "amount": "0.006211997",
+        "from": {
+          "address": "0x9B1054d24dC31a54739B6d8950af5a7dbAa56815",
+          "name": "This wallet"
+        },
+        "to": {
+          "address": null,
+          "name": null
+        },
+        "token": {
+          "address": "POL",
+          "decimals": 18,
+          "name": "POL",
+          "symbol": "POL"
+        }
+      }
+    ],
+    "source": {
+      "type": "human"
+    },
+    "type": "removeLiquidity"
+  },
+  "rawTransactionData": {
+    "blockNumber": 24982518,
+    "fromAddress": "0x9B1054d24dC31a54739B6d8950af5a7dbAa56815",
+    "gas": 255438,
+    "gasPrice": 31000000000,
+    "gasUsed": 200387,
+    "timestamp": 1644955198,
+    "toAddress": "0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff",
+    "transactionFee": {
+      "amount": "0.006211997",
+      "token": {
+        "address": "POL",
+        "decimals": 18,
+        "name": "POL",
+        "symbol": "POL"
+      }
+    },
+    "transactionHash": "0xa29e3bb51a17967402663d01f28821dd8282c82dc49e91a598a9b4749af7c08d"
+  },
+  "txTypeVersion": 2
+}
