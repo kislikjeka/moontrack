@@ -172,7 +172,7 @@ func TestSyncWallet_InitialSync_ProcessesAllPhases(t *testing.T) {
 	walletRepo.On("GetWalletsByAddressAndUserID", ctx, mock.Anything, userID).Return([]*wallet.Wallet{}, nil)
 
 	// Both transactions succeed
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	// Processor marks raw transactions as processed
@@ -255,7 +255,7 @@ func TestSyncWallet_IncrementalSync_CollectAndProcess(t *testing.T) {
 
 	walletRepo.On("GetWalletsByAddressAndUserID", ctx, mock.Anything, userID).Return([]*wallet.Wallet{}, nil)
 
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	rawTxRepo.On("MarkProcessed", ctx, mock.Anything, mock.Anything).Return(nil)
@@ -366,7 +366,7 @@ func TestSyncWallet_TransactionsProcessedOldestFirst(t *testing.T) {
 
 	// Track the order of external IDs processed
 	var processedOrder []string
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
 			id := args.Get(3).(*string)
 			processedOrder = append(processedOrder, *id)
@@ -491,7 +491,7 @@ func TestSyncWallet_InitialSync_ReconcileCreatesGenesis(t *testing.T) {
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	// Send is processed as transfer_out
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferOut, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferOut, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	rawTxRepo.On("MarkProcessed", ctx, mock.Anything, mock.Anything).Return(nil)
@@ -505,7 +505,7 @@ func TestSyncWallet_InitialSync_ReconcileCreatesGenesis(t *testing.T) {
 	// Verify: genesis + send = 2 RecordTransaction calls
 	ledgerSvc.AssertNumberOfCalls(t, "RecordTransaction", 2)
 	ledgerSvc.AssertCalled(t, "RecordTransaction", ctx, ledger.TxTypeGenesisBalance, "sync_genesis", mock.Anything, mock.Anything, mock.Anything)
-	ledgerSvc.AssertCalled(t, "RecordTransaction", ctx, ledger.TxTypeTransferOut, "zerion", mock.Anything, mock.Anything, mock.Anything)
+	ledgerSvc.AssertCalled(t, "RecordTransaction", ctx, ledger.TxTypeTransferOut, "noves", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // TestSyncWallet_ConsecutiveErrors_StopsAfterThreshold tests that the Processor
@@ -584,7 +584,7 @@ func TestSyncWallet_ConsecutiveErrors_StopsAfterThreshold(t *testing.T) {
 	walletRepo.On("GetWalletsByAddressAndUserID", ctx, mock.Anything, userID).Return([]*wallet.Wallet{}, nil)
 
 	// All RecordTransaction calls fail with a generic error
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, fmt.Errorf("database connection error"))
 
 	rawTxRepo.On("MarkError", ctx, mock.Anything, mock.Anything).Return(nil)
@@ -681,19 +681,19 @@ func TestSyncWallet_ProcessorSkipsErrorsAndContinues(t *testing.T) {
 	walletRepo.On("GetWalletsByAddressAndUserID", ctx, mock.Anything, userID).Return([]*wallet.Wallet{}, nil)
 
 	// First receive succeeds
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "zerion", mock.MatchedBy(func(id *string) bool {
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "noves", mock.MatchedBy(func(id *string) bool {
 		return id != nil && *id == "tx-receive-1"
 	}), mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	// Send fails with negative balance error
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferOut, "zerion", mock.MatchedBy(func(id *string) bool {
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferOut, "noves", mock.MatchedBy(func(id *string) bool {
 		return id != nil && *id == "tx-send"
 	}), mock.Anything, mock.Anything).
 		Return(nil, fmt.Errorf("failed to record transaction: account ACC would have negative balance for USDC"))
 
 	// Third receive succeeds (processing continues past the error)
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "zerion", mock.MatchedBy(func(id *string) bool {
+	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "noves", mock.MatchedBy(func(id *string) bool {
 		return id != nil && *id == "tx-receive-2"
 	}), mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)

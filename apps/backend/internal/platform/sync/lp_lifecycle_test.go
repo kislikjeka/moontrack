@@ -139,7 +139,7 @@ func TestSync_LP_FullLifecycle(t *testing.T) {
 	log := logger.New("test", os.Stdout)
 
 	// Accept all LP transaction types
-	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil)
@@ -337,7 +337,7 @@ func TestSync_LP_UniV3Mint_ClassifiesAsDeposit(t *testing.T) {
 	lpSvc := newMockLPPositionService()
 	log := logger.New("test", os.Stdout)
 
-	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil)
@@ -383,7 +383,7 @@ func TestSync_LP_AaveDeposit_IsLendingSupply(t *testing.T) {
 	lpSvc := newMockLPPositionService()
 	log := logger.New("test", os.Stdout)
 
-	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "zerion", mock.Anything, mock.Anything, mock.Anything).
+	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil)

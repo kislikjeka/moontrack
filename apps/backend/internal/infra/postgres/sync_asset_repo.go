@@ -27,13 +27,13 @@ func NewSyncAssetRepository(pool *pgxpool.Pool) *SyncAssetRepository {
 // Upsert inserts or updates a sync asset on conflict (symbol, chain_id).
 func (r *SyncAssetRepository) Upsert(ctx context.Context, asset *sync.SyncAsset) error {
 	query := `
-		INSERT INTO zerion_assets (symbol, name, chain_id, contract_address, decimals, icon_url)
+		INSERT INTO chain_assets (symbol, name, chain_id, contract_address, decimals, icon_url)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (symbol, chain_id) DO UPDATE SET
-			name = COALESCE(NULLIF(EXCLUDED.name, ''), zerion_assets.name),
-			contract_address = COALESCE(NULLIF(EXCLUDED.contract_address, ''), zerion_assets.contract_address),
+			name = COALESCE(NULLIF(EXCLUDED.name, ''), chain_assets.name),
+			contract_address = COALESCE(NULLIF(EXCLUDED.contract_address, ''), chain_assets.contract_address),
 			decimals = EXCLUDED.decimals,
-			icon_url = COALESCE(NULLIF(EXCLUDED.icon_url, ''), zerion_assets.icon_url),
+			icon_url = COALESCE(NULLIF(EXCLUDED.icon_url, ''), chain_assets.icon_url),
 			updated_at = now()
 	`
 
@@ -57,7 +57,7 @@ func (r *SyncAssetRepository) GetBySymbol(ctx context.Context, symbol, chainID s
 	if chainID != "" {
 		query = `
 			SELECT id, symbol, name, chain_id, contract_address, decimals, icon_url, created_at, updated_at
-			FROM zerion_assets
+			FROM chain_assets
 			WHERE UPPER(symbol) = UPPER($1) AND chain_id = $2
 			LIMIT 1
 		`
@@ -65,7 +65,7 @@ func (r *SyncAssetRepository) GetBySymbol(ctx context.Context, symbol, chainID s
 	} else {
 		query = `
 			SELECT id, symbol, name, chain_id, contract_address, decimals, icon_url, created_at, updated_at
-			FROM zerion_assets
+			FROM chain_assets
 			WHERE UPPER(symbol) = UPPER($1)
 			ORDER BY updated_at DESC
 			LIMIT 1
@@ -93,7 +93,7 @@ func (r *SyncAssetRepository) GetBySymbol(ctx context.Context, symbol, chainID s
 func (r *SyncAssetRepository) GetAllBySymbol(ctx context.Context, symbol string) ([]sync.SyncAsset, error) {
 	query := `
 		SELECT id, symbol, name, chain_id, contract_address, decimals, icon_url, created_at, updated_at
-		FROM zerion_assets
+		FROM chain_assets
 		WHERE UPPER(symbol) = UPPER($1)
 		ORDER BY chain_id
 	`

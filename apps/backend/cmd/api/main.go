@@ -14,7 +14,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/infra/gateway/coingecko"
 	"github.com/kislikjeka/moontrack/internal/infra/gateway/defillama"
 	"github.com/kislikjeka/moontrack/internal/infra/gateway/geckoterminal"
-	"github.com/kislikjeka/moontrack/internal/infra/gateway/zerion"
+	"github.com/kislikjeka/moontrack/internal/infra/gateway/noves"
 	"github.com/kislikjeka/moontrack/internal/infra/postgres"
 	infraRedis "github.com/kislikjeka/moontrack/internal/infra/redis"
 	"github.com/kislikjeka/moontrack/internal/ledger"
@@ -233,7 +233,7 @@ func main() {
 
 	// Initialize blockchain sync service
 	var syncSvc *sync.Service
-	if cfg.ZerionAPIKey != "" {
+	if cfg.NovesAPIKey != "" {
 		syncConfig := &sync.Config{
 			PollInterval:        cfg.SyncPollInterval,
 			ConcurrentWallets:   3,
@@ -242,19 +242,21 @@ func main() {
 		}
 		syncAssetAdapter := sync.NewSyncAssetAdapter(assetSvc)
 
-		zerionClient := zerion.NewClient(cfg.ZerionAPIKey, log)
-		txProvider := zerion.NewSyncAdapter(zerionClient)
-		log.Info("Zerion sync provider initialized")
+		// The Noves adapter implements both provider ports: decoded transactions
+		// (TransactionDataProvider) and on-chain balances (PositionDataProvider).
+		novesClient := noves.NewClient(cfg.NovesAPIKey, log)
+		novesAdapter := noves.NewSyncAdapter(novesClient)
+		log.Info("Noves sync provider initialized")
 
 		rawTxRepo := postgres.NewRawTransactionRepository(db.Pool)
 
 		priceBackfillJobRepo := postgres.NewPriceBackfillJobRepository(db.Pool)
-		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, txProvider, txProvider, rawTxRepo, syncAssetRepo, lpPositionSvc, lendingPositionSvc, assetSvc, priceBackfillJobRepo)
+		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, novesAdapter, novesAdapter, rawTxRepo, syncAssetRepo, lpPositionSvc, lendingPositionSvc, assetSvc, priceBackfillJobRepo)
 		log.Info("Sync service initialized",
 			"poll_interval", cfg.SyncPollInterval,
-			"provider", "zerion")
+			"provider", "noves")
 	} else {
-		log.Warn("ZERION_API_KEY not set, sync disabled")
+		log.Warn("NOVES_API_KEY not set, sync disabled")
 	}
 
 	// Initialize HTTP handlers

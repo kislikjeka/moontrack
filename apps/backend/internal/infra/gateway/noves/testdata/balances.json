@@ -1,0 +1,35 @@
+[
+  {
+    "balance": "1.075192143935849059",
+    "usdValue": null,
+    "token": {
+      "symbol": "ETH",
+      "name": "Ether",
+      "decimals": 18,
+      "address": "ETH",
+      "price": null
+    }
+  },
+  {
+    "balance": "7854.743084",
+    "usdValue": null,
+    "token": {
+      "symbol": "USDC",
+      "name": "USD Coin",
+      "decimals": 6,
+      "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+      "price": null
+    }
+  },
+  {
+    "balance": "0.07685618",
+    "usdValue": null,
+    "token": {
+      "symbol": "cbBTC",
+      "name": "Coinbase Wrapped BTC",
+      "decimals": 8,
+      "address": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+      "price": null
+    }
+  }
+]

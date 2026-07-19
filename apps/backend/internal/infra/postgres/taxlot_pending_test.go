@@ -58,7 +58,7 @@ func seedTransactionForPendingTest(t *testing.T, ctx context.Context, walletID u
 		INSERT INTO transactions (
 			id, type, source, external_id, wallet_id,
 			status, version, occurred_at, recorded_at, raw_data
-		) VALUES ($1, 'transfer_in', 'zerion', $2, $3, 'COMPLETED', 1, NOW(), NOW(), '{}'::jsonb)
+		) VALUES ($1, 'transfer_in', 'noves', $2, $3, 'COMPLETED', 1, NOW(), NOW(), '{}'::jsonb)
 	`, txID, txID.String(), walletID)
 	require.NoError(t, err)
 	return txID

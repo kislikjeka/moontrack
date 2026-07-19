@@ -96,3 +96,33 @@ type Fee struct {
 	Amount json.Number `json:"amount"`
 	Token  *Token      `json:"token"`
 }
+
+// BalanceItem is a single token balance from the per-chain balances endpoint
+// (GET /evm/{chain}/tokens/balancesOf/{address}). The endpoint returns a
+// top-level JSON array of these. Balance is a decimal string (like transfer
+// amounts); the token mirrors the transfer Token shape (native coin uses the
+// symbol-as-address sentinel, e.g. address == "ETH").
+type BalanceItem struct {
+	Balance  string        `json:"balance"`
+	USDValue *json.Number  `json:"usdValue"`
+	Token    *BalanceToken `json:"token"`
+}
+
+// BalanceToken is the token descriptor inside a BalanceItem. It carries an
+// optional Price (nullable) in addition to the fungible Token fields; MoonTrack
+// keeps its own price pipeline, so Price is only used as a best-effort hint.
+type BalanceToken struct {
+	Symbol   string       `json:"symbol"`
+	Name     string       `json:"name"`
+	Decimals int          `json:"decimals"`
+	Address  string       `json:"address"`
+	Price    *json.Number `json:"price"`
+}
+
+// balancesErrorEnvelope is the non-array error body the balances endpoint returns
+// for degenerate cases (e.g. a wallet with too many ERC-20 balances). It decodes
+// a JSON object with a single "detail" field, which we surface as an error rather
+// than crash on the type mismatch against the expected array.
+type balancesErrorEnvelope struct {
+	Detail string `json:"detail"`
+}

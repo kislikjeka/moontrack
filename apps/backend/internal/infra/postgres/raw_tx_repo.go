@@ -24,7 +24,7 @@ func NewRawTransactionRepository(pool *pgxpool.Pool) *RawTransactionRepository {
 	return &RawTransactionRepository{pool: pool}
 }
 
-const rawTxColumns = `id, wallet_id, zerion_id, tx_hash, chain_id,
+const rawTxColumns = `id, wallet_id, external_id, tx_hash, chain_id,
 	operation_type, mined_at, status, raw_json,
 	processing_status, processing_error, ledger_tx_id,
 	is_synthetic, created_at, processed_at`
@@ -33,12 +33,12 @@ const rawTxColumns = `id, wallet_id, zerion_id, tx_hash, chain_id,
 func (r *RawTransactionRepository) UpsertRawTransaction(ctx context.Context, raw *sync.RawTransaction) error {
 	query := `
 		INSERT INTO raw_transactions (
-			id, wallet_id, zerion_id, tx_hash, chain_id,
+			id, wallet_id, external_id, tx_hash, chain_id,
 			operation_type, mined_at, status, raw_json,
 			processing_status, processing_error, ledger_tx_id,
 			is_synthetic, created_at, processed_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-		ON CONFLICT (wallet_id, zerion_id) DO NOTHING
+		ON CONFLICT (wallet_id, external_id) DO NOTHING
 	`
 
 	if raw.ID == uuid.Nil {

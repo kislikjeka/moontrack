@@ -3,7 +3,7 @@ package sync
 import "context"
 
 // DecimalSource adapts SyncAssetRepository to money.AssetDecimalSource.
-// It queries the sync asset store (zerion_assets table) for token metadata discovered during sync.
+// It queries the sync asset store (chain_assets table) for token metadata discovered during sync.
 type DecimalSource struct {
 	repo SyncAssetRepository
 }
