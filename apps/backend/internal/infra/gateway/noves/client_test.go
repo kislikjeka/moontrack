@@ -88,7 +88,13 @@ func TestClient_URLAndParams(t *testing.T) {
 	assert.Equal(t, "/evm/eth/txs/0xwallet", receivedPath)
 	assert.Contains(t, receivedQuery, "sort=asc")
 	assert.Contains(t, receivedQuery, "pageSize=")
-	assert.Contains(t, receivedQuery, "startTimestamp=1718452800000")
+	// startTimestamp is in SECONDS. Confirmed against the live API (issue #29
+	// probe): a millisecond value is rejected with HTTP 400 "Start Timestamp
+	// must be less than the current time", because the API reads it as a
+	// far-future instant. 2024-06-15T12:00:00Z == 1718452800 seconds.
+	assert.Contains(t, receivedQuery, "startTimestamp=1718452800")
+	assert.NotContains(t, receivedQuery, "startTimestamp=1718452800000",
+		"startTimestamp must be seconds, not milliseconds")
 }
 
 func TestClient_ZeroSinceOmitsStartTimestamp(t *testing.T) {

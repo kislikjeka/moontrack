@@ -1,96 +1,100 @@
-# #27 — wallet_chain_sync table + Enabled-set default + chain fan-out
+# #29 — Oldest-first high-water cursor + completeness
 
-Parent: #23 (Noves migration). Scope: **strictly #27** — introduce the per-(wallet, chain)
-sync-state table, make the collector/reconciler fan out over a wallet's *enabled chains read
-from the rows*, and make wallet-level `sync_status` a derived rollup. Per-chain independent
-cursors + failure isolation + resume-without-skip are **#28** and out of scope here.
+Parent: #23 (Noves migration). Scope: collect history **oldest→newest** with an
+inclusive high-water-mark cursor, so an interrupted deep sync resumes forward and
+can never silently skip the oldest (lowest-cost-basis) history.
+
+## Live probe (plan prerequisite) — DONE
+
+Probed the live Noves API (5 requests, budget 12, key never printed).
+Address `0x9afc…811B`, chain `base`.
+
+| Question | Result |
+|---|---|
+| `sort=asc` supported | **Yes** — native ascending confirmed |
+| pagination-direction-follows-sort | **Yes** — the asc `nextPageUrl` carries `startBlock=<next>&endBlock=&sort=asc` plus `ignoreTransactions=<boundary hash>` to dedupe the boundary block |
+| cursor stability / `startTimestamp` inclusive | **Inclusive (`>=`)** — the anchor tx comes back as `items[0]` |
+| `startTimestamp` unit | **SECONDS** — millisecond values are rejected with HTTP 400 `"Start Timestamp must be less than the current time"` |
+
+**Verdict:** use the **native ascending** path. The range-anchor + reorder fallback
+is not needed.
+
+**Bug the probe found:** the client sends `since.UnixMilli()`, so *every* collect with
+a non-zero `since` fails with HTTP 400. Broken since #25; masked in production by
+#28's per-chain error isolation (the chain is marked errored and the loop continues).
 
 ## Design decisions
 
-- The **rows of `wallet_chain_sync` ARE the wallet chain set.** One row per enabled chain.
-  Columns: `wallet_id`, `chain` (domain slug), `collect_cursor_at`, `sync_status`, `sync_error`,
-  `last_sync_at`, `sync_phase`, `created_at`, `updated_at`. PK `(wallet_id, chain)`.
-- New wallet defaults its chain set to the **Enabled** set (`ethereum`, `base`, `arbitrum`) —
-  seeded at wallet creation.
-- Wallet identity stays `UNIQUE(user_id, address)` — unchanged. Chain set is orthogonal.
-- Collector loops the **wallet's enabled chain rows** (not the global `GetSupportedChains()`),
-  invoking the chain-aware provider per chain. Per-chain collect cursor is written as a
-  side-effect (not yet independent-failure-isolated — that's #28).
-- Reconciler runs **per enabled chain**: the reconciler drives the fan-out over the wallet's
-  chain set and calls the position provider per chain, so a wallet reconciles only its enabled
-  chains (moving the fan-out loop out of the Noves adapter into the reconciler).
-- Wallet-level `sync_status` becomes a **derived rollup** over the chain rows:
-  error if any errored; syncing if any syncing; else synced (pending if all pending).
+- **Cursor = contiguous high-water mark, not max.** Advance only across the
+  unbroken ascending prefix of successfully-persisted transactions. The moment one
+  transaction fails to serialize or upsert, the cursor stops there — everything
+  after it is re-fetched next cycle rather than skipped forever.
+- **Inclusive boundary (`>=`).** The cursor tx itself comes back on the next run;
+  the idempotent upsert absorbs the duplicate. Never store `cursor+1ns` to
+  "avoid" the dupe — that is exactly how a same-timestamp sibling gets skipped.
+- **Per-page persistence.** The client streams pages to a callback; the collector
+  persists and advances the cursor after each page. An interrupted deep sync
+  (ctx cancel, rate-limit exhaustion, 5xx) keeps everything already collected and
+  resumes forward from the last good page.
+- Ascending order is the collector's **invariant**, not an assumption: it sorts
+  each page by `MinedAt` before folding, so a provider that ignores `sort` cannot
+  corrupt the high-water mark.
 
-## Tasks
+## Plan
 
-- [ ] **Migration 000029** (`wallet_chain_sync`): create table; seed every existing wallet with
-      the Enabled set (eth/base/arbitrum), copying its current wallet-level cursor/status as the
-      starting per-chain state; down drops the table.
-- [ ] **Domain model** (`wallet/model.go`): `WalletChainSync` struct; `EnabledChains()` returns the
-      default Enabled set; keep `GetSupportedChains()`/`IsValidChain()` etc.
-- [ ] **Rollup helper** (`wallet` pkg): `RollupStatus([]WalletChainSync) SyncStatus` — pure fn + unit tests.
-- [ ] **Wallet repo** (`postgres/wallet_repo.go`): seed chain-set rows on `Create`; add
-      `GetChainSyncRows(walletID)`, `SetChainCollectCursor(walletID, chain, cursor)`,
-      `SetChainSyncPhase(walletID, chain, phase)`; derive+persist the rollup onto `wallets.sync_status`.
-- [ ] **sync port** (`sync/port.go`): extend `WalletRepository` with the per-chain setters +
-      `GetChainSyncRows`; extend `PositionDataProvider` to be **chain-aware**
-      (`GetPositions(ctx, address, chain)`), so the reconciler owns the fan-out.
-- [ ] **Collector** (`collector.go`): fan out over the wallet's chain-set rows; write per-chain
-      cursor. Keep aggregate behavior otherwise.
-- [ ] **Reconciler** (`reconciler.go`): fan out over the wallet's chain-set rows; call
-      `posProvider.GetPositions(ctx, addr, chain)` per chain; per-chain flow/genesis unchanged.
-- [ ] **Noves positions adapter** (`noves/positions.go`): make `GetPositions` chain-aware
-      (single chain), dropping its internal fan-out loop (now owned by the reconciler).
-- [ ] **Wiring** (`cmd/api/main.go`): verify `Create` seeding path; no new services expected.
-
-## Tests (TDD at the two agreed seams)
-
-- [ ] **Port seam** (`service_test.go` / new `chain_fanout_test.go`): a wallet with 3 enabled
-      chain rows → provider invoked once per chain; txs on all 3 chains → ledger data on all 3.
-- [ ] **Rollup unit test**: mixed chain statuses → correct wallet rollup.
-- [ ] **Reconciler per-chain**: reconcile invokes positions per enabled chain; genesis per chain.
-- [ ] Update existing mocks (`MockWalletRepository`, `MockPositionDataProvider`) for new methods.
-- [ ] Full suite (`go test ./... -short`) green at the end.
+- [x] Live probe + record results
+- [x] Fix `startTimestamp` unit ms → seconds (test-first)
+- [x] Stream pages via callback so collection persists incrementally
+- [x] Contiguous high-water fold (stop at first un-persisted tx)
+- [x] Inclusive-boundary handling documented + tested
+- [x] Unit tests for each behavior; full suite at the end
 
 ## Review
 
-Implemented #27 strictly (per user decision): table + chain-set fan-out + rollup; failure
-isolation and per-chain independent incremental cursors deferred to #28.
+**What changed**
 
-**Delivered**
-- **Migration 000029** (`wallet_chain_sync.up/down.sql`): `(wallet_id, chain)` PK table with
-  per-chain `sync_status`/`sync_error`/`sync_phase`/`collect_cursor_at`/`last_sync_at` + check
-  constraints + index; seeds every existing wallet with eth/base/arbitrum via `CROSS JOIN`.
-  Verified up→down→up on the real dev DB (1 wallet → 3 rows; down drops table; re-up re-seeds).
-- **Domain** (`wallet/model.go`): `WalletChainSync` struct; `RollupStatus()` pure fold
-  (error>syncing>synced>pending, empty→pending) + `EnabledChains()`. Unit-tested (`rollup_test.go`).
-- **Wallet repo** (`postgres/wallet_repo.go`): `Create` seeds the Enabled chain set in one tx;
-  `GetChainSyncRows`, `SetChainSyncPhase`, `SetChainCollectCursor`; the three lifecycle setters
-  (`ClaimWalletForSync`/`SetSyncCompletedAt`/`SetSyncError`) mirror status into the chain rows so
-  `wallets.sync_status` stays a true rollup. Integration-tested (`wallet_chain_sync_test.go`, 4 tests).
-- **sync port**: `WalletRepository` gains the three chain methods; `PositionDataProvider` is now
-  chain-aware (`GetPositions(ctx, address, chain)`).
-- **Collector**: fans out over the wallet's chain-set rows (not the global set), advancing each
-  chain's own collect cursor + the wallet-level max (incremental baseline).
-- **Reconciler**: owns the position fan-out over the wallet's chain set, calling the provider per
-  enabled chain; genesis synthesis per chain unchanged.
-- **Noves adapter**: `GetPositions` is single-chain (fan-out moved to the reconciler).
-- **Port-seam tests** (`chain_fanout_test.go`): 3-enabled-chain wallet → provider invoked once per
-  chain, raw stored + cursor advanced per chain; reconciler → genesis per chain.
+- `noves/client.go` — `startTimestamp` now in **seconds** (was `UnixMilli()`, an
+  HTTP 400 on every non-zero `since`). New `StreamTransactions` pages via the
+  `onPage` callback; `GetTransactions` is now a thin accumulator over it.
+- `noves/adapter.go` — mirrors the same split, converting each page to domain
+  types before handing it on.
+- `sync/port.go` — `TransactionDataProvider` gains `StreamTransactions`, and its
+  doc now states the ordering + inclusive-boundary contract the collector relies on.
+- `sync/collector.go` — per-chain collection extracted into `collectChain`
+  (streams, persists and advances the cursor per page) plus `storeAscending`
+  (defensive sort + contiguous-prefix fold, reports page contiguity).
+- `sync/high_water_cursor_test.go` — 6 new tests covering the cursor contract.
 
 **Verification**
-- `go build ./...`, `go vet`, full `go test ./... -short` all green.
-- Real-DB integration: 4 new wallet-chain-sync tests pass (seeding, per-chain setters, rollup
-  invariant across lifecycle, migration seed shape). Migration up/down/up verified on dev DB.
 
-**Not changed / deferred**
-- Per-chain failure isolation + independent incremental cursors + resume-without-skip → **#28**.
-- Wallet handler still advertises `GetSupportedChains()` (Compatible set); frontend/API chain-set
-  editing is a #23 follow-up.
+- `go build ./...`, `go vet ./...`, `gofmt` all clean.
+- Full backend suite green (`go test ./... -short`), 21 packages.
+- **Live end-to-end run through the real client**: no HTTP 400, results
+  ascending, and `first tx == anchor` — the inclusive boundary confirmed against
+  the production API, not just mocks.
 
-**Pre-existing failures (confirmed on clean `main`, not from this work)**
-- `TestSyncService_*` integration tests panic: `setupIntegrationTest` passes `nil` rawTxRepo →
-  collector nil. Broken before this branch (verified by stashing).
-- `TestLedgerRepository_*` / `ledger_precision_test.go`: insert dropped `wallets.chain_id`.
-- `TestPriceReader_*`: 32-char test contract fails EVM validator.
+**Two-axis code review — findings applied**
+
+1. *Spec, correctness:* contiguity was enforced only WITHIN a page — a gap on
+   page 1 was forgotten, so a later clean page pushed the cursor past the
+   unstored transaction. This was the exact silent-skip the ticket exists to
+   prevent. Fixed by carrying a `contiguous` flag across the whole stream;
+   regression test `TestCollect_CursorContiguityHoldsAcrossPages` fails on the
+   old code and passes on the new.
+2. *Spec:* a failed `SetChainCollectCursor` write was logged and ignored, letting
+   a later page advance past an un-persisted mark — the same skip by another
+   route. The cursor now freezes for the rest of the cycle.
+3. *Spec:* the non-streaming error path returned `0, 0, err`, discarding counts.
+4. *Standards (Speculative Generality):* `StreamingTransactionDataProvider` was
+   an optional interface with a runtime type assertion, but there is exactly one
+   production provider — the fallback branch was dead. Folded streaming into
+   `TransactionDataProvider` and deleted the branch and the second `var _` check.
+
+**Notes**
+
+- `golangci-lint` reports `typecheck` noise on the sync test mocks (it doesn't
+  resolve the embedded `mock.Mock`). Confirmed identical on clean `main` —
+  pre-existing, unrelated to this work.
+- The ms→seconds fix is technically outside #29's literal text, but the ticket's
+  mandated probe is what surfaced it, and the cursor cannot be exercised at all
+  while every windowed request 400s.
