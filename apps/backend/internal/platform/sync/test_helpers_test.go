@@ -127,6 +127,14 @@ func (m *MockLedgerService) RecordTransaction(ctx context.Context, transactionTy
 	return args.Get(0).(*ledger.Transaction), args.Error(1)
 }
 
+func (m *MockLedgerService) FindBySourceExternalID(ctx context.Context, source, externalID string) (*ledger.Transaction, error) {
+	args := m.Called(ctx, source, externalID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*ledger.Transaction), args.Error(1)
+}
+
 // =============================================================================
 // Mock Asset Service
 // =============================================================================

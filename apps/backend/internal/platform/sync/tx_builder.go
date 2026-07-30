@@ -76,11 +76,15 @@ func (p *TxBuilder) ProcessTransaction(ctx context.Context, w *wallet.Wallet, tx
 
 	txType, destWalletID := p.detectInternalTransfer(ctx, w, tx, txType)
 
-	// Skip incoming side of internal transfers (recorded from outgoing side)
+	// The incoming side of an internal transfer does not record anything: the
+	// movement is one event, owned by the outgoing (source) side. It still has
+	// to come away pointing at that shared transaction, though — the raw's
+	// ledger_tx_id is what ties this wallet to the transaction that credited
+	// it, and wipe/replay is scoped by exactly that reference (issue #31).
 	if txType == ledger.TxTypeInternalTransfer && p.isIncomingSide(w, tx) {
-		p.logger.Debug("skipping internal transfer (will be recorded from source)",
-			"wallet_id", w.ID, "tx_hash", tx.TxHash)
-		return nil, nil
+		p.logger.Debug("skipping internal transfer (recorded from source side)",
+			"wallet_id", w.ID, "tx_hash", tx.TxHash, "external_id", tx.ID)
+		return p.findSharedLedgerTx(ctx, tx.ID)
 	}
 
 	var data map[string]interface{}
@@ -127,8 +131,14 @@ func (p *TxBuilder) ProcessTransaction(ctx context.Context, w *wallet.Wallet, tx
 	ledgerTx, err := p.ledgerSvc.RecordTransaction(ctx, txType, sourceName, &externalID, tx.MinedAt, data)
 	if err != nil {
 		if isDuplicateError(err) {
-			p.logger.Debug("transaction already recorded (idempotent)", "external_id", externalID)
-			return nil, nil
+			// Another of the user's wallets already recorded this on-chain
+			// event: external_id is chain:txHash under UNIQUE(source,
+			// external_id), so one event is one ledger transaction however many
+			// wallets observed it. This wallet yields ownership but still
+			// reports the shared transaction, so its raw references it.
+			p.logger.Debug("transaction already recorded by another wallet (idempotent)",
+				"external_id", externalID, "wallet_id", w.ID)
+			return p.findSharedLedgerTx(ctx, externalID)
 		}
 		return nil, fmt.Errorf("failed to record transaction: %w", err)
 	}
@@ -231,6 +241,32 @@ func (p *TxBuilder) tagUnclassifiedForReview(tx DecodedTransaction, txType ledge
 	data[unclassifiedReviewKey] = true
 	data[unclassifiedReviewReasonKey] = reason
 	data[unclassifiedProviderTypeKey] = providerType
+}
+
+// findSharedLedgerTx resolves the ledger transaction an on-chain event already
+// became, for a wallet that observed the event but does not own the recording.
+//
+// Returning the id (rather than nil) is what lets the caller mark this wallet's
+// raw as referencing the shared transaction. Without that reference the wipe
+// cannot reach the transaction from this side: `wipe_wallet_ledger` scopes
+// itself to the transactions a wallet's raws point at, so a dangling NULL would
+// leave one participant unable to re-derive a transaction it takes part in.
+//
+// A nil result is legitimate and means "not recorded yet" — the counterpart
+// wallet has not synced this event. The raw stays pending and a later cycle
+// resolves it. A lookup *error*, by contrast, is propagated: silently dropping
+// the reference would mark the raw done while leaving it orphaned.
+func (p *TxBuilder) findSharedLedgerTx(ctx context.Context, externalID string) (*uuid.UUID, error) {
+	existing, err := p.ledgerSvc.FindBySourceExternalID(ctx, sourceName, externalID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve shared ledger transaction %q: %w", externalID, err)
+	}
+	if existing == nil {
+		p.logger.Debug("shared transaction not recorded yet, leaving raw pending",
+			"external_id", externalID)
+		return nil, fmt.Errorf("%w: %s", ErrSharedTxPending, externalID)
+	}
+	return &existing.ID, nil
 }
 
 // detectInternalTransfer checks if a transfer_in/transfer_out is actually an internal

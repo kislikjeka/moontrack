@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -74,7 +75,8 @@ func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 	var lastSuccessfulMinedAt *time.Time
 	processed := 0
 	skipped := 0
-	errors := 0
+	deferred := 0
+	errCount := 0
 	consecutiveErrors := 0
 
 	for _, raw := range raws {
@@ -88,6 +90,35 @@ func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 		}
 
 		if processErr != nil {
+			if errors.Is(processErr, ErrSharedTxPending) {
+				// This raw belongs to an on-chain event owned by another of the
+				// user's wallets that has not recorded it yet (typically the
+				// incoming side of an internal transfer whose source wallet
+				// syncs later). Leave the raw pending and move on: marking it
+				// skipped would strand one side of a real transfer forever, and
+				// marking it an error would burn the consecutive-error budget on
+				// an ordinary ordering race.
+				//
+				// On a wallet that has synced before, the counterpart has had a
+				// cycle to appear, so a still-unresolved raw is no longer an
+				// ordinary race — it may be a counterpart wallet that was
+				// deleted or whose chain is not enabled, which would leave this
+				// raw pending indefinitely. Surface that at WARN so the stall is
+				// visible rather than silent. (Ageing such a raw out to a plain
+				// transfer_in is the bridge window's job — issue #33.)
+				if w.LastSyncAt != nil {
+					p.logger.Warn("raw still deferred after a previous sync: counterpart wallet has not recorded this event",
+						"wallet_id", w.ID, "raw_id", raw.ID, "external_id", raw.ExternalID,
+						"tx_hash", raw.TxHash, "chain_id", raw.ChainID)
+				} else {
+					p.logger.Debug("raw deferred: shared transaction not recorded yet",
+						"wallet_id", w.ID, "raw_id", raw.ID, "external_id", raw.ExternalID)
+				}
+				deferred++
+				consecutiveErrors = 0
+				continue
+			}
+
 			if isDuplicateError(processErr) {
 				// Idempotent — already processed
 				if err := p.rawTxRepo.MarkSkipped(ctx, raw.ID, "duplicate"); err != nil {
@@ -111,7 +142,7 @@ func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 				p.logger.Error("failed to mark error", "raw_id", raw.ID, "error", err)
 			}
 
-			errors++
+			errCount++
 			consecutiveErrors++
 
 			if consecutiveErrors > 5 {
@@ -125,11 +156,16 @@ func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 
 		// Success
 		if ledgerTxID != nil {
+			// Either this wallet recorded the transaction, or it observed an
+			// on-chain event another of the user's wallets recorded. Both are
+			// marked processed against the ledger transaction: the reference is
+			// what lets the wipe reach a shared transaction from either side.
 			if err := p.rawTxRepo.MarkProcessed(ctx, raw.ID, *ledgerTxID); err != nil {
 				p.logger.Error("failed to mark processed", "raw_id", raw.ID, "error", err)
 			}
 		} else {
-			// ProcessTransaction returned nil (e.g., skipped failed/unclassifiable tx)
+			// Nothing to record (failed, unclassifiable, or an intentionally
+			// ignored operation such as approve).
 			if err := p.rawTxRepo.MarkSkipped(ctx, raw.ID, "skipped by processor"); err != nil {
 				p.logger.Error("failed to mark skipped", "raw_id", raw.ID, "error", err)
 			}
@@ -160,7 +196,8 @@ func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 		"wallet_id", w.ID,
 		"processed", processed,
 		"skipped", skipped,
-		"errors", errors)
+		"deferred", deferred,
+		"errors", errCount)
 
 	return nil
 }

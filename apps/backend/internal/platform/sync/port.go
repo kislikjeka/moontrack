@@ -26,6 +26,17 @@ const (
 // LedgerService defines the interface for ledger operations needed by sync
 type LedgerService interface {
 	RecordTransaction(ctx context.Context, transactionType ledger.TransactionType, source string, externalID *string, occurredAt time.Time, rawData map[string]interface{}) (*ledger.Transaction, error)
+
+	// FindBySourceExternalID resolves the transaction already recorded under a
+	// (source, external_id) pair, or (nil, nil) when none exists.
+	//
+	// Sync needs this because idempotency is global per on-chain event while
+	// raw transactions are wallet-scoped: when one of the user's wallets does
+	// not own the ledger transaction for an event it nonetheless observed —
+	// a duplicate-skip, or the incoming side of an internal transfer — it must
+	// still learn which transaction that event became, so its raw can reference
+	// it (issue #31).
+	FindBySourceExternalID(ctx context.Context, source, externalID string) (*ledger.Transaction, error)
 }
 
 // WalletRepository defines wallet data access for sync operations
@@ -90,6 +101,13 @@ type WalletRepository interface {
 type PositionDataProvider interface {
 	GetPositions(ctx context.Context, address, chain string) ([]OnChainPosition, error)
 }
+
+// ErrSharedTxPending reports that a raw transaction describes an on-chain event
+// owned by another of the user's wallets which has not recorded it yet — most
+// often the incoming side of an internal transfer whose source wallet has not
+// synced. It is a deferral, not a failure: the raw stays pending so a later
+// cycle resolves it once the counterpart exists (issue #31).
+var ErrSharedTxPending = errors.New("shared transaction not recorded yet")
 
 // isDuplicateError checks if the error is due to a unique constraint violation (PostgreSQL error code 23505)
 func isDuplicateError(err error) bool {
