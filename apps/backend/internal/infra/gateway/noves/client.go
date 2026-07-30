@@ -171,10 +171,43 @@ func (c *Client) doRequest(ctx context.Context, method, reqURL string, params ur
 }
 
 // GetTransactions fetches classified transactions for a single chain and
-// address, oldest-first. The chain is a Noves short slug (e.g. "eth", "base").
-// It paginates by following nextPageUrl until hasNextPage is false. A non-zero
-// since is passed as startTimestamp (Unix milliseconds).
+// address, oldest-first, accumulating every page into one slice. Prefer
+// StreamTransactions when the caller can persist incrementally — a deep sync
+// interrupted partway through loses nothing there, while this method discards
+// all collected pages on any error.
 func (c *Client) GetTransactions(ctx context.Context, chain, address string, since time.Time) ([]Transaction, error) {
+	var allTxs []Transaction
+	err := c.StreamTransactions(ctx, chain, address, since, func(page []Transaction) error {
+		allTxs = append(allTxs, page...)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return allTxs, nil
+}
+
+// StreamTransactions fetches classified transactions for a single chain and
+// address oldest-first, invoking onPage once per page in ascending order. The
+// chain is a Noves short slug (e.g. "eth", "base"). It paginates by following
+// nextPageUrl until hasNextPage is false.
+//
+// Ordering and windowing were confirmed against the live API (issue #29 probe):
+//   - sort=asc is honored natively, so no client-side reordering is needed;
+//   - pagination direction follows sort — an ascending nextPageUrl advances
+//     startBlock forward and carries ignoreTransactions for the boundary block,
+//     so pages arrive strictly oldest→newest;
+//   - startTimestamp is INCLUSIVE (>=): a transaction mined exactly at `since`
+//     is returned. Callers therefore re-see their cursor transaction and rely on
+//     idempotent storage to absorb it, rather than nudging the boundary forward
+//     (which would skip same-timestamp siblings).
+//
+// startTimestamp is expressed in SECONDS. Sending milliseconds makes the API
+// read it as a far-future instant and reject the request with HTTP 400.
+//
+// If onPage returns an error, pagination stops and that error is returned to the
+// caller unwrapped, so a caller can use it as a deliberate early exit.
+func (c *Client) StreamTransactions(ctx context.Context, chain, address string, since time.Time, onPage func([]Transaction) error) error {
 	fetchStart := time.Now()
 	reqURL := fmt.Sprintf("%s/evm/%s/txs/%s", c.baseURL, chain, address)
 
@@ -182,23 +215,31 @@ func (c *Client) GetTransactions(ctx context.Context, chain, address string, sin
 	params.Set("pageSize", strconv.Itoa(defaultPageSize))
 	params.Set("sort", "asc")
 	if !since.IsZero() {
-		params.Set("startTimestamp", strconv.FormatInt(since.UnixMilli(), 10))
+		params.Set("startTimestamp", strconv.FormatInt(since.Unix(), 10))
 	}
 
-	var allTxs []Transaction
+	total := 0
+	pages := 0
 
 	for {
 		body, err := c.doRequest(ctx, http.MethodGet, reqURL, params)
 		if err != nil {
-			return nil, fmt.Errorf("GetTransactions failed: %w", err)
+			return fmt.Errorf("GetTransactions failed: %w", err)
 		}
 
 		var resp TransactionsResponse
 		if err := json.Unmarshal(body, &resp); err != nil {
-			return nil, fmt.Errorf("failed to decode Noves response: %w", err)
+			return fmt.Errorf("failed to decode Noves response: %w", err)
 		}
 
-		allTxs = append(allTxs, resp.Items...)
+		pages++
+		total += len(resp.Items)
+
+		if len(resp.Items) > 0 {
+			if err := onPage(resp.Items); err != nil {
+				return err
+			}
+		}
 
 		if !resp.HasNextPage || resp.NextPageURL == "" {
 			break
@@ -209,8 +250,9 @@ func (c *Client) GetTransactions(ctx context.Context, chain, address string, sin
 		params = nil
 	}
 
-	c.logger.Info("transactions fetched", "chain", chain, "address", address, "count", len(allTxs), "duration_ms", time.Since(fetchStart).Milliseconds())
-	return allTxs, nil
+	c.logger.Info("transactions fetched", "chain", chain, "address", address,
+		"count", total, "pages", pages, "duration_ms", time.Since(fetchStart).Milliseconds())
+	return nil
 }
 
 // GetBalances fetches the current token balances for a single chain and address.

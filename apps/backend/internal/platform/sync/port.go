@@ -166,10 +166,35 @@ type DecodedFee struct {
 }
 
 // TransactionDataProvider fetches decoded transactions from an external API.
-// GetTransactions is chain-aware: the caller (Collector) owns the fan-out loop
-// over a wallet's chains and invokes the provider once per chain.
+// It is chain-aware: the caller (Collector) owns the fan-out loop over a
+// wallet's chains and invokes the provider once per chain.
+//
+// Results must be ordered oldest→newest and `since` must be treated as an
+// INCLUSIVE lower bound (issue #29), so a transaction mined exactly at `since`
+// is returned. The collector re-sorts defensively and relies on idempotent
+// storage to absorb the duplicate at the boundary.
+//
+// StreamTransactions delivers history page by page so the collector can persist
+// incrementally. That is what makes an interrupted deep sync resumable: a sync
+// killed midway through a long backfill (context cancellation, exhausted
+// retries, a 5xx on page 40 of 200) keeps everything already collected and
+// resumes forward from its high-water mark, instead of discarding the whole
+// fetch and restarting — which for a deep wallet may never converge.
+//
+// onPage is invoked once per page, oldest page first, and only with non-empty
+// pages. If onPage returns an error, streaming stops and that error is returned.
+//
+// A provider that cannot page can satisfy this by invoking onPage once with the
+// whole result.
 type TransactionDataProvider interface {
 	GetTransactions(ctx context.Context, address, chain string, since time.Time) ([]DecodedTransaction, error)
+
+	StreamTransactions(
+		ctx context.Context,
+		address, chain string,
+		since time.Time,
+		onPage func([]DecodedTransaction) error,
+	) error
 }
 
 // LPPositionService manages LP position lifecycle

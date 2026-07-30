@@ -33,6 +33,22 @@ func (m *MockTransactionDataProvider) GetTransactions(ctx context.Context, addre
 	return args.Get(0).([]pkgsync.DecodedTransaction), args.Error(1)
 }
 
+// StreamTransactions delivers the mocked result as a single page, so tests can
+// keep stubbing GetTransactions while the collector drives the streaming seam.
+func (m *MockTransactionDataProvider) StreamTransactions(
+	ctx context.Context, address, chain string, since time.Time,
+	onPage func([]pkgsync.DecodedTransaction) error,
+) error {
+	txs, err := m.GetTransactions(ctx, address, chain, since)
+	if err != nil {
+		return err
+	}
+	if len(txs) == 0 {
+		return nil
+	}
+	return onPage(txs)
+}
+
 var _ pkgsync.TransactionDataProvider = (*MockTransactionDataProvider)(nil)
 
 // expectChainTxs sets up the chain-aware provider fan-out: the collector invokes

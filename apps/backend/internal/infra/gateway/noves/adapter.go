@@ -32,25 +32,46 @@ func NewSyncAdapter(client *Client) *SyncAdapter {
 // chain slug (Zerion-style, e.g. "ethereum", "base"); we map it to the Noves
 // short slug for the endpoint and emit the domain slug back on each result.
 func (a *SyncAdapter) GetTransactions(ctx context.Context, address, chain string, since time.Time) ([]sync.DecodedTransaction, error) {
-	novesChain, ok := domainToNovesChain(chain)
-	if !ok {
-		return nil, nil // unsupported chain: nothing to fetch
-	}
-
-	txs, err := a.client.GetTransactions(ctx, novesChain, address, since)
+	var all []sync.DecodedTransaction
+	err := a.StreamTransactions(ctx, address, chain, since, func(page []sync.DecodedTransaction) error {
+		all = append(all, page...)
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
+	return all, nil
+}
 
-	result := make([]sync.DecodedTransaction, 0, len(txs))
-	for _, tx := range txs {
-		dt, err := convertTransaction(tx, chain)
-		if err != nil {
-			continue // skip individual conversion failures
-		}
-		result = append(result, dt)
+// StreamTransactions fetches decoded transactions for a single chain page by
+// page, oldest page first, converting each page to domain types before handing
+// it to onPage. This lets the collector persist incrementally so an interrupted
+// deep sync resumes forward rather than restarting (issue #29).
+func (a *SyncAdapter) StreamTransactions(
+	ctx context.Context,
+	address, chain string,
+	since time.Time,
+	onPage func([]sync.DecodedTransaction) error,
+) error {
+	novesChain, ok := domainToNovesChain(chain)
+	if !ok {
+		return nil // unsupported chain: nothing to fetch
 	}
-	return result, nil
+
+	return a.client.StreamTransactions(ctx, novesChain, address, since, func(txs []Transaction) error {
+		page := make([]sync.DecodedTransaction, 0, len(txs))
+		for _, tx := range txs {
+			dt, err := convertTransaction(tx, chain)
+			if err != nil {
+				continue // skip individual conversion failures
+			}
+			page = append(page, dt)
+		}
+		if len(page) == 0 {
+			return nil
+		}
+		return onPage(page)
+	})
 }
 
 // convertTransaction maps a Noves Transaction to a domain DecodedTransaction.
