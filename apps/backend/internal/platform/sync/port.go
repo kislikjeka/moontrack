@@ -139,6 +139,16 @@ type DecodedTransaction struct {
 	// ReviewReason is a human-readable explanation of why NeedsReview is set;
 	// empty when NeedsReview is false.
 	ReviewReason string
+
+	// Unclassified reports that the sync provider could not identify what this
+	// transaction did. Such a transaction still carries transfers, so it is not
+	// dropped — it routes through the execute / in-out fallback. But the flag
+	// must survive the port: OperationType collapses several distinct provider
+	// types onto OpExecute, so downstream cannot otherwise tell an unknown
+	// shape from a known one, and the both-direction case (which the fallback
+	// infers as a swap) is exactly where that distinction decides whether PnL
+	// is real or phantom. Zero (false) for every classified transaction.
+	Unclassified bool
 }
 
 // DecodedTransfer represents a single token movement within a decoded transaction

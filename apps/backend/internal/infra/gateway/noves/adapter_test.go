@@ -249,6 +249,20 @@ func TestConvert_UnclassifiedBoth(t *testing.T) {
 
 	// Both directions present → classifier infers a swap.
 	assert.Equal(t, ledger.TxTypeSwap, sync.NewClassifier().Classify(dt))
+
+	// mapOperationType collapses `unclassified` onto OpExecute, so the flag is
+	// the only thing that survives to tell the sync layer this swap inference
+	// rests on a shape the provider could not identify (issue #30).
+	assert.True(t, dt.Unclassified, "an `unclassified` tx must be flagged across the port")
+}
+
+// TestConvert_ClassifiedTypesAreNotFlagged: a transaction the provider did
+// classify must not carry the unclassified flag, or the WARN trail drowns.
+func TestConvert_ClassifiedTypesAreNotFlagged(t *testing.T) {
+	for _, fixture := range []string{"swap.json", "claim_rewards.json"} {
+		dt := convert(t, fixture, "base")
+		assert.False(t, dt.Unclassified, "%s is provider-classified", fixture)
+	}
 }
 
 func TestConvert_PrecisionLoss(t *testing.T) {

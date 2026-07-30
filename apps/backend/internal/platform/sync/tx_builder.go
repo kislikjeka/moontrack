@@ -53,7 +53,7 @@ func NewTxBuilder(walletRepo WalletRepository, ledgerSvc LedgerService, lpPositi
 		assetUpsert:        assetUpsert,
 		jobEnqueuer:        jobEnqueuer,
 		classifier:         NewClassifier(),
-		logger:             log,
+		logger:             log.WithField("component", "tx_builder"),
 		addressCache:       make(map[string][]uuid.UUID),
 	}
 }
@@ -122,6 +122,8 @@ func (p *TxBuilder) ProcessTransaction(ctx context.Context, w *wallet.Wallet, tx
 		return nil, nil
 	}
 
+	p.flagUnclassifiedSwap(tx, txType, data)
+
 	ledgerTx, err := p.ledgerSvc.RecordTransaction(ctx, txType, sourceName, &externalID, tx.MinedAt, data)
 	if err != nil {
 		if isDuplicateError(err) {
@@ -162,6 +164,55 @@ func (p *TxBuilder) ProcessTransaction(ctx context.Context, w *wallet.Wallet, tx
 	}
 
 	return &ledgerTx.ID, nil
+}
+
+// unclassifiedReviewKey tags a recorded transaction whose swap classification
+// rests on an unknown shape. It rides on the ledger transaction's raw_data
+// (JSONB), so the audit trail outlives any log retention window.
+const (
+	unclassifiedReviewKey       = "unclassified_review"
+	unclassifiedReviewReasonKey = "unclassified_review_reason"
+)
+
+// flagUnclassifiedSwap makes the one genuinely risky unclassified shape
+// observable (issue #30).
+//
+// A transaction the provider could not classify still carries transfers, so it
+// is routed through the in/out fallback rather than dropped: in-only becomes a
+// transfer_in and out-only a transfer_out, both unambiguous. But when it
+// carries BOTH directions the fallback infers a swap — and a swap realizes
+// disposal PnL. On an unknown DeFi shape (a lending action, an LP move, a
+// bridge leg the provider failed to decode) that PnL is phantom.
+//
+// The judgment call is deliberately deferred rather than guessed: the
+// transaction IS recorded, so no data is lost, but it is WARN-logged and
+// tagged so the bucket can be measured against real data before any bespoke
+// unclassified handling is built. Only the unknown-shape swap is flagged — a
+// provider-classified swap is a real swap, and flagging those would drown the
+// signal.
+func (p *TxBuilder) flagUnclassifiedSwap(tx DecodedTransaction, txType ledger.TransactionType, data map[string]interface{}) {
+	if !tx.Unclassified || txType != ledger.TxTypeSwap {
+		return
+	}
+
+	protocol := tx.Protocol
+	if protocol == "" {
+		protocol = "unknown"
+	}
+	reason := fmt.Sprintf(
+		"provider could not classify this transaction; both inflow and outflow present, booked as swap on protocol hint %q — may realize phantom PnL",
+		protocol,
+	)
+
+	p.logger.Warn("unclassified transaction with both inflow and outflow booked as swap",
+		"tx_hash", tx.TxHash,
+		"chain_id", tx.ChainID,
+		"external_id", tx.ID,
+		"protocol", protocol,
+		"reason", reason)
+
+	data[unclassifiedReviewKey] = true
+	data[unclassifiedReviewReasonKey] = reason
 }
 
 // detectInternalTransfer checks if a transfer_in/transfer_out is actually an internal
