@@ -254,6 +254,35 @@ type InternalTransferTransaction struct {
 	ContractAddress string        `json:"contract_address"` // Contract address for ERC-20 (empty for native)
 	OccurredAt      time.Time     `json:"occurred_at"`
 	UniqueID        string        `json:"unique_id"` // Unique transfer ID from blockchain provider
+
+	// SourceChainID and DestChainID let one internal transfer span two chains
+	// (a bridge of the user's own funds, see ADR-0002). Both are optional and
+	// fall back to ChainID, which is the same-chain shape every raw written
+	// before cross-chain support carries. Use SourceChain()/DestChain() rather
+	// than reading these directly.
+	SourceChainID string `json:"source_chain_id,omitempty"`
+	DestChainID   string `json:"dest_chain_id,omitempty"`
+}
+
+// SourceChain returns the chain the asset leaves from, defaulting to ChainID.
+func (t *InternalTransferTransaction) SourceChain() string {
+	if t.SourceChainID != "" {
+		return t.SourceChainID
+	}
+	return t.ChainID
+}
+
+// DestChain returns the chain the asset arrives on, defaulting to ChainID.
+func (t *InternalTransferTransaction) DestChain() string {
+	if t.DestChainID != "" {
+		return t.DestChainID
+	}
+	return t.ChainID
+}
+
+// IsCrossChain reports whether this transfer crosses a chain boundary.
+func (t *InternalTransferTransaction) IsCrossChain() bool {
+	return t.SourceChain() != t.DestChain()
 }
 
 // Validate validates the internal transfer transaction
@@ -266,7 +295,11 @@ func (t *InternalTransferTransaction) Validate() error {
 		return ErrMissingDestWallet
 	}
 
-	if t.SourceWalletID == t.DestWalletID {
+	// A transfer from a wallet to itself is a no-op that would fabricate a
+	// disposal and a re-acquisition of the same lot — unless it crosses chains.
+	// One wallet bridging its own funds (Base → Arbitrum) is the canonical
+	// bridge case: same wallet, two genuinely different accounts.
+	if t.SourceWalletID == t.DestWalletID && !t.IsCrossChain() {
 		return ErrSameWalletTransfer
 	}
 
