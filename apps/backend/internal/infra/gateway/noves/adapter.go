@@ -137,6 +137,8 @@ func convertTransaction(tx Transaction, domainChain string) (sync.DecodedTransac
 		Acts:          collectActs(tx),
 		NeedsReview:   needsReview,
 		ReviewReason:  reviewReason,
+		Unclassified:  isUnclassifiedType(tx.ClassificationData.Type),
+		ProviderType:  tx.ClassificationData.Type,
 	}, nil
 }
 
@@ -252,36 +254,76 @@ func statusOf(novesType string) string {
 	return "confirmed"
 }
 
-// mapOperationType maps Noves' rich classification type into the existing
+// novesTypeToOperation maps Noves' rich classification types onto the existing
 // OperationType vocabulary the classifier switches on (Zerion-derived). This
 // keeps classifier.go untouched — its contract is the OperationType enum, not
 // the raw provider strings.
+//
+// Membership in this table is also what "the provider classified it" means:
+// isUnclassifiedType reads the same table, so a type can never be routed here
+// and simultaneously counted as unknown.
+//
+// Claim types map to OpReceive, not OpClaim: the classifier routes claims
+// through the OpReceive + hasClaimAct path (LP fee claims and lending reward
+// claims both arrive as inbound transfers carrying a "claim" act — see
+// classifyLP/classifyLending). There is no standalone OpClaim case in
+// classifyLP, so OpReceive is what makes LPClaimFees/LendingClaim fire.
+var novesTypeToOperation = map[string]sync.OperationType{
+	"swap": sync.OpTrade,
+
+	"depositCollateral": sync.OpDeposit,
+	"addLiquidity":      sync.OpDeposit,
+	"deposit":           sync.OpDeposit,
+	"stakeToken":        sync.OpDeposit,
+	"lend":              sync.OpDeposit,
+
+	"removeLiquidity":    sync.OpWithdraw,
+	"withdrawCollateral": sync.OpWithdraw,
+	"withdraw":           sync.OpWithdraw,
+	"unstakeToken":       sync.OpWithdraw,
+	"borrow":             sync.OpWithdraw,
+
+	"claimRewards": sync.OpReceive,
+	"claim":        sync.OpReceive,
+
+	"receiveToken":        sync.OpReceive,
+	"receiveTokenAirdrop": sync.OpReceive,
+	"receiveSpamToken":    sync.OpReceive,
+	"receiveFromBridge":   sync.OpReceive,
+	"received":            sync.OpReceive,
+
+	"sendToken":    sync.OpSend,
+	"sendToBridge": sync.OpSend,
+	"sent":         sync.OpSend,
+
+	"approveToken": sync.OpApprove,
+	"revokeToken":  sync.OpApprove,
+
+	// A failed transaction is classified — what it *would* have done is
+	// irrelevant, and statusOf marks it failed so the TxBuilder skips it before
+	// classification. Mapped explicitly so it never counts as unknown.
+	"failed": sync.OpExecute,
+}
+
+// mapOperationType maps a Noves classification type to a domain OperationType.
+// Unmapped types (including `unclassified`) fall back to execute — the
+// classifier then infers from transfer directions.
 func mapOperationType(novesType string) sync.OperationType {
-	switch novesType {
-	case "swap":
-		return sync.OpTrade
-	case "depositCollateral", "addLiquidity", "deposit", "stakeToken", "lend":
-		return sync.OpDeposit
-	case "removeLiquidity", "withdrawCollateral", "withdraw", "unstakeToken", "borrow":
-		return sync.OpWithdraw
-	case "claimRewards", "claim":
-		// The classifier routes claims through the OpReceive + hasClaimAct path
-		// (LP fee claims and lending reward claims both arrive as inbound
-		// transfers carrying a "claim" act — see classifyLP/classifyLending).
-		// There is no standalone OpClaim case in classifyLP, so mapping to
-		// OpReceive (not OpClaim) is what makes LPClaimFees/LendingClaim fire.
-		return sync.OpReceive
-	case "receiveToken", "receiveTokenAirdrop", "receiveSpamToken", "receiveFromBridge", "received":
-		return sync.OpReceive
-	case "sendToken", "sendToBridge", "sent":
-		return sync.OpSend
-	case "approveToken", "revokeToken":
-		return sync.OpApprove
-	default:
-		// unclassified, unverifiedContract, failed, and any unknown type fall
-		// back to execute — the classifier then infers from transfer directions.
-		return sync.OpExecute
+	if op, ok := novesTypeToOperation[novesType]; ok {
+		return op
 	}
+	return sync.OpExecute
+}
+
+// isUnclassifiedType reports whether Noves could not identify what the
+// transaction did: either it said so outright (`unclassified`,
+// `unverifiedContract`) or it returned a type this adapter has no mapping for,
+// which to MoonTrack is equally unknown. The distinction is load-bearing
+// because mapOperationType collapses several classified types onto OpExecute
+// alongside the unknown ones (issue #30).
+func isUnclassifiedType(novesType string) bool {
+	_, known := novesTypeToOperation[novesType]
+	return !known
 }
 
 // collectActs builds the Acts slice the classifier reads (hasClaimAct → needs

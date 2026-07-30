@@ -164,7 +164,7 @@ Query backend logs directly via the `loki` MCP server (LogQL over Loki).
 
 **Level values are UPPERCASE:** `DEBUG`, `INFO`, `WARN`, `ERROR`
 
-**Components:** `ledger`, `taxlot_hook`, `wallet`, `user`, `asset`, `price_updater`, `sync`, `transfer`, `coingecko`, `zerion`, `cache`
+**Components:** `ledger`, `taxlot_hook`, `wallet`, `user`, `asset`, `price_updater`, `sync`, `tx_builder`, `transfer`, `coingecko`, `zerion`, `cache`
 
 **Common queries:**
 ```logql

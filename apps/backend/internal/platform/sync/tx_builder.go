@@ -53,7 +53,7 @@ func NewTxBuilder(walletRepo WalletRepository, ledgerSvc LedgerService, lpPositi
 		assetUpsert:        assetUpsert,
 		jobEnqueuer:        jobEnqueuer,
 		classifier:         NewClassifier(),
-		logger:             log,
+		logger:             log.WithField("component", "tx_builder"),
 		addressCache:       make(map[string][]uuid.UUID),
 	}
 }
@@ -122,6 +122,8 @@ func (p *TxBuilder) ProcessTransaction(ctx context.Context, w *wallet.Wallet, tx
 		return nil, nil
 	}
 
+	p.tagUnclassifiedForReview(tx, txType, data)
+
 	ledgerTx, err := p.ledgerSvc.RecordTransaction(ctx, txType, sourceName, &externalID, tx.MinedAt, data)
 	if err != nil {
 		if isDuplicateError(err) {
@@ -162,6 +164,73 @@ func (p *TxBuilder) ProcessTransaction(ctx context.Context, w *wallet.Wallet, tx
 	}
 
 	return &ledgerTx.ID, nil
+}
+
+// The review tag on a recorded transaction whose classification rests on a
+// shape the provider could not identify. It rides on the ledger transaction's
+// raw_data (JSONB), so the audit trail outlives any log retention window.
+const (
+	unclassifiedReviewKey       = "unclassified_review"
+	unclassifiedReviewReasonKey = "unclassified_review_reason"
+	unclassifiedProviderTypeKey = "unclassified_provider_type"
+)
+
+// tagUnclassifiedForReview makes the genuinely risky unclassified shape
+// observable, mutating data to carry the tag (issue #30).
+//
+// A transaction the provider could not classify still carries transfers, so it
+// is routed through the classifier rather than dropped: one-directional cases
+// are unambiguous — inflow only means value came in, outflow only means value
+// left. But when an unclassified transaction moves value BOTH ways, whatever
+// type it lands on asserts a relationship between the two legs that nobody
+// actually established: booked as a swap it realizes disposal PnL, and on an
+// unknown DeFi shape (a lending action, an LP move, a bridge leg the provider
+// failed to decode) that PnL is phantom.
+//
+// The condition is both-direction-and-unclassified, deliberately NOT "was
+// booked as a swap". Classify consults its protocol and asset heuristics
+// before the in/out fallback, so an unclassified transaction carrying an
+// aToken-shaped symbol books as lending_supply instead — and hasAaveAssets
+// matches any `a` + uppercase ticker, so an unknown shape can land there by
+// coincidence. Keying on the resulting type would let exactly those escape the
+// audit trail, which is the outcome this exists to prevent.
+//
+// The judgment call is deferred rather than guessed: the transaction IS
+// recorded, so no data is lost, and the classification is left alone — this
+// only marks the risk so the bucket can be measured against real data before
+// any bespoke unclassified handling is built. A provider-classified
+// transaction is never tagged; flagging those would drown the signal.
+func (p *TxBuilder) tagUnclassifiedForReview(tx DecodedTransaction, txType ledger.TransactionType, data map[string]interface{}) {
+	hasIn, hasOut := directions(tx.Transfers)
+	if !tx.Unclassified || !hasIn || !hasOut {
+		return
+	}
+
+	protocol := tx.Protocol
+	if protocol == "" {
+		protocol = "unknown"
+	}
+	providerType := tx.ProviderType
+	if providerType == "" {
+		providerType = "unknown"
+	}
+	reason := fmt.Sprintf(
+		"provider could not classify this transaction (provider type %q); both inflow and outflow present, booked as %s on protocol hint %q — may realize phantom PnL",
+		providerType, txType, protocol,
+	)
+
+	p.logger.Warn("unclassified transaction with both inflow and outflow recorded for review",
+		"tx_hash", tx.TxHash,
+		"chain_id", tx.ChainID,
+		"external_id", tx.ID,
+		"protocol", protocol,
+		"provider_type", providerType,
+		"tx_type", string(txType),
+		"reason", reason)
+
+	data[unclassifiedReviewKey] = true
+	data[unclassifiedReviewReasonKey] = reason
+	data[unclassifiedProviderTypeKey] = providerType
 }
 
 // detectInternalTransfer checks if a transfer_in/transfer_out is actually an internal

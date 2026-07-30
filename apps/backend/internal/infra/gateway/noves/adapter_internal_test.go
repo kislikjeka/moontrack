@@ -150,3 +150,35 @@ func TestMapOperationType(t *testing.T) {
 		}
 	}
 }
+
+// TestIsUnclassifiedType pins the boundary of the "provider could not classify
+// it" bucket (issue #30). mapOperationType collapses several distinct Noves
+// types onto OpExecute, so OpExecute alone cannot tell an unknown shape from a
+// known one — this predicate is what carries the distinction across the port.
+func TestIsUnclassifiedType(t *testing.T) {
+	tests := []struct {
+		novesType string
+		want      bool
+	}{
+		// Provider admits it does not know what happened.
+		{"unclassified", true},
+		{"unverifiedContract", true},
+		// A type this adapter has no mapping for is, to us, equally unknown.
+		{"someUnknownFutureType", true},
+		// Types the provider DID classify — including the ones that also land
+		// on OpExecute-adjacent paths.
+		{"swap", false},
+		{"sendToBridge", false},
+		{"receiveFromBridge", false},
+		{"claimRewards", false},
+		{"approveToken", false},
+		// A failed transaction is classified: it carries its own Status and is
+		// skipped by the TxBuilder before classification ever runs.
+		{"failed", false},
+	}
+	for _, tt := range tests {
+		if got := isUnclassifiedType(tt.novesType); got != tt.want {
+			t.Errorf("isUnclassifiedType(%q) = %v, want %v", tt.novesType, got, tt.want)
+		}
+	}
+}
