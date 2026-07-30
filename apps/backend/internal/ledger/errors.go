@@ -33,6 +33,11 @@ var (
 	ErrTransactionNotBalanced   = errors.New("transaction debits and credits do not balance")
 	ErrOccurredAtInFuture       = errors.New("occurred_at cannot be in the future")
 	ErrOccurredAtAfterRecorded  = errors.New("occurred_at cannot be after recorded_at")
+
+	// ErrTransactionNotFound reports that no transaction matched a lookup. It
+	// is the domain-level spelling of "no rows", so callers can tell absence
+	// from failure without knowing which driver the repository uses.
+	ErrTransactionNotFound = errors.New("transaction not found")
 )
 
 // Balance errors

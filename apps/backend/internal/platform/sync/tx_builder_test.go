@@ -250,10 +250,18 @@ func TestTxBuilder_InternalTransfer_IncomingSkipped(t *testing.T) {
 
 	tx := newDecodedTransaction(sync.OpReceive, []sync.DecodedTransfer{transfer})
 
-	_, err := processor.ProcessTransaction(ctx, destWallet, tx)
+	// The incoming side records nothing, but it does resolve the transaction the
+	// source side recorded so its raw can reference it (issue #31).
+	sharedTxID := uuid.New()
+	ledgerSvc.On("FindBySourceExternalID", ctx, "noves", tx.ID).
+		Return(&ledger.Transaction{ID: sharedTxID}, nil).Once()
+
+	got, err := processor.ProcessTransaction(ctx, destWallet, tx)
 	require.NoError(t, err)
 
-	assert.Empty(t, ledgerSvc.recordedTransactions)
+	assert.Empty(t, ledgerSvc.recordedTransactions, "incoming side records no second transaction")
+	require.NotNil(t, got)
+	assert.Equal(t, sharedTxID, *got, "incoming side references the shared transaction")
 }
 
 func TestTxBuilder_ApproveSkipped(t *testing.T) {
@@ -319,8 +327,17 @@ func TestTxBuilder_DuplicateHandling(t *testing.T) {
 		newIncomingTransfer(externalAddr),
 	})
 
-	_, err := processor.ProcessTransaction(ctx, w, tx)
+	// The duplicate belongs to a transaction another wallet already recorded;
+	// this wallet yields ownership but still reports it, so its raw references
+	// the shared transaction (issue #31).
+	sharedTxID := uuid.New()
+	ledgerSvc.On("FindBySourceExternalID", ctx, "noves", tx.ID).
+		Return(&ledger.Transaction{ID: sharedTxID}, nil).Once()
+
+	got, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err, "duplicate error should be silently handled")
+	require.NotNil(t, got)
+	assert.Equal(t, sharedTxID, *got)
 }
 
 func TestTxBuilder_USDPrices(t *testing.T) {

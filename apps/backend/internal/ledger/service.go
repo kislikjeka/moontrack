@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"sort"
@@ -174,6 +175,21 @@ func (s *Service) GetTransaction(ctx context.Context, id uuid.UUID) (*Transactio
 // ListTransactions lists transactions with filters
 func (s *Service) ListTransactions(ctx context.Context, filters TransactionFilters) ([]*Transaction, error) {
 	return s.repo.ListTransactions(ctx, filters)
+}
+
+// FindBySourceExternalID resolves the transaction recorded under a
+// (source, external_id) pair. Absence is a normal answer, not a failure:
+// a missing row returns (nil, nil), so callers distinguish "nothing recorded
+// yet" from a genuine lookup error.
+func (s *Service) FindBySourceExternalID(ctx context.Context, source, externalID string) (*Transaction, error) {
+	tx, err := s.repo.FindTransactionsBySource(ctx, source, externalID)
+	if err != nil {
+		if errors.Is(err, ErrTransactionNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return tx, nil
 }
 
 // GetAccountBalance retrieves the current balance for an account/asset

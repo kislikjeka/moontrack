@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"time"
@@ -464,8 +465,10 @@ func (r *LedgerRepository) FindTransactionsBySource(ctx context.Context, source 
 		&errorMessage,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("transaction not found: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Wrap the domain sentinel so callers can distinguish absence from
+			// failure without depending on the driver's error type.
+			return nil, fmt.Errorf("%w: source=%s external_id=%s", ledger.ErrTransactionNotFound, source, externalID)
 		}
 		return nil, fmt.Errorf("failed to get transaction: %w", err)
 	}
