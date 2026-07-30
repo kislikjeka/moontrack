@@ -688,6 +688,15 @@ func (p *TxBuilder) buildInternalTransferData(w *wallet.Wallet, tx DecodedTransa
 	if destWalletID != nil {
 		data["dest_wallet_id"] = destWalletID.String()
 	}
+	// A stitched bridge spans two chains (ADR-0002): the outflow is booked on
+	// the chain the transaction was observed on and the inflow on DestChainID,
+	// so the tax lot carries across instead of being disposed and re-acquired.
+	// DestChainID is empty for everything a provider decodes, which leaves the
+	// handler's same-chain default in place.
+	if tx.DestChainID != "" && tx.DestChainID != tx.ChainID {
+		data["source_chain_id"] = tx.ChainID
+		data["dest_chain_id"] = tx.DestChainID
+	}
 	// InternalTransferHandler expects flat fields.
 	// Extract the primary "out" transfer (from source wallet).
 	var t *DecodedTransfer

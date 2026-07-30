@@ -174,6 +174,20 @@ type DecodedTransaction struct {
 	// type the adapter has no mapping for means the adapter is out of date.
 	// Empty when the provider supplies no type.
 	ProviderType string
+
+	// DestChainID names the chain the asset ARRIVES on, when that differs from
+	// ChainID (the chain this transaction was observed on). It is set only for a
+	// bridge of the user's own funds stitched into a single cross-chain
+	// internal_transfer (ADR-0002), where one transaction legitimately spans two
+	// chains: the source-chain outflow and the destination-chain inflow.
+	//
+	// Empty for every ordinary transaction — including a same-chain internal
+	// transfer — in which case the destination is ChainID. No sync provider
+	// sets this; the provider decodes each bridge leg as an independent
+	// single-chain transaction and links them in neither direction. It is
+	// populated by MoonTrack's own bridge stitching (issue #33), which is the
+	// only thing that can know both chains.
+	DestChainID string
 }
 
 // DecodedTransfer represents a single token movement within a decoded transaction

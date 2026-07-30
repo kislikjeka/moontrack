@@ -106,13 +106,16 @@ func (h *InternalTransferHandler) ValidateData(ctx context.Context, data map[str
 	return nil
 }
 
-// GenerateEntries generates ledger entries for an internal transfer transaction
+// GenerateEntries generates ledger entries for an internal transfer transaction.
 // Ledger entries generated (2-4 entries):
-// 1. DEBIT wallet.{dest_wallet_id}.{asset_id} (asset_increase) - increases destination balance
-// 2. CREDIT wallet.{src_wallet_id}.{asset_id} (asset_decrease) - decreases source balance
+// 1. DEBIT wallet.{dest_wallet_id}.{dest_chain}.{asset_id} (asset_increase) - increases destination balance
+// 2. CREDIT wallet.{src_wallet_id}.{source_chain}.{asset_id} (asset_decrease) - decreases source balance
 // If gas fee is present:
-// 3. DEBIT gas.{chain_id}.{native_asset} (gas_fee) - records gas expense
-// 4. CREDIT wallet.{src_wallet_id}.{native_asset} (asset_decrease) - decreases source native balance
+// 3. DEBIT gas.{source_chain}.{native_asset} (gas_fee) - records gas expense
+// 4. CREDIT wallet.{src_wallet_id}.{source_chain}.{native_asset} (asset_decrease) - decreases source native balance
+//
+// source_chain and dest_chain are equal for an ordinary internal transfer and
+// differ for a bridge of the user's own funds across chains (ADR-0002).
 func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *InternalTransferTransaction) ([]*ledger.Entry, error) {
 	// Get USD rate for transferred asset
 	usdRate := txn.GetUSDRate()
@@ -129,6 +132,16 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 
 	entries := make([]*ledger.Entry, 0, 4)
 
+	// Each leg is booked against its OWN chain. For a same-chain transfer both
+	// resolve to ChainID and nothing changes; for a bridge (ADR-0002) they
+	// differ, and since the account code embeds the chain — and the ledger's
+	// account resolver reads chain_id per entry — the two legs land on two
+	// different accounts. That is what lets one transaction hold a source-chain
+	// disposal and a destination-chain acquisition, so the TaxLotHook carries
+	// the lot across the bridge instead of realizing phantom PnL.
+	sourceChain := txn.SourceChain()
+	destChain := txn.DestChain()
+
 	// Entry 1: DEBIT destination wallet account (increases balance)
 	entries = append(entries, &ledger.Entry{
 		ID:          uuid.New(),
@@ -143,10 +156,10 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
 			"wallet_id":        txn.DestWalletID.String(),
-			"account_code":     fmt.Sprintf("wallet.%s.%s.%s", txn.DestWalletID.String(), txn.ChainID, txn.AssetID),
+			"account_code":     fmt.Sprintf("wallet.%s.%s.%s", txn.DestWalletID.String(), destChain, txn.AssetID),
 			"tx_hash":          txn.TxHash,
 			"block_number":     txn.BlockNumber,
-			"chain_id":         txn.ChainID,
+			"chain_id":         destChain,
 			"transfer_type":    "internal_receive",
 			"source_wallet_id": txn.SourceWalletID.String(),
 			"contract_address": txn.ContractAddress,
@@ -167,15 +180,15 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 		OccurredAt:  txn.OccurredAt,
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
-			"wallet_id":      txn.SourceWalletID.String(),
-			"account_code":   fmt.Sprintf("wallet.%s.%s.%s", txn.SourceWalletID.String(), txn.ChainID, txn.AssetID),
-			"tx_hash":        txn.TxHash,
-			"block_number":   txn.BlockNumber,
-			"chain_id":       txn.ChainID,
-			"transfer_type":  "internal_send",
-			"dest_wallet_id": txn.DestWalletID.String(),
+			"wallet_id":        txn.SourceWalletID.String(),
+			"account_code":     fmt.Sprintf("wallet.%s.%s.%s", txn.SourceWalletID.String(), sourceChain, txn.AssetID),
+			"tx_hash":          txn.TxHash,
+			"block_number":     txn.BlockNumber,
+			"chain_id":         sourceChain,
+			"transfer_type":    "internal_send",
+			"dest_wallet_id":   txn.DestWalletID.String(),
 			"contract_address": txn.ContractAddress,
-			"unique_id":      txn.UniqueID,
+			"unique_id":        txn.UniqueID,
 		},
 	})
 
@@ -206,6 +219,10 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			nativeAssetID = "ETH" // Default fallback
 		}
 
+		// Entries 3 and 4 both book to the SOURCE chain: gas is burned there,
+		// in that chain's native token, and the destination chain never sees
+		// this fee.
+
 		// Entry 3: DEBIT gas account (records gas expense)
 		entries = append(entries, &ledger.Entry{
 			ID:          uuid.New(),
@@ -219,10 +236,10 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code": fmt.Sprintf("gas.%s.%s", txn.ChainID, nativeAssetID),
+				"account_code": fmt.Sprintf("gas.%s.%s", sourceChain, nativeAssetID),
 				"tx_hash":      txn.TxHash,
 				"block_number": txn.BlockNumber,
-				"chain_id":     txn.ChainID,
+				"chain_id":     sourceChain,
 			},
 		})
 
@@ -240,16 +257,21 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":    txn.SourceWalletID.String(),
-				"account_code": fmt.Sprintf("wallet.%s.%s.%s", txn.SourceWalletID.String(), txn.ChainID, nativeAssetID),
+				"account_code": fmt.Sprintf("wallet.%s.%s.%s", txn.SourceWalletID.String(), sourceChain, nativeAssetID),
 				"tx_hash":      txn.TxHash,
 				"block_number": txn.BlockNumber,
-				"chain_id":     txn.ChainID,
+				"chain_id":     sourceChain,
 				"entry_type":   "gas_payment",
 			},
 		})
 	}
 
-	h.logger.Debug("transfer entries generated", "entry_count", len(entries), "asset_id", txn.AssetID)
+	h.logger.Debug("transfer entries generated",
+		"entry_count", len(entries),
+		"asset_id", txn.AssetID,
+		"source_chain", sourceChain,
+		"dest_chain", destChain,
+		"cross_chain", txn.IsCrossChain())
 
 	return entries, nil
 }
