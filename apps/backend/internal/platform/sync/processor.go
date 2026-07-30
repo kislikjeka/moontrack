@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"sort"
 	"time"
 
@@ -41,7 +42,15 @@ func NewProcessor(
 	}
 }
 
-// ProcessAll processes all pending raw transactions for a wallet in chronological order
+// ProcessAll processes all pending raw transactions for a wallet in
+// chronological order, after first resolving which of them are two halves of one
+// cross-chain bridge (issue #33).
+//
+// Stitching has to happen here, over the whole pending set, rather than per-raw:
+// a bridge is one economic event decoded as two independent transactions on two
+// chains, and the provider links them in neither direction. Only a join across
+// the wallet's collected raws can pair them, and the pairing must be settled
+// before either leg is booked — a realized disposal cannot be taken back.
 func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 	if err := p.walletRepo.SetSyncPhase(ctx, w.ID, string(SyncPhaseProcessing)); err != nil {
 		return fmt.Errorf("failed to set sync phase: %w", err)
@@ -68,6 +77,13 @@ func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 		return operationPriority(OperationType(raws[i].OperationType)) < operationPriority(OperationType(raws[j].OperationType))
 	})
 
+	// Phase 2.5: bridge stitching (issue #33). This sits BETWEEN collect and the
+	// per-raw processing below because a bridge is one economic event split
+	// across two raws on two chains: the decision needs both in hand, and it has
+	// to be made before either is booked. Once a source leg's disposal is
+	// realized, nothing downstream can un-realize it.
+	plan := p.planStitch(w, raws)
+
 	p.logger.Info("processing raw transactions",
 		"wallet_id", w.ID,
 		"count", len(raws))
@@ -78,15 +94,64 @@ func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 	deferred := 0
 	errCount := 0
 	consecutiveErrors := 0
+	held := 0
+	stitched := 0
 
-	for _, raw := range raws {
+	for i, raw := range raws {
 		var ledgerTxID *uuid.UUID
 		var processErr error
 
-		if raw.IsSynthetic {
-			ledgerTxID, processErr = p.processGenesis(ctx, w, raw)
-		} else {
-			ledgerTxID, processErr = p.processRegular(ctx, w, raw)
+		switch plan.Decision(i) {
+		case StitchHold:
+			// A bridge leg whose counterpart has not been collected yet, still
+			// inside the match window. Leave the raw PENDING and record nothing.
+			//
+			// On the send side, booking the transfer_out now would realize a
+			// disposal that an arriving receive would force us to reverse
+			// (ADR-0002's hold-don't-reverse rule). On the receive side, booking
+			// the transfer_in now would mark the raw processed and drop it from
+			// the pending set, so the send arriving next cycle would find
+			// nothing to match — leaving a transfer_in plus a transfer_out,
+			// which is the fabricated disposal in a different disguise.
+			//
+			// The asset is simply absent from the portfolio while in transit,
+			// which the north star accepts.
+			p.logger.Debug("bridge leg held pending its counterpart",
+				"wallet_id", w.ID, "raw_id", raw.ID, "external_id", raw.ExternalID,
+				"chain_id", raw.ChainID, "operation_type", raw.OperationType,
+				"mined_at", raw.MinedAt)
+			held++
+			consecutiveErrors = 0
+			continue
+
+		case StitchSuppress:
+			// The receive leg of a stitched bridge. The whole movement — the
+			// source-chain outflow AND this destination-chain inflow — is
+			// recorded once by the source leg's cross-chain internal_transfer,
+			// so this raw records nothing of its own. It is marked skipped
+			// rather than left pending so it does not stall the wallet forever.
+			p.logger.Debug("bridge receive leg absorbed into stitched internal transfer",
+				"wallet_id", w.ID, "raw_id", raw.ID, "external_id", raw.ExternalID,
+				"chain_id", raw.ChainID)
+			if err := p.rawTxRepo.MarkSkipped(ctx, raw.ID, "stitched into cross-chain internal transfer"); err != nil {
+				p.logger.Error("failed to mark stitched receive leg skipped", "raw_id", raw.ID, "error", err)
+			}
+			skipped++
+			consecutiveErrors = 0
+			t := raw.MinedAt
+			lastSuccessfulMinedAt = &t
+			continue
+
+		case StitchAsSource:
+			stitched++
+			ledgerTxID, processErr = p.processStitchedSource(ctx, w, raw, plan.DestinationChain(i), plan.NetAmount(i))
+
+		case StitchNone:
+			if raw.IsSynthetic {
+				ledgerTxID, processErr = p.processGenesis(ctx, w, raw)
+			} else {
+				ledgerTxID, processErr = p.processRegular(ctx, w, raw)
+			}
 		}
 
 		if processErr != nil {
@@ -197,9 +262,88 @@ func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 		"processed", processed,
 		"skipped", skipped,
 		"deferred", deferred,
+		"held", held,
+		"stitched", stitched,
 		"errors", errCount)
 
 	return nil
+}
+
+// planStitch decodes the wallet's pending raws and asks the stitcher which of
+// them are two halves of one cross-chain bridge (issue #33).
+//
+// Both legs of a self-bridge belong to the SAME wallet row — a wallet is one
+// address across every chain in its chain set — so the wallet's own pending raws
+// are exactly the right join scope, and no cross-wallet query is needed.
+//
+// A raw that fails to decode is simply left out of the plan: it will fail again
+// in the main loop and be marked errored there, with the real error message.
+// Nothing is stitched on the strength of a transaction we could not read.
+func (p *Processor) planStitch(w *wallet.Wallet, raws []*RawTransaction) StitchPlan {
+	decoded := make([]DecodedTransaction, len(raws))
+	for i, raw := range raws {
+		if raw.IsSynthetic {
+			continue // genesis raws are not bridge legs
+		}
+		if err := json.Unmarshal(raw.RawJSON, &decoded[i]); err != nil {
+			p.logger.Warn("failed to decode raw for bridge stitching, leaving it unstitched",
+				"wallet_id", w.ID, "raw_id", raw.ID, "error", err)
+			decoded[i] = DecodedTransaction{}
+		}
+	}
+
+	plan := Stitch(decoded, w.Address, time.Now().UTC())
+
+	if len(plan.Decisions) > 0 {
+		p.logger.Info("bridge stitch plan derived",
+			"wallet_id", w.ID, "decisions", len(plan.Decisions))
+	}
+	return plan
+}
+
+// processStitchedSource records a matched bridge send leg as a CROSS-CHAIN
+// internal transfer instead of a transfer_out.
+//
+// This is the whole point of the ticket. As a transfer_out the leg would dispose
+// of the lot — realizing PnL on a move between the user's own chains and leaving
+// the destination to open a fresh lot at market price, resetting the cost basis.
+// Recorded as an internal transfer spanning source→destination chain, the
+// TaxLotHook's existing carry-over path links the new lot to the consumed one
+// and carries the basis across with no PnL realized.
+//
+// Both wallet ids are this wallet: a self-bridge moves the user's funds between
+// chains at the same address, which the internal-transfer model permits
+// precisely because the two legs are on different chains (#32).
+func (p *Processor) processStitchedSource(
+	ctx context.Context,
+	w *wallet.Wallet,
+	raw *RawTransaction,
+	destChain string,
+	netAmount *big.Int,
+) (*uuid.UUID, error) {
+	var dt DecodedTransaction
+	if err := json.Unmarshal(raw.RawJSON, &dt); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal stitched bridge leg: %w", err)
+	}
+
+	if destChain == "" || destChain == dt.ChainID {
+		// Defensive: a stitch decision without a distinct destination chain is
+		// not a bridge. Fall back to ordinary processing rather than emitting an
+		// internal transfer that claims to cross a boundary it does not.
+		p.logger.Warn("stitched bridge leg has no distinct destination chain, processing normally",
+			"wallet_id", w.ID, "raw_id", raw.ID, "chain_id", dt.ChainID, "dest_chain", destChain)
+		return p.txBuilder.ProcessTransaction(ctx, w, dt)
+	}
+
+	dt.DestChainID = destChain
+
+	p.logger.Info("recording stitched cross-chain internal transfer",
+		"wallet_id", w.ID,
+		"external_id", dt.ID,
+		"source_chain", dt.ChainID,
+		"dest_chain", destChain)
+
+	return p.txBuilder.ProcessStitchedBridge(ctx, w, dt, netAmount)
 }
 
 // processGenesis processes a synthetic genesis raw transaction

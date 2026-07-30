@@ -35,6 +35,31 @@ func (c *Classifier) Classify(tx DecodedTransaction) ledger.TransactionType {
 		}
 	}
 
+	// A ROUND-TRIP bridge leg (issue #33, ADR-0002): the provider calls it a
+	// bridge, but a DIFFERENT asset came straight back to the same wallet within
+	// the one transaction. That is a bridge-as-swap, not a cross-chain leg, and
+	// it must be booked locally as the swap it is.
+	//
+	// This has to precede the OperationType switch. The adapter maps
+	// sendToBridge onto OpSend and receiveFromBridge onto OpReceive, and those
+	// cases return transfer_out / transfer_in outright — which for a round-trip
+	// would record only one side of the trade and silently drop the asset
+	// received in exchange, losing both the acquisition and its cost basis.
+	//
+	// The test is a differing asset, not merely both directions, and that
+	// distinction is load-bearing on real data: most genuine pure-sends carry a
+	// same-asset dust refund, and getting a sliver of your own asset back is not
+	// a trade — booking it as a swap would fabricate a disposal of an asset
+	// against itself. Ordinary sends and receives are untouched entirely: the
+	// rule is scoped to legs the provider itself identified as a bridge.
+	// isCrossAssetRoundTrip is shared with the stitcher, which defines a
+	// stitchable pure-send as its exact complement. The two must agree: if they
+	// diverged, a leg could be booked as a swap here while the stitcher still
+	// carried the same value across a bridge.
+	if c.isBridgeLeg(tx) && isCrossAssetRoundTrip(tx.Transfers) {
+		return ledger.TxTypeSwap
+	}
+
 	switch tx.OperationType {
 	case OpTrade:
 		return ledger.TxTypeSwap
@@ -63,6 +88,16 @@ func (c *Classifier) Classify(tx DecodedTransaction) ledger.TransactionType {
 
 func (c *Classifier) isUniswapV3(protocol string) bool {
 	return protocol == "Uniswap V3"
+}
+
+// isBridgeLeg reports whether the provider classified this transaction as one
+// side of a cross-chain bridge. ProviderType is the only place that survives:
+// the adapter collapses sendToBridge onto OpSend and receiveFromBridge onto
+// OpReceive, making a bridge leg indistinguishable from an ordinary transfer by
+// operation type alone.
+func (c *Classifier) isBridgeLeg(tx DecodedTransaction) bool {
+	return tx.ProviderType == providerTypeSendToBridge ||
+		tx.ProviderType == providerTypeReceiveFromBridge
 }
 
 func (c *Classifier) classifyLP(tx DecodedTransaction) ledger.TransactionType {
