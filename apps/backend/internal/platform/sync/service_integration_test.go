@@ -74,6 +74,14 @@ func setupIntegrationTest(t *testing.T) *testEnv {
 	// Create mock transaction data provider
 	txProviderMock := newMockTxProvider()
 
+	// Sync is a two-phase pipeline since #26: the collector durably stages every
+	// fetched transaction in raw_transactions and the processor drains that
+	// store. NewService only builds those sub-services when the raw store and
+	// asset repo are present, so passing nil here would leave svc.collector nil
+	// and SyncWallet would nil-panic rather than sync anything.
+	rawTxRepo := postgres.NewRawTransactionRepository(testDB.Pool)
+	syncAssetRepo := postgres.NewSyncAssetRepository(testDB.Pool)
+
 	// Create sync config
 	config := &sync.Config{
 		Enabled:             true,
@@ -83,7 +91,7 @@ func setupIntegrationTest(t *testing.T) *testEnv {
 	}
 
 	// Create sync service
-	syncSvc := sync.NewService(config, walletRepo, ledgerSvc, nil, log, txProviderMock, nil, nil, nil, nil, nil, nil, nil)
+	syncSvc := sync.NewService(config, walletRepo, ledgerSvc, nil, log, txProviderMock, nil, rawTxRepo, syncAssetRepo, nil, nil, nil, nil)
 
 	return &testEnv{
 		syncSvc:        syncSvc,
@@ -161,6 +169,26 @@ func (m *mockTxProvider) GetTransactions(ctx context.Context, address, chain str
 	return nil, nil
 }
 
+// StreamTransactions satisfies the paging half of TransactionDataProvider
+// (added in #29). The fake holds everything in memory, so the whole chain's
+// result is one page — the collector's per-page bookkeeping is exercised the
+// same way, just with a single invocation of onPage.
+func (m *mockTxProvider) StreamTransactions(
+	ctx context.Context,
+	address, chain string,
+	since time.Time,
+	onPage func([]sync.DecodedTransaction) error,
+) error {
+	page, err := m.GetTransactions(ctx, address, chain, since)
+	if err != nil {
+		return err
+	}
+	if len(page) == 0 {
+		return nil
+	}
+	return onPage(page)
+}
+
 func (m *mockTxProvider) AddTransaction(address string, tx sync.DecodedTransaction) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -210,7 +238,7 @@ func TestSyncService_SyncWallet_RecordsTransfers(t *testing.T) {
 	assert.Len(t, txs, 1, "Should have 1 transaction recorded")
 
 	// Verify balance
-	accountCode := "wallet." + walletID.String() + ".ETH"
+	accountCode := "wallet." + walletID.String() + ".ethereum.ETH"
 	account, err := env.ledgerRepo.GetAccountByCode(env.ctx, accountCode)
 	require.NoError(t, err)
 
@@ -259,7 +287,7 @@ func TestSyncService_SyncWallet_MultipleTransfers(t *testing.T) {
 	assert.Len(t, txs, 5, "Should have 5 transactions recorded")
 
 	// Verify total balance: 5 * 0.1 = 0.5 ETH
-	accountCode := "wallet." + walletID.String() + ".ETH"
+	accountCode := "wallet." + walletID.String() + ".ethereum.ETH"
 	account, err := env.ledgerRepo.GetAccountByCode(env.ctx, accountCode)
 	require.NoError(t, err)
 
@@ -277,6 +305,30 @@ func TestSyncService_InternalTransfer_RecordedOnce(t *testing.T) {
 	destAddress := "0x2222222222222222222222222222222222222222"
 	sourceWalletID := createTestWallet(t, env.ctx, testDB.Pool, userID, sourceAddress)
 	destWalletID := createTestWallet(t, env.ctx, testDB.Pool, userID, destAddress)
+
+	// Fund the source wallet first. The ledger refuses to drive an account
+	// negative, so a wallet that sends 0.5 ETH it never received is rejected
+	// outright — the internal transfer would never be recorded and this test
+	// would be asserting on an empty ledger.
+	env.txProviderMock.AddTransaction(sourceAddress, sync.DecodedTransaction{
+		ID:            "ext-internal-funding",
+		TxHash:        "0xfunding123",
+		ChainID:       "ethereum",
+		OperationType: sync.OpReceive,
+		Transfers: []sync.DecodedTransfer{
+			{
+				AssetSymbol: "ETH",
+				Decimals:    18,
+				Amount:      big.NewInt(1000000000000000000), // 1 ETH
+				Direction:   sync.DirectionIn,
+				Sender:      "0xexternalsender",
+				Recipient:   sourceAddress,
+				USDPrice:    big.NewInt(250000000000),
+			},
+		},
+		MinedAt: time.Now().Add(-2 * time.Hour),
+		Status:  "confirmed",
+	})
 
 	// Add outgoing transfer from source (will be classified as internal)
 	env.txProviderMock.AddTransaction(sourceAddress, sync.DecodedTransaction{
@@ -336,19 +388,18 @@ func TestSyncService_InternalTransfer_RecordedOnce(t *testing.T) {
 	assert.Len(t, txs, 1, "Should have exactly 1 internal transfer (not duplicated)")
 
 	// Verify balances
-	// Source wallet should have decreased
-	sourceAccountCode := "wallet." + sourceWalletID.String() + ".ETH"
+	// Source wallet: funded with 1 ETH, sent 0.5 away.
+	sourceAccountCode := "wallet." + sourceWalletID.String() + ".ethereum.ETH"
 	sourceAccount, err := env.ledgerRepo.GetAccountByCode(env.ctx, sourceAccountCode)
 	require.NoError(t, err)
 
 	sourceBalance, err := env.ledgerSvc.GetAccountBalance(env.ctx, sourceAccount.ID, "ETH")
 	require.NoError(t, err)
-	// Balance is negative because we didn't add initial balance
-	expectedSourceBalance := big.NewInt(-500000000000000000)
+	expectedSourceBalance := big.NewInt(500000000000000000)
 	assert.Equal(t, 0, sourceBalance.Balance.Cmp(expectedSourceBalance))
 
 	// Dest wallet should have increased
-	destAccountCode := "wallet." + destWalletID.String() + ".ETH"
+	destAccountCode := "wallet." + destWalletID.String() + ".ethereum.ETH"
 	destAccount, err := env.ledgerRepo.GetAccountByCode(env.ctx, destAccountCode)
 	require.NoError(t, err)
 
@@ -466,7 +517,7 @@ func TestSyncService_Idempotency_DoubleSyncSameWallet(t *testing.T) {
 	assert.Len(t, txs, 1, "Should have exactly 1 transaction (not duplicated)")
 
 	// Verify balance is correct (not doubled)
-	accountCode := "wallet." + walletID.String() + ".ETH"
+	accountCode := "wallet." + walletID.String() + ".ethereum.ETH"
 	account, err := env.ledgerRepo.GetAccountByCode(env.ctx, accountCode)
 	require.NoError(t, err)
 
@@ -556,7 +607,7 @@ func TestSyncService_MixedTransfers_InOutExternal(t *testing.T) {
 	assert.Len(t, txs, 3)
 
 	// Verify final balance: 2 - 0.5 + 1 = 2.5 ETH
-	accountCode := "wallet." + walletID.String() + ".ETH"
+	accountCode := "wallet." + walletID.String() + ".ethereum.ETH"
 	account, err := env.ledgerRepo.GetAccountByCode(env.ctx, accountCode)
 	require.NoError(t, err)
 
