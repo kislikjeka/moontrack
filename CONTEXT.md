@@ -53,6 +53,4 @@ WHERE raw_data->>'unclassified_review' = 'true'
 GROUP BY 1, 2, 3 ORDER BY 4 DESC;
 ```
 
-Two populations land in this bucket and need opposite responses, which `provider_type` separates: `unclassified`/`unverifiedContract` means Noves itself could not decode the shape — if a protocol hint recurs there, build bespoke handling for it. Any *other* value means Noves returned a type the adapter has no mapping for — that is not an unknown shape, it is an out-of-date `novesTypeToOperation` table, and the fix is to map it. Until either is done, the bucket stays recorded with the phantom-PnL risk attached rather than hidden.
-
-Note the flag keys on **both-direction + unclassified**, not on the resulting transaction type: `Classify` consults its protocol and Aave asset heuristics before the in/out fallback, so an unclassified transaction can book as `lending_supply` rather than `swap` and must still be flagged.
+Two populations land in this bucket and need opposite responses, which `provider_type` separates: `unclassified`/`unverifiedContract` means Noves itself could not decode the shape — if a protocol hint recurs there, build bespoke handling for it. Any *other* value means Noves returned a type the adapter has no mapping for — that is not an unknown shape, it is an out-of-date mapping table, and the fix is to map it. Until either is done, the bucket stays recorded with the phantom-PnL risk attached rather than hidden.
