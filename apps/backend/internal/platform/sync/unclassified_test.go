@@ -65,6 +65,7 @@ func unclassifiedTx(id string, transfers ...sync.DecodedTransfer) sync.DecodedTr
 		ChainID:       "base",
 		OperationType: sync.OpExecute,
 		Unclassified:  true,
+		ProviderType:  "unclassified",
 		Transfers:     transfers,
 		MinedAt:       time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC),
 		Status:        "confirmed",
@@ -140,11 +141,86 @@ func TestUnclassified_BothDirections_RecordedWarnedAndTagged(t *testing.T) {
 		"both-direction unclassified must be tagged for review")
 	assert.NotEmpty(t, rec.RawData["unclassified_review_reason"])
 
+	// The provider's own type is carried verbatim, so reviewing the bucket can
+	// separate "the provider does not know" from "our adapter is out of date"
+	// without parsing the reason string.
+	assert.Equal(t, "unclassified", rec.RawData["unclassified_provider_type"])
+
 	// WARN-logged with tx hash + protocol hint.
 	out := logs.String()
 	assert.Contains(t, out, "WARN")
 	assert.Contains(t, out, "0xboth", "the WARN trail must name the tx hash")
 	assert.Contains(t, out, "SomeUnknownDeFi", "the WARN trail must carry the protocol hint")
+}
+
+// TestUnclassified_UnmappedProviderType_CarriesItsOwnType: a type the adapter
+// has no mapping for lands in the same bucket, but records which type it was —
+// that is the signal to extend the adapter rather than to build new handling.
+func TestUnclassified_UnmappedProviderType_CarriesItsOwnType(t *testing.T) {
+	builder, ledgerSvc, logs, w := newUnclassifiedEnv(t)
+
+	tx := unclassifiedTx("0xnewtype", inTransfer(), outTransfer())
+	tx.ProviderType = "someBrandNewNovesType"
+
+	_, err := builder.ProcessTransaction(context.Background(), w, tx)
+	require.NoError(t, err)
+
+	require.Len(t, ledgerSvc.recordedTransactions, 1)
+	rec := ledgerSvc.recordedTransactions[0]
+	assert.Equal(t, true, rec.RawData["unclassified_review"])
+	assert.Equal(t, "someBrandNewNovesType", rec.RawData["unclassified_provider_type"])
+	assert.Contains(t, logs.String(), "someBrandNewNovesType")
+}
+
+// TestUnclassified_BothDirections_AaveHeuristic_StillFlagged closes the hole
+// that keying the flag on "was booked as a swap" would leave open.
+//
+// Classify consults the Aave asset heuristic BEFORE the in/out fallback, so an
+// unclassified tx carrying an aToken-shaped symbol books as lending_supply
+// rather than swap. That symbol test is a loose match on any `a` + uppercase
+// ticker, so an unknown DeFi shape can land there by coincidence — and it is
+// still an unknown shape with both directions, still capable of realizing
+// phantom PnL. The audit trail must not depend on which heuristic happened to
+// win: what makes the transaction risky is that the provider could not
+// classify it AND it moves value both ways.
+func TestUnclassified_BothDirections_AaveHeuristic_StillFlagged(t *testing.T) {
+	builder, ledgerSvc, logs, w := newUnclassifiedEnv(t)
+
+	aToken := inTransfer()
+	aToken.AssetSymbol = "aEthWETH" // trips hasAaveAssets
+	tx := unclassifiedTx("0xaave", aToken, outTransfer())
+
+	_, err := builder.ProcessTransaction(context.Background(), w, tx)
+	require.NoError(t, err)
+
+	require.Len(t, ledgerSvc.recordedTransactions, 1)
+	rec := ledgerSvc.recordedTransactions[0]
+
+	// The classification itself is left alone — this ticket does not second-guess
+	// the classifier, it only makes the unknown-shape risk observable.
+	assert.Equal(t, ledger.TxTypeLendingSupply, rec.TxType)
+
+	assert.Equal(t, true, rec.RawData["unclassified_review"],
+		"a both-direction unclassified tx must be flagged whatever type it landed on")
+	assert.Contains(t, logs.String(), "WARN")
+	assert.Contains(t, logs.String(), "0xaave")
+}
+
+// TestUnclassified_SingleDirection_AaveHeuristic_NotFlagged: the mirror. A
+// one-directional unclassified tx is unambiguous about direction, so it stays
+// unflagged even when a heuristic routes it somewhere other than transfer_in.
+func TestUnclassified_SingleDirection_AaveHeuristic_NotFlagged(t *testing.T) {
+	builder, ledgerSvc, logs, w := newUnclassifiedEnv(t)
+
+	aToken := inTransfer()
+	aToken.AssetSymbol = "aEthWETH"
+
+	_, err := builder.ProcessTransaction(context.Background(), w, unclassifiedTx("0xborrow", aToken))
+	require.NoError(t, err)
+
+	require.Len(t, ledgerSvc.recordedTransactions, 1)
+	assert.NotContains(t, ledgerSvc.recordedTransactions[0].RawData, "unclassified_review")
+	assert.NotContains(t, logs.String(), "WARN")
 }
 
 // TestClassified_BothDirections_IsUntaggedSwap guards the blast radius: a

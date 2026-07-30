@@ -97,16 +97,7 @@ func (c *Classifier) classifyExecute(tx DecodedTransaction) ledger.TransactionTy
 		return "" // no transfers to classify, skip
 	}
 
-	hasIn := false
-	hasOut := false
-	for _, t := range tx.Transfers {
-		if t.Direction == DirectionIn {
-			hasIn = true
-		}
-		if t.Direction == DirectionOut {
-			hasOut = true
-		}
-	}
+	hasIn, hasOut := directions(tx.Transfers)
 
 	switch {
 	case hasIn && hasOut:
@@ -118,6 +109,19 @@ func (c *Classifier) classifyExecute(tx DecodedTransaction) ledger.TransactionTy
 	default:
 		return "" // skip
 	}
+}
+
+// directions reports whether transfers carry value into and out of the wallet.
+func directions(transfers []DecodedTransfer) (hasIn, hasOut bool) {
+	for _, t := range transfers {
+		switch t.Direction {
+		case DirectionIn:
+			hasIn = true
+		case DirectionOut:
+			hasOut = true
+		}
+	}
+	return hasIn, hasOut
 }
 
 func (c *Classifier) isAAVE(protocol string) bool {
@@ -166,16 +170,7 @@ func (c *Classifier) classifyLending(tx DecodedTransaction) ledger.TransactionTy
 }
 
 func (c *Classifier) classifyLendingFromTransfers(tx DecodedTransaction) ledger.TransactionType {
-	hasIn := false
-	hasOut := false
-	for _, t := range tx.Transfers {
-		if t.Direction == DirectionIn {
-			hasIn = true
-		}
-		if t.Direction == DirectionOut {
-			hasOut = true
-		}
-	}
+	hasIn, hasOut := directions(tx.Transfers)
 	if hasIn && !hasOut {
 		return ledger.TxTypeLendingBorrow
 	}

@@ -254,6 +254,7 @@ func TestConvert_UnclassifiedBoth(t *testing.T) {
 	// the only thing that survives to tell the sync layer this swap inference
 	// rests on a shape the provider could not identify (issue #30).
 	assert.True(t, dt.Unclassified, "an `unclassified` tx must be flagged across the port")
+	assert.Equal(t, "unclassified", dt.ProviderType, "the provider's own type is carried verbatim")
 }
 
 // TestConvert_ClassifiedTypesAreNotFlagged: a transaction the provider did

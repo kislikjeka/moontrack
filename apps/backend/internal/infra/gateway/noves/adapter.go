@@ -138,6 +138,7 @@ func convertTransaction(tx Transaction, domainChain string) (sync.DecodedTransac
 		NeedsReview:   needsReview,
 		ReviewReason:  reviewReason,
 		Unclassified:  isUnclassifiedType(tx.ClassificationData.Type),
+		ProviderType:  tx.ClassificationData.Type,
 	}, nil
 }
 

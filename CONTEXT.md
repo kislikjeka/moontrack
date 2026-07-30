@@ -43,4 +43,16 @@ Glossary of the ubiquitous language. Terms here are canonical; code and docs sho
 
 - **Live Noves probe**: confirm `sort=asc` behaves + pagination direction follows sort + cursor stability, OR commit to the `startTimestamp`/`startBlock` range-anchor + reorder-in-`raw_transactions` path (sufficient on its own).
 - **Bridge stitching** validated against the real Base wallet's `sendToBridge`/`receiveFromBridge` history (pure-send vs round-trip distinction; fee tolerance calibration).
-- **Unclassified both-direction** WARN trail validated against real data during rollout. The audit surface exists in two places, both queryable after a real sync: the WARN log line `unclassified transaction with both inflow and outflow booked as swap` (carries `tx_hash`, `chain_id`, `external_id`, `protocol`), and the durable `raw_data->>'unclassified_review'` tag on the recorded ledger transaction. Validate by measuring the flagged bucket against a real wallet's history — `{service="backend", component="tx_builder", level="WARN"}` in Loki for the live trail, or `SELECT type, raw_data->>'protocol', count(*) FROM transactions WHERE raw_data->>'unclassified_review' = 'true' GROUP BY 1, 2` for the accumulated set. If a protocol hint recurs, that is the signal to build bespoke handling for that shape; until then the bucket stays booked as `swap` with the phantom-PnL risk recorded rather than hidden.
+- **Unclassified both-direction** WARN trail validated against real data during rollout. The audit surface exists in two places, both queryable after a real sync: the WARN log line `unclassified transaction with both inflow and outflow recorded for review` (carries `tx_hash`, `chain_id`, `external_id`, `protocol`, `provider_type`, `tx_type`), and the durable `raw_data->>'unclassified_review'` tag on the recorded ledger transaction. Validate by measuring the flagged bucket against a real wallet's history — `{service="backend", component="tx_builder", level="WARN"}` in Loki for the live trail, or for the accumulated set:
+
+```sql
+SELECT raw_data->>'unclassified_provider_type' AS provider_type,
+       raw_data->>'protocol' AS protocol, type, count(*)
+FROM transactions
+WHERE raw_data->>'unclassified_review' = 'true'
+GROUP BY 1, 2, 3 ORDER BY 4 DESC;
+```
+
+Two populations land in this bucket and need opposite responses, which `provider_type` separates: `unclassified`/`unverifiedContract` means Noves itself could not decode the shape — if a protocol hint recurs there, build bespoke handling for it. Any *other* value means Noves returned a type the adapter has no mapping for — that is not an unknown shape, it is an out-of-date `novesTypeToOperation` table, and the fix is to map it. Until either is done, the bucket stays recorded with the phantom-PnL risk attached rather than hidden.
+
+Note the flag keys on **both-direction + unclassified**, not on the resulting transaction type: `Classify` consults its protocol and Aave asset heuristics before the in/out fallback, so an unclassified transaction can book as `lending_supply` rather than `swap` and must still be flagged.
