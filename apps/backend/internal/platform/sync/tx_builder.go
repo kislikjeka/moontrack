@@ -191,7 +191,14 @@ func (p *TxBuilder) ProcessTransaction(ctx context.Context, w *wallet.Wallet, tx
 //
 // tx.DestChainID must already be set to the destination chain; the caller
 // establishes that from the matching receive leg.
-func (p *TxBuilder) ProcessStitchedBridge(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) (*uuid.UUID, error) {
+//
+// netAmount is the quantity the stitcher matched on — everything of the asset
+// that left the wallet, minus anything of it refunded in the same transaction.
+// It is passed in rather than re-derived here because the matcher and the ledger
+// must agree on one number: if they diverge, the destination lot opens at a
+// quantity that never arrived while the source is credited a quantity that never
+// left. The transaction would still balance, so nothing downstream would notice.
+func (p *TxBuilder) ProcessStitchedBridge(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction, netAmount *big.Int) (*uuid.UUID, error) {
 	if tx.Status == "failed" {
 		p.logger.Debug("skipping failed stitched bridge leg", "tx_hash", tx.TxHash)
 		return nil, nil
@@ -200,6 +207,9 @@ func (p *TxBuilder) ProcessStitchedBridge(ctx context.Context, w *wallet.Wallet,
 	// Source and destination wallet are the same row: one address, two chains.
 	// The internal-transfer model allows that exactly when the chains differ.
 	data := p.buildInternalTransferData(w, tx, &w.ID)
+	if netAmount != nil && netAmount.Sign() > 0 {
+		data["amount"] = money.NewBigInt(netAmount).String()
+	}
 	externalID := tx.ID
 
 	ledgerTx, err := p.ledgerSvc.RecordTransaction(ctx, ledger.TxTypeInternalTransfer, sourceName, &externalID, tx.MinedAt, data)

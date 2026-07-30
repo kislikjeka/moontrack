@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"sort"
 	"time"
 
@@ -102,15 +103,23 @@ func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 
 		switch plan.Decision(i) {
 		case StitchHold:
-			// A pure-send bridge leg whose receive has not arrived yet, still
-			// inside the match window. Leave the raw PENDING and record nothing:
-			// booking the transfer_out now would realize a disposal that an
-			// arriving receive would force us to reverse (ADR-0002's
-			// hold-don't-reverse rule). The asset is simply absent from the
-			// portfolio while in transit, which is accepted.
-			p.logger.Debug("bridge send leg held pending a matching receive",
+			// A bridge leg whose counterpart has not been collected yet, still
+			// inside the match window. Leave the raw PENDING and record nothing.
+			//
+			// On the send side, booking the transfer_out now would realize a
+			// disposal that an arriving receive would force us to reverse
+			// (ADR-0002's hold-don't-reverse rule). On the receive side, booking
+			// the transfer_in now would mark the raw processed and drop it from
+			// the pending set, so the send arriving next cycle would find
+			// nothing to match — leaving a transfer_in plus a transfer_out,
+			// which is the fabricated disposal in a different disguise.
+			//
+			// The asset is simply absent from the portfolio while in transit,
+			// which the north star accepts.
+			p.logger.Debug("bridge leg held pending its counterpart",
 				"wallet_id", w.ID, "raw_id", raw.ID, "external_id", raw.ExternalID,
-				"chain_id", raw.ChainID, "mined_at", raw.MinedAt)
+				"chain_id", raw.ChainID, "operation_type", raw.OperationType,
+				"mined_at", raw.MinedAt)
 			held++
 			consecutiveErrors = 0
 			continue
@@ -135,7 +144,7 @@ func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 
 		case StitchAsSource:
 			stitched++
-			ledgerTxID, processErr = p.processStitchedSource(ctx, w, raw, plan.DestinationChain(i))
+			ledgerTxID, processErr = p.processStitchedSource(ctx, w, raw, plan.DestinationChain(i), plan.NetAmount(i))
 
 		case StitchNone:
 			if raw.IsSynthetic {
@@ -310,6 +319,7 @@ func (p *Processor) processStitchedSource(
 	w *wallet.Wallet,
 	raw *RawTransaction,
 	destChain string,
+	netAmount *big.Int,
 ) (*uuid.UUID, error) {
 	var dt DecodedTransaction
 	if err := json.Unmarshal(raw.RawJSON, &dt); err != nil {
@@ -333,7 +343,7 @@ func (p *Processor) processStitchedSource(
 		"source_chain", dt.ChainID,
 		"dest_chain", destChain)
 
-	return p.txBuilder.ProcessStitchedBridge(ctx, w, dt)
+	return p.txBuilder.ProcessStitchedBridge(ctx, w, dt, netAmount)
 }
 
 // processGenesis processes a synthetic genesis raw transaction

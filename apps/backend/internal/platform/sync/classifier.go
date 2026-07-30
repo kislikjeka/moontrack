@@ -52,7 +52,11 @@ func (c *Classifier) Classify(tx DecodedTransaction) ledger.TransactionType {
 	// a trade — booking it as a swap would fabricate a disposal of an asset
 	// against itself. Ordinary sends and receives are untouched entirely: the
 	// rule is scoped to legs the provider itself identified as a bridge.
-	if c.isBridgeLeg(tx) && c.hasCrossAssetRoundTrip(tx.Transfers) {
+	// isCrossAssetRoundTrip is shared with the stitcher, which defines a
+	// stitchable pure-send as its exact complement. The two must agree: if they
+	// diverged, a leg could be booked as a swap here while the stitcher still
+	// carried the same value across a bridge.
+	if c.isBridgeLeg(tx) && isCrossAssetRoundTrip(tx.Transfers) {
 		return ledger.TxTypeSwap
 	}
 
@@ -94,34 +98,6 @@ func (c *Classifier) isUniswapV3(protocol string) bool {
 func (c *Classifier) isBridgeLeg(tx DecodedTransaction) bool {
 	return tx.ProviderType == providerTypeSendToBridge ||
 		tx.ProviderType == providerTypeReceiveFromBridge
-}
-
-// hasCrossAssetRoundTrip reports whether the transfers show value leaving in one
-// asset and a DIFFERENT asset arriving in the same transaction — the shape that
-// makes a bridge leg a swap rather than a cross-chain movement.
-func (c *Classifier) hasCrossAssetRoundTrip(transfers []DecodedTransfer) bool {
-	out := make(map[string]bool)
-	in := make(map[string]bool)
-	for _, t := range transfers {
-		if t.AssetSymbol == "" {
-			continue
-		}
-		key := strings.ToLower(t.AssetSymbol)
-		if t.Direction == DirectionOut {
-			out[key] = true
-		} else if t.Direction == DirectionIn {
-			in[key] = true
-		}
-	}
-	if len(out) == 0 || len(in) == 0 {
-		return false
-	}
-	for asset := range in {
-		if !out[asset] {
-			return true // an asset arrived that did not leave: a trade happened
-		}
-	}
-	return false
 }
 
 func (c *Classifier) classifyLP(tx DecodedTransaction) ledger.TransactionType {

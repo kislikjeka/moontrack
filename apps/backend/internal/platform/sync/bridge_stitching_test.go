@@ -163,7 +163,7 @@ func TestStitch_MatchedBridge_RecordsInternalTransferNotDisposal(t *testing.T) {
 	send := sendLeg(brArbitrum, "0xa8333fc5", usdc(24, 446762), "USDC", 6, brBaseTime)
 	send.DestChainID = brBase
 
-	_, err := env.builder.ProcessStitchedBridge(ctx, w, send)
+	_, err := env.builder.ProcessStitchedBridge(ctx, w, send, usdc(24, 446762))
 	require.NoError(t, err)
 
 	require.Len(t, env.ledgerSvc.recordedTransactions, 1)
@@ -257,8 +257,12 @@ func TestStitch_FeeToleranceBoundary(t *testing.T) {
 // TestStitch_TwoIdenticalCandidates_RefusesToStitch is the case the ADR cares
 // most about. Two identical sends and one receive: any pairing is a guess, and a
 // wrong guess destroys two real movements and fabricates a third. The stitcher
-// must decline — and critically must not HOLD either send, since both are inside
-// the window and would otherwise stall.
+// must decline.
+//
+// `now` is past the window so the legs are RELEASED rather than held, which is
+// what lets this assert their final resting state. Inside the window they would
+// legitimately be held awaiting a clarifying counterpart; ambiguity is not a
+// reason to stall forever, only a reason never to guess.
 func TestStitch_TwoIdenticalCandidates_RefusesToStitch(t *testing.T) {
 	txs := []sync.DecodedTransaction{
 		sendLeg(brArbitrum, "0xsend1", usdc(500, 0), "USDC", 6, brBaseTime),
@@ -266,26 +270,32 @@ func TestStitch_TwoIdenticalCandidates_RefusesToStitch(t *testing.T) {
 		receiveLeg(brBase, "0xrecv", usdc(499, 900000), "USDC", 6, brBaseTime.Add(10*time.Minute)),
 	}
 
-	plan := sync.Stitch(txs, brWallet, brBaseTime.Add(2*time.Hour))
+	plan := sync.Stitch(txs, brWallet, brBaseTime.Add(sync.BridgeMatchWindow+time.Hour))
 
-	assert.NotEqual(t, sync.StitchAsSource, plan.Decision(0), "must not guess between two identical candidates")
-	assert.NotEqual(t, sync.StitchAsSource, plan.Decision(1), "must not guess between two identical candidates")
+	assert.Equal(t, sync.StitchNone, plan.Decision(0), "must not guess between two identical candidates")
+	assert.Equal(t, sync.StitchNone, plan.Decision(1), "must not guess between two identical candidates")
 	assert.Equal(t, sync.StitchNone, plan.Decision(2),
-		"the receive stays a standalone transfer_in — a false positive is worse than a phantom lot")
+		"the receive is released as a standalone transfer_in — a false positive is worse than a phantom lot")
 }
 
-// TestStitch_NoCandidate_ReceiveStaysStandalone: a receive whose source chain is
-// not in the wallet's chain set has no candidate at all. It must remain an
-// ordinary transfer_in rather than being dropped — that would lose the asset.
-func TestStitch_NoCandidate_ReceiveStaysStandalone(t *testing.T) {
+// TestStitch_NoCandidate_ReceiveIsHeldThenReleased: a receive whose source chain
+// is not in the wallet's chain set never gets a candidate. Inside the window it
+// is held, in case the source leg is simply collected later; past the window it
+// must be released as an ordinary transfer_in rather than held forever, or the
+// asset is stranded outside the ledger permanently.
+func TestStitch_NoCandidate_ReceiveIsHeldThenReleased(t *testing.T) {
 	txs := []sync.DecodedTransaction{
 		receiveLeg(brBase, "0xrecv", usdc(251, 749084), "USDC", 6, brBaseTime),
 	}
 
-	plan := sync.Stitch(txs, brWallet, brBaseTime.Add(time.Hour))
+	inside := sync.Stitch(txs, brWallet, brBaseTime.Add(time.Hour))
+	assert.Equal(t, sync.StitchHold, inside.Decision(0),
+		"inside the window the source leg may still be collected, so booking the inflow now "+
+			"would consume the raw and leave that send with nothing to match")
 
-	assert.Equal(t, sync.StitchNone, plan.Decision(0),
-		"an unmatched receive is a real inflow and must still be recorded")
+	past := sync.Stitch(txs, brWallet, brBaseTime.Add(sync.BridgeMatchWindow+time.Hour))
+	assert.Equal(t, sync.StitchNone, past.Decision(0),
+		"past the window the inflow is real and unexplained: record it rather than strand it")
 }
 
 // TestStitch_OneSendTwoReceives_ConsumesSendOnlyOnce guards the 1:1 invariant
@@ -322,7 +332,7 @@ func TestStitch_DifferentAsset_NotStitched(t *testing.T) {
 		receiveLeg(brBase, "0xrecv", big.NewInt(3e17), "ETH", 18, brBaseTime.Add(time.Minute)),
 	}
 
-	plan := sync.Stitch(txs, brWallet, brBaseTime.Add(2*time.Hour))
+	plan := sync.Stitch(txs, brWallet, brBaseTime.Add(sync.BridgeMatchWindow+2*time.Hour))
 
 	assert.NotEqual(t, sync.StitchAsSource, plan.Decision(0))
 	assert.Equal(t, sync.StitchNone, plan.Decision(1))
@@ -336,7 +346,7 @@ func TestStitch_SameChain_NotStitched(t *testing.T) {
 		receiveLeg(brBase, "0xrecv", usdc(1000, 0), "USDC", 6, brBaseTime.Add(time.Minute)),
 	}
 
-	plan := sync.Stitch(txs, brWallet, brBaseTime.Add(2*time.Hour))
+	plan := sync.Stitch(txs, brWallet, brBaseTime.Add(sync.BridgeMatchWindow+2*time.Hour))
 
 	assert.NotEqual(t, sync.StitchAsSource, plan.Decision(0), "a bridge crosses chains by definition")
 	assert.Equal(t, sync.StitchNone, plan.Decision(1))
@@ -355,18 +365,25 @@ func TestStitch_ReceiveBeforeSend_NotStitched(t *testing.T) {
 	assert.NotEqual(t, sync.StitchAsSource, plan.Decision(0), "the destination cannot precede the source")
 }
 
-// TestStitch_OutsideTimeWindow_NotStitched: beyond the window the pair is no
-// longer credibly one bridge, and the send has already been released.
+// TestStitch_OutsideTimeWindow_NotStitched: two legs that would match on asset
+// and amount but are separated by more than the window are not credibly one
+// bridge. The send, long past its own window, has already been released as a
+// transfer_out — so the late receive must not retroactively claim it.
 func TestStitch_OutsideTimeWindow_NotStitched(t *testing.T) {
+	lateArrival := brBaseTime.Add(sync.BridgeMatchWindow + time.Hour)
 	txs := []sync.DecodedTransaction{
 		sendLeg(brArbitrum, "0xsend", usdc(1000, 0), "USDC", 6, brBaseTime),
-		receiveLeg(brBase, "0xrecv", usdc(1000, 0), "USDC", 6, brBaseTime.Add(sync.BridgeMatchWindow+time.Hour)),
+		receiveLeg(brBase, "0xrecv", usdc(1000, 0), "USDC", 6, lateArrival),
 	}
 
-	plan := sync.Stitch(txs, brWallet, brBaseTime.Add(sync.BridgeMatchWindow+2*time.Hour))
+	// Far enough past BOTH legs that neither is still held, so this asserts
+	// their final resting state rather than an in-flight one.
+	plan := sync.Stitch(txs, brWallet, lateArrival.Add(sync.BridgeMatchWindow+time.Hour))
 
-	assert.NotEqual(t, sync.StitchAsSource, plan.Decision(0))
-	assert.Equal(t, sync.StitchNone, plan.Decision(1))
+	assert.Equal(t, sync.StitchNone, plan.Decision(0),
+		"the send aged out to transfer_out long before this receive appeared")
+	assert.Equal(t, sync.StitchNone, plan.Decision(1),
+		"and the receive is its own standalone transfer_in")
 }
 
 // -----------------------------------------------------------------------------
@@ -458,7 +475,7 @@ func TestStitch_RoundTripBridge_NeverStitched(t *testing.T) {
 	// A receive that would otherwise match perfectly on asset, amount and timing.
 	recv := receiveLeg(brArbitrum, "0x5e6bd538", usdc(279, 158283), "USDC", 6, brBaseTime.Add(time.Minute))
 
-	plan := sync.Stitch([]sync.DecodedTransaction{roundTrip, recv}, brWallet, brBaseTime.Add(2*time.Hour))
+	plan := sync.Stitch([]sync.DecodedTransaction{roundTrip, recv}, brWallet, brBaseTime.Add(sync.BridgeMatchWindow+2*time.Hour))
 
 	assert.Equal(t, sync.StitchNone, plan.Decision(0),
 		"a round-trip is a swap: it must be classified locally, never stitched and never held")
@@ -611,7 +628,7 @@ func TestStitch_FailedBridgeLeg_NotStitched(t *testing.T) {
 	send.Status = "failed"
 	recv := receiveLeg(brBase, "0xrecv", usdc(1000, 0), "USDC", 6, brBaseTime.Add(time.Minute))
 
-	plan := sync.Stitch([]sync.DecodedTransaction{send, recv}, brWallet, brBaseTime.Add(2*time.Hour))
+	plan := sync.Stitch([]sync.DecodedTransaction{send, recv}, brWallet, brBaseTime.Add(sync.BridgeMatchWindow+2*time.Hour))
 
 	assert.Equal(t, sync.StitchNone, plan.Decision(0), "a failed send moved nothing and must not be held or stitched")
 	assert.Equal(t, sync.StitchNone, plan.Decision(1))
@@ -824,4 +841,147 @@ func TestStitch_AgedOutPureSendWithRefund_IsTransferOutNotSwap(t *testing.T) {
 	assert.Equal(t, ledger.TxTypeTransferOut, env.ledgerSvc.recordedTransactions[0].TxType,
 		"getting a dust refund of the asset you sent is not a trade — booking it as a swap "+
 			"would fabricate a disposal of the asset against itself")
+}
+
+// -----------------------------------------------------------------------------
+// Regression: the ledger must record the SAME amount the stitcher matched on
+// -----------------------------------------------------------------------------
+
+// TestStitch_LedgerAmountIsTheNetMatchedAmount guards the seam between the two
+// halves of stitching. The matcher decides a pair belongs together by comparing
+// the NET amount that left the wallet — gross minus any same-transaction refund.
+// If the writer then records a different number, the destination lot opens at a
+// quantity that never arrived and the source is credited a quantity that never
+// left. Double-entry still balances (the same wrong figure is used for both
+// legs), so nothing downstream catches it: it surfaces only as reconciliation
+// drift and a silently wrong cost basis.
+func TestStitch_LedgerAmountIsTheNetMatchedAmount(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	w := newTestWallet(userID, brWallet)
+
+	at := time.Now().UTC().Add(-2 * time.Hour)
+	// 1000 USDC out, 50 refunded in the same tx → 950 actually left, and 950 is
+	// what the destination chain delivers.
+	send := withInbound(
+		sendLeg(brBase, "0xsend", usdc(1000, 0), "USDC", 6, at),
+		"USDC", 6, usdc(50, 0),
+	)
+	recv := receiveLeg(brArbitrum, "0xrecv", usdc(950, 0), "USDC", 6, at.Add(time.Minute))
+
+	env := newStitchPipelineEnv(t, userID, w, []sync.DecodedTransaction{send, recv})
+	env.ledgerSvc.On("RecordTransaction", mock.Anything, ledger.TxTypeInternalTransfer, "noves",
+		mock.Anything, mock.Anything, mock.Anything).
+		Return(&ledger.Transaction{ID: uuid.New()}, nil).Once()
+
+	require.NoError(t, env.processor.ProcessAll(ctx, w))
+
+	require.Len(t, env.ledgerSvc.recordedTransactions, 1)
+	assert.Equal(t, usdc(950, 0).String(), env.ledgerSvc.recordedTransactions[0].RawData["amount"],
+		"the ledger must record the NET amount the matcher used; the refund never left the wallet, "+
+			"so recording the gross opens a destination lot for value that never arrived")
+}
+
+// TestStitch_LedgerAmountSumsSplitOutflows: a send leg that moves the asset out
+// in several transfers must be recorded as their SUM. Recording only the first
+// would understate the movement and strand the remainder.
+func TestStitch_LedgerAmountSumsSplitOutflows(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	w := newTestWallet(userID, brWallet)
+
+	at := time.Now().UTC().Add(-2 * time.Hour)
+	send := sendLeg(brBase, "0xsend", usdc(300, 0), "USDC", 6, at)
+	send.Transfers = append(send.Transfers, sync.DecodedTransfer{
+		AssetSymbol: "USDC", Decimals: 6, Amount: usdc(700, 0),
+		Direction: sync.DirectionOut, Sender: brWallet, Recipient: brBridgeCtr,
+	})
+	recv := receiveLeg(brArbitrum, "0xrecv", usdc(1000, 0), "USDC", 6, at.Add(time.Minute))
+
+	env := newStitchPipelineEnv(t, userID, w, []sync.DecodedTransaction{send, recv})
+	env.ledgerSvc.On("RecordTransaction", mock.Anything, ledger.TxTypeInternalTransfer, "noves",
+		mock.Anything, mock.Anything, mock.Anything).
+		Return(&ledger.Transaction{ID: uuid.New()}, nil).Once()
+
+	require.NoError(t, env.processor.ProcessAll(ctx, w))
+
+	require.Len(t, env.ledgerSvc.recordedTransactions, 1)
+	assert.Equal(t, usdc(1000, 0).String(), env.ledgerSvc.recordedTransactions[0].RawData["amount"],
+		"a split outflow must be recorded as its sum — the matcher matched on the total")
+}
+
+// -----------------------------------------------------------------------------
+// Regression: the hold must be symmetric — a receive can arrive FIRST
+// -----------------------------------------------------------------------------
+
+// TestStitch_ReceiveArrivingFirst_IsHeldNotBooked is the mirror of the straggler
+// case, and chains are collected independently (#28/#29) so it is ordinary, not
+// exotic: the destination chain can easily be collected before the source.
+//
+// If the receive is booked immediately as transfer_in it is marked processed and
+// stops being pending, so the send arriving next cycle can never match it — and
+// ages out to transfer_out. The result is transfer_in + transfer_out: precisely
+// the fabricated disposal plus reset cost basis this ticket exists to prevent.
+func TestStitch_ReceiveArrivingFirst_IsHeldNotBooked(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	w := newTestWallet(userID, brWallet)
+
+	recv := receiveLeg(brArbitrum, "0x5e6bd538", usdc(279, 158283), "USDC", 6,
+		time.Now().UTC().Add(-time.Minute))
+
+	env := newStitchPipelineEnv(t, userID, w, []sync.DecodedTransaction{recv})
+	require.NoError(t, env.processor.ProcessAll(ctx, w))
+
+	assert.Empty(t, env.ledgerSvc.recordedTransactions,
+		"a fresh bridge receive whose source leg has not been collected yet must be HELD, "+
+			"not booked as transfer_in — booking it consumes the raw and leaves the later "+
+			"send with nothing to match, fabricating a disposal")
+	assert.Empty(t, env.rawRepo.processed, "a held receive must stay pending for the next cycle")
+	assert.Empty(t, env.rawRepo.skipped, "a held receive must stay pending for the next cycle")
+}
+
+// TestStitch_ReceiveHeldThenSendArrives_Stitches completes the cross-cycle story
+// in the receive-first direction: cycle 1 holds the lone receive, cycle 2 sees
+// the send too and stitches the pair — with no disposal ever realized.
+func TestStitch_ReceiveHeldThenSendArrives_Stitches(t *testing.T) {
+	send := sendLeg(brBase, "0xba77f4a7", usdc(279, 158283), "USDC", 6, brBaseTime)
+	recv := receiveLeg(brArbitrum, "0x5e6bd538", usdc(279, 158283), "USDC", 6, brBaseTime.Add(time.Minute))
+
+	// Cycle 1: only the receive has been collected (the destination chain ran first).
+	cycle1 := sync.Stitch([]sync.DecodedTransaction{recv}, brWallet, brBaseTime.Add(5*time.Minute))
+	require.Equal(t, sync.StitchHold, cycle1.Decision(0),
+		"no send collected yet: hold, so the arriving send can still claim it")
+
+	// Cycle 2: the source chain is collected and the pair stitches.
+	cycle2 := sync.Stitch([]sync.DecodedTransaction{send, recv}, brWallet, brBaseTime.Add(30*time.Minute))
+	assert.Equal(t, sync.StitchAsSource, cycle2.Decision(0))
+	assert.Equal(t, brArbitrum, cycle2.DestinationChain(0))
+	assert.Equal(t, sync.StitchSuppress, cycle2.Decision(1))
+}
+
+// TestStitch_AgedOutReceive_BecomesTransferIn: the receive-side hold must also be
+// bounded. Once the window closes the source leg can no longer arrive, so the
+// inflow is finalized as an ordinary transfer_in rather than held forever —
+// otherwise a bridge from a chain the user never enabled strands the asset
+// outside the ledger permanently.
+func TestStitch_AgedOutReceive_BecomesTransferIn(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	w := newTestWallet(userID, brWallet)
+
+	old := time.Now().UTC().Add(-sync.BridgeMatchWindow - time.Hour)
+	recv := receiveLeg(brBase, "0x283c65a2", usdc(251, 749084), "USDC", 6, old)
+
+	env := newStitchPipelineEnv(t, userID, w, []sync.DecodedTransaction{recv})
+	env.ledgerSvc.On("RecordTransaction", mock.Anything, ledger.TxTypeTransferIn, "noves",
+		mock.Anything, mock.Anything, mock.Anything).
+		Return(&ledger.Transaction{ID: uuid.New()}, nil).Once()
+
+	require.NoError(t, env.processor.ProcessAll(ctx, w))
+
+	require.Len(t, env.ledgerSvc.recordedTransactions, 1)
+	assert.Equal(t, ledger.TxTypeTransferIn, env.ledgerSvc.recordedTransactions[0].TxType,
+		"past the window the source can no longer arrive, so the inflow must be recorded "+
+			"rather than held forever")
 }

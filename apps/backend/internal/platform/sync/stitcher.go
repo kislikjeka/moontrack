@@ -2,6 +2,7 @@ package sync
 
 import (
 	"math/big"
+	"sort"
 	"strings"
 	"time"
 )
@@ -30,6 +31,15 @@ import (
 // they are the only reliable bridge signal available: OperationType collapses
 // sendToBridge onto OpSend and receiveFromBridge onto OpReceive, which makes a
 // bridge leg indistinguishable from an ordinary transfer once mapped.
+//
+// They stay UNEXPORTED deliberately. The adapter's own type table (noves/
+// adapter.go) holds the same two literals as map keys, and the duplication is
+// preferable to the alternative: exporting them would publish a vendor's string
+// vocabulary as part of the sync layer's API, which is exactly the coupling the
+// de-vendoring rule forbids ("the sync platform layer must not name a vendor",
+// CONTEXT.md). The coupling that must exist is confined to this one const block,
+// and a drift would be caught by the bridge tests, which assert on the literal
+// provider strings rather than on these constants.
 const (
 	providerTypeSendToBridge      = "sendToBridge"
 	providerTypeReceiveFromBridge = "receiveFromBridge"
@@ -118,6 +128,20 @@ type StitchPlan struct {
 	// DestChain gives the destination chain for each StitchAsSource index — the
 	// chain its matching receive leg was observed on.
 	DestChain map[int]string
+	// MatchedAmount gives, for each StitchAsSource index, the NET quantity in
+	// base units that the matcher actually paired on: everything of that asset
+	// that left the wallet, minus anything of it refunded in the same
+	// transaction.
+	//
+	// It is carried on the plan rather than re-derived by the writer because the
+	// two must agree. The matcher decides a pair belongs together by comparing
+	// this number against the receive; if the writer independently arrives at a
+	// different one, the destination lot opens at a quantity that never arrived
+	// and the source is credited a quantity that never left. Double-entry would
+	// still balance — the same wrong figure is used for both legs — so nothing
+	// downstream catches it, and it surfaces only as reconciliation drift and a
+	// silently wrong cost basis.
+	MatchedAmount map[int]*big.Int
 }
 
 // Decision reports what to do with the raw at index i.
@@ -137,6 +161,15 @@ func (p StitchPlan) DestinationChain(i int) string {
 	return p.DestChain[i]
 }
 
+// NetAmount returns the net quantity the matcher paired on for a stitched source
+// leg, or nil when the raw is not a stitched source.
+func (p StitchPlan) NetAmount(i int) *big.Int {
+	if p.MatchedAmount == nil {
+		return nil
+	}
+	return p.MatchedAmount[i]
+}
+
 // Stitch derives the bridge-stitching plan for one wallet's collected
 // transactions. `now` bounds the hold: a pure-send older than BridgeMatchWindow
 // is released rather than held forever.
@@ -151,8 +184,9 @@ func (p StitchPlan) DestinationChain(i int) string {
 // depend on the order they arrive in.
 func Stitch(txs []DecodedTransaction, walletAddress string, now time.Time) StitchPlan {
 	plan := StitchPlan{
-		Decisions: make(map[int]StitchDecision),
-		DestChain: make(map[int]string),
+		Decisions:     make(map[int]StitchDecision),
+		DestChain:     make(map[int]string),
+		MatchedAmount: make(map[int]*big.Int),
 	}
 
 	addr := strings.ToLower(walletAddress)
@@ -183,30 +217,56 @@ func Stitch(txs []DecodedTransaction, walletAddress string, now time.Time) Stitc
 	// way on every replay, so the oldest receive is offered the send first.
 	sortLegsByTime(receives)
 
+	matchedReceives := make(map[int]bool)
+
 	for _, r := range receives {
 		matched, ok := matchSend(r, sends, claimedSends)
 		if !ok {
 			continue // 0 or >=2 candidates: leave both sides standalone
 		}
 		claimedSends[matched.rawIdx] = true
+		matchedReceives[r.rawIdx] = true
 		plan.Decisions[matched.rawIdx] = StitchAsSource
 		plan.DestChain[matched.rawIdx] = r.chain
+		plan.MatchedAmount[matched.rawIdx] = matched.amount
 		plan.Decisions[r.rawIdx] = StitchSuppress
 	}
 
-	// Any pure-send still unclaimed is a straggler. Hold it while its receive
-	// could still plausibly arrive; release it once it cannot.
+	// Any bridge leg still unclaimed is a straggler: its counterpart has not been
+	// collected yet. Hold it while that counterpart could still plausibly show
+	// up; release it once it cannot.
+	//
+	// BOTH sides are held, not just the send. The chains of a wallet are
+	// collected independently (issues #28/#29), so the destination chain is
+	// routinely collected before the source — a receive arriving first is
+	// ordinary, not exotic. Booking that receive immediately as a transfer_in
+	// would mark its raw processed and drop it out of the pending set, so the
+	// send arriving next cycle would find nothing to match and age out to
+	// transfer_out. The wallet ends up with a transfer_in plus a transfer_out:
+	// exactly the fabricated disposal and reset cost basis this whole ticket
+	// exists to prevent.
+	hold := func(idx int, minedAt time.Time) {
+		if now.Sub(minedAt) < BridgeMatchWindow {
+			plan.Decisions[idx] = StitchHold
+		}
+		// Past the window: no decision is recorded, so the leg falls through to
+		// StitchNone and is processed normally — transfer_out for a send,
+		// transfer_in for a receive. A disposal is realized here and only here,
+		// at the point it can no longer be contradicted by an arriving
+		// counterpart. Releasing rather than holding forever is what stops a
+		// bridge from a chain the user never enabled stranding the asset outside
+		// the ledger permanently.
+	}
+
 	for _, s := range sends {
-		if claimedSends[s.rawIdx] {
-			continue
+		if !claimedSends[s.rawIdx] {
+			hold(s.rawIdx, s.minedAt)
 		}
-		if now.Sub(s.minedAt) < BridgeMatchWindow {
-			plan.Decisions[s.rawIdx] = StitchHold
+	}
+	for _, r := range receives {
+		if !matchedReceives[r.rawIdx] {
+			hold(r.rawIdx, r.minedAt)
 		}
-		// Past the window: no decision recorded, so it falls through to
-		// StitchNone and is processed as an ordinary transfer_out. The disposal
-		// is realized here and only here — at the point it can no longer be
-		// contradicted by an arriving receive.
 	}
 
 	return plan
@@ -326,6 +386,28 @@ func isReceiveLeg(tx *DecodedTransaction, walletAddr string) bool {
 // isPureSendLeg reports whether tx is a bridge send that is a genuine
 // cross-chain outbound rather than a bridge-as-swap.
 //
+// It is defined as the exact complement of isCrossAssetRoundTrip, and that
+// shared definition is load-bearing: the classifier uses the same predicate to
+// decide whether to book a bridge leg as a swap. If the two ever disagreed, a
+// leg could be booked as a swap while the stitcher still treated it as a pure
+// send — recording the trade AND stitching the same value across a bridge.
+func isPureSendLeg(tx *DecodedTransaction, walletAddr string) bool {
+	if tx.ProviderType != providerTypeSendToBridge {
+		return false
+	}
+	if tx.Status == "failed" {
+		return false
+	}
+	if _, ok := primaryOutAsset(tx, walletAddr); !ok {
+		return false
+	}
+	return !isCrossAssetRoundTrip(tx.Transfers)
+}
+
+// isCrossAssetRoundTrip reports whether the transfers show value leaving in one
+// asset and a DIFFERENT asset arriving in the same transaction — the shape that
+// makes a bridge leg a bridge-as-swap rather than a cross-chain movement.
+//
 // sendToBridge is overloaded, and the naive test — "received[] is empty" — is
 // wrong on real data. Calibration against the real Base/Arbitrum history found
 // that most genuine pure-sends DO carry a same-transaction inbound leg: either a
@@ -339,31 +421,30 @@ func isReceiveLeg(tx *DecodedTransaction, walletAddr string) bool {
 // inbound disqualifies the leg regardless of size — the provider supplies no
 // prices, so there is no way to tell a negligible gas drop from a small genuine
 // swap, and under ADR-0002's asymmetry the safe reading is "not a pure send".
-func isPureSendLeg(tx *DecodedTransaction, walletAddr string) bool {
-	if tx.ProviderType != providerTypeSendToBridge {
-		return false
-	}
-	if tx.Status == "failed" {
-		return false
-	}
-
-	outAsset, ok := primaryOutAsset(tx, walletAddr)
-	if !ok {
-		return false
-	}
-
-	for _, t := range tx.Transfers {
-		if t.Direction != DirectionIn {
+func isCrossAssetRoundTrip(transfers []DecodedTransfer) bool {
+	out := make(map[string]bool)
+	var in []string
+	for _, t := range transfers {
+		if t.AssetSymbol == "" {
 			continue
 		}
-		if strings.ToLower(t.Recipient) != walletAddr {
-			continue
-		}
-		if !strings.EqualFold(t.AssetSymbol, outAsset) {
-			return false // different asset back in the same tx: bridge-as-swap
+		key := strings.ToLower(t.AssetSymbol)
+		switch t.Direction {
+		case DirectionOut:
+			out[key] = true
+		case DirectionIn:
+			in = append(in, key)
 		}
 	}
-	return true
+	if len(out) == 0 || len(in) == 0 {
+		return false
+	}
+	for _, asset := range in {
+		if !out[asset] {
+			return true // an asset arrived that did not leave: a trade happened
+		}
+	}
+	return false
 }
 
 // primaryOutAsset returns the symbol of the single asset leaving the wallet.
@@ -483,15 +564,13 @@ func oppositeDirection(d TransferDirection) TransferDirection {
 
 // sortLegsByTime orders legs oldest-first, breaking ties on the raw index so the
 // ordering is total and therefore reproducible. Determinism here is what makes
-// the whole stitch decision replay-safe when two legs share a timestamp.
+// the whole stitch decision replay-safe when two legs share a timestamp — a
+// wallet's transactions landing in one block is ordinary, not exotic.
 func sortLegsByTime(legs []bridgeLeg) {
-	for i := 1; i < len(legs); i++ {
-		for j := i; j > 0; j-- {
-			a, b := legs[j-1], legs[j]
-			if a.minedAt.Before(b.minedAt) || (a.minedAt.Equal(b.minedAt) && a.rawIdx <= b.rawIdx) {
-				break
-			}
-			legs[j-1], legs[j] = legs[j], legs[j-1]
+	sort.SliceStable(legs, func(i, j int) bool {
+		if !legs[i].minedAt.Equal(legs[j].minedAt) {
+			return legs[i].minedAt.Before(legs[j].minedAt)
 		}
-	}
+		return legs[i].rawIdx < legs[j].rawIdx
+	})
 }

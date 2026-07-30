@@ -41,9 +41,17 @@ That is the designed false-negative behaviour, not a defect.
   within the fee tolerance, receive after send within the window. 0 or >= 2
   candidates on EITHER side → no stitch. A send already claimed by an earlier
   receive is not reusable.
-- **Hold-don't-reverse.** An unmatched pure-send younger than the window is held
-  pending — no ledger transaction, no disposal. Past the window it is released as
-  a plain `transfer_out`. A disposal is realized only once it can never be undone.
+- **Hold-don't-reverse, symmetrically.** An unmatched bridge leg younger than the
+  window is held pending — no ledger transaction, no disposal. Past the window it
+  is released (`transfer_out` for a send, `transfer_in` for a receive). A
+  disposal is realized only once it can never be undone. The hold covers BOTH
+  sides: chains are collected independently (#28/#29), so a receive arriving
+  before its send is ordinary, and booking it eagerly would consume the raw and
+  leave the later send with nothing to match.
+- **One amount, one source of truth.** The net matched quantity (gross minus any
+  same-tx refund) travels from the matcher to the ledger writer on the plan
+  rather than being re-derived. If the two disagreed the transaction would still
+  balance, so nothing downstream would catch it.
 - **Round-trip is never stitched** and never held: it is released immediately to
   the local classifier, which books it as a swap.
 
@@ -52,7 +60,7 @@ That is the designed false-negative behaviour, not a defect.
 - [x] Calibrate fee tolerance + pure-send split against real Base wallet history
 - [x] `stitcher.go` — pure matcher over collected raws
 - [x] Stitch phase wired between collect and process
-- [x] Hold stragglers; age out past the window → `transfer_out`
+- [x] Hold stragglers (both sides); age out past the window
 - [x] Round-trip → local swap, never stitched
 - [x] Port-seam tests for every acceptance criterion
 - [x] `go build` / `go vet` / `go test ./... -short` green
@@ -60,4 +68,42 @@ That is the designed false-negative behaviour, not a defect.
 
 ## Review
 
-See the final report / commit message.
+Two-axis code review found **two real correctness bugs**, both fixed with
+regression tests that fail on the pre-fix code:
+
+1. **Spec/correctness — the ledger recorded a different amount than the matcher
+   matched on.** `newBridgeLeg` nets the same-tx refund off the sent amount and
+   sums split outflows, but `buildInternalTransferData` took the *first* out
+   transfer's gross amount. The destination lot would open at a quantity that
+   never arrived while the source was credited a quantity that never left — and
+   because the same wrong figure is used for both legs, double-entry still
+   balances, so nothing downstream catches it. Fixed by carrying the matched net
+   amount on the `StitchPlan` and writing that. Tests:
+   `TestStitch_LedgerAmountIsTheNetMatchedAmount`,
+   `TestStitch_LedgerAmountSumsSplitOutflows`.
+
+2. **Spec/correctness — the hold was send-side only.** An unmatched receive was
+   booked immediately as `transfer_in` and marked processed, dropping it from the
+   pending set; the send arriving next cycle then found nothing to match and aged
+   out to `transfer_out`. Result: `transfer_in` + `transfer_out` — the exact
+   fabricated disposal this ticket exists to prevent, reachable by ordinary
+   independent per-chain collection. Fixed by holding both sides symmetrically,
+   with a bounded release so nothing is stranded. Tests:
+   `TestStitch_ReceiveArrivingFirst_IsHeldNotBooked`,
+   `TestStitch_ReceiveHeldThenSendArrives_Stitches`,
+   `TestStitch_AgedOutReceive_BecomesTransferIn`.
+
+Standards findings applied: replaced a hand-rolled O(n²) insertion sort with
+`sort.SliceStable` (the package's existing convention in `collector.go` and
+`processor.go`); unified the round-trip predicate so the classifier and the
+stitcher share one definition instead of two that could drift apart. The bare
+provider-type constants were kept unexported deliberately — exporting them would
+publish a vendor string vocabulary as sync's public API, against the de-vendoring
+rule — with the reasoning recorded at the const block.
+
+**Verification.** `go build ./...`, `go vet ./...`, gofmt all clean; full backend
+suite green (`go test ./... -short`, 21 packages). Beyond the unit tests, all
+**245 real captured transactions** were replayed through the real Noves adapter
+and the real stitcher: 2 stitched pairs, 0 ambiguous, 0 false positives, with the
+genuine bridge-as-swap correctly left as a swap — the same result before and
+after the fixes.
