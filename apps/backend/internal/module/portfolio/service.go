@@ -113,7 +113,12 @@ func (s *PortfolioService) WithLotStatusCounter(c LotStatusCounter) *PortfolioSe
 
 // AssetHolding represents a single asset holding across all wallets
 type AssetHolding struct {
-	AssetID      string   `json:"asset_id"`
+	AssetID string `json:"asset_id"`
+	// ChainID scopes the holding. Holdings are per (asset, chain) rather than
+	// per symbol because base-unit amounts are only comparable within one
+	// chain's decimals — the same ticker can carry different decimals on
+	// different chains.
+	ChainID      string   `json:"chain_id"`
 	TotalAmount  *big.Int `json:"total_amount"`  // Total amount in base units
 	USDValue     *big.Int `json:"usd_value"`     // Current USD value (scaled by 10^8)
 	CurrentPrice *big.Int `json:"current_price"` // Current price per unit (scaled by 10^8)
@@ -176,8 +181,17 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 		Amount  *big.Int
 	}
 
-	// Aggregate balances by asset (cross-wallet) and by wallet+asset+chain
-	assetTotals := make(map[string]*big.Int)                        // assetID -> total amount
+	// Aggregate balances by asset+chain (cross-wallet) and by wallet+asset+chain.
+	//
+	// The cross-wallet totals are keyed by asset AND chain, never by asset
+	// alone: a balance is a raw base-unit integer whose scale is 10^decimals,
+	// and decimals are a property of the (asset, chain) contract, not of the
+	// symbol. The same ticker legitimately differs across chains — USDC is 6
+	// decimals on Ethereum and Base but 18 on BNB Chain — so summing raw
+	// amounts under one symbol adds quantities on incompatible scales and
+	// inflates the holding by up to 10^12.
+	assetTotals := make(map[string]*big.Int)                         // "assetID:chainID" -> total amount
+	assetTotalKeys := make(map[string]walletAssetEntry)              // "assetID:chainID" -> its asset/chain pair
 	walletAssets := make(map[uuid.UUID]map[string]*walletAssetEntry) // walletID -> "assetID:chainID" -> entry
 
 	for _, account := range accounts {
@@ -197,14 +211,17 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 		}
 
 		for _, balance := range balances {
-			// Add to asset totals (aggregated across all chains for portfolio overview)
-			if _, exists := assetTotals[balance.AssetID]; !exists {
-				assetTotals[balance.AssetID] = big.NewInt(0)
-			}
-			assetTotals[balance.AssetID].Add(assetTotals[balance.AssetID], balance.Balance)
-
 			// Add to wallet-specific tracking keyed by assetID:chainID
 			key := balance.AssetID + ":" + chainID
+
+			// Add to cross-wallet totals under the same asset+chain key, so the
+			// decimals used to value it are the ones this balance is scaled in.
+			if _, exists := assetTotals[key]; !exists {
+				assetTotals[key] = big.NewInt(0)
+				assetTotalKeys[key] = walletAssetEntry{AssetID: balance.AssetID, ChainID: chainID}
+			}
+			assetTotals[key].Add(assetTotals[key], balance.Balance)
+
 			if _, exists := walletAssets[*account.WalletID]; !exists {
 				walletAssets[*account.WalletID] = make(map[string]*walletAssetEntry)
 			}
@@ -227,11 +244,14 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 	totalUSD := big.NewInt(0)
 	prices := make(map[string]*big.Int) // cache prices for wallet balance calculation
 
-	for assetID, amount := range assetTotals {
+	for key, amount := range assetTotals {
 		// Skip if balance is zero
 		if amount.Cmp(big.NewInt(0)) == 0 {
 			continue
 		}
+
+		pair := assetTotalKeys[key]
+		assetID := pair.AssetID
 
 		// Get current price (adapter resolves symbol → CoinGecko ID)
 		price, err := s.priceService.GetPriceBySymbol(ctx, assetID)
@@ -240,12 +260,14 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 		}
 		prices[assetID] = price
 
-		// Calculate USD value: (amount * price) / 10^decimals
-		decimals := s.resolveDecimals(ctx, assetID, "")
+		// Calculate USD value: (amount * price) / 10^decimals, with the
+		// decimals of THIS chain's contract — see the keying note above.
+		decimals := s.resolveDecimals(ctx, assetID, pair.ChainID)
 		usdValue := money.CalcUSDValue(amount, price, decimals)
 
 		assetHoldings = append(assetHoldings, AssetHolding{
 			AssetID:      assetID,
+			ChainID:      pair.ChainID,
 			TotalAmount:  new(big.Int).Set(amount),
 			USDValue:     usdValue,
 			CurrentPrice: price,
@@ -466,14 +488,17 @@ func (s *PortfolioService) GetAssetBreakdown(ctx context.Context, userID uuid.UU
 				price = big.NewInt(0)
 			}
 
-			// Calculate USD value with proper decimals
-			decimals := s.resolveDecimals(ctx, assetID, "")
-			usdValue := money.CalcUSDValue(balance.Balance, price, decimals)
-
 			chainID := ""
 			if account.ChainID != nil {
 				chainID = *account.ChainID
 			}
+
+			// Calculate USD value with this chain's decimals — the balance is a
+			// base-unit integer scaled by the (asset, chain) contract's
+			// decimals, so resolving without the chain can pick another
+			// chain's scale for the same ticker.
+			decimals := s.resolveDecimals(ctx, assetID, chainID)
+			usdValue := money.CalcUSDValue(balance.Balance, price, decimals)
 
 			assetBalance := AssetBalance{
 				AssetID:  assetID,
