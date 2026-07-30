@@ -49,12 +49,16 @@ func expectChainTxs(provider *MockTransactionDataProvider, ctx context.Context, 
 
 // expectSingleChainSet stubs the wallet's chain set as a single "ethereum" row so
 // the collector/reconciler fan-out iterates exactly one chain, matching the
-// ethereum-only fixtures. SetChainCollectCursor is accepted for that chain.
+// ethereum-only fixtures. SetChainCollectCursor is accepted for that chain, and
+// the per-chain finalize + wallet-level rollup that close every sync cycle
+// (issue #28) are stubbed so full-pipeline service tests don't have to.
 func expectSingleChainSet(walletRepo *MockWalletRepository, ctx context.Context, walletID uuid.UUID) {
 	walletRepo.On("GetChainSyncRows", ctx, walletID).Return([]wallet.WalletChainSync{
 		{WalletID: walletID, Chain: "ethereum", SyncStatus: wallet.SyncStatusPending},
 	}, nil)
 	walletRepo.On("SetChainCollectCursor", ctx, walletID, "ethereum", mock.Anything).Return(nil)
+	walletRepo.On("SetChainSyncCompleted", ctx, walletID, "ethereum", mock.Anything).Return(nil)
+	walletRepo.On("RollupWalletSyncStatus", ctx, walletID).Return(nil)
 }
 
 // =============================================================================

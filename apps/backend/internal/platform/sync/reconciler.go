@@ -77,9 +77,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, erro
 	// Fetch on-chain positions per enabled chain. The rows of wallet_chain_sync
 	// ARE the wallet chain set (issue #27), so reconciliation iterates exactly
 	// this set: the position provider is chain-aware and the Reconciler owns the
-	// fan-out. A per-chain fetch error aborts the whole reconcile rather than
-	// reconciling against a partial balance set (which could fabricate a genesis
-	// for an asset whose real balance simply failed to load).
+	// fan-out. Per issue #28 a per-chain fetch error is ISOLATED: mark only that
+	// chain errored and skip it, then keep reconciling the healthy chains. A chain
+	// whose balance failed to load contributes no positions, so no genesis is
+	// fabricated for it (genesis can only ADD, so a missing balance is safe to
+	// skip); its sibling chains still reconcile and record ledger data.
 	chainRows, err := r.walletRepo.GetChainSyncRows(ctx, w.ID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to load wallet chain set: %w", err)
@@ -89,7 +91,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, erro
 	for _, cr := range chainRows {
 		chainPositions, err := r.posProvider.GetPositions(ctx, w.Address, cr.Chain)
 		if err != nil {
-			return 0, fmt.Errorf("failed to get on-chain positions for chain %s: %w", cr.Chain, err)
+			r.logger.Warn("chain position fetch failed, isolating and continuing",
+				"wallet_id", w.ID,
+				"chain", cr.Chain,
+				"error", err)
+			if serr := r.walletRepo.SetChainSyncError(ctx, w.ID, cr.Chain,
+				fmt.Sprintf("reconcile failed: %v", err)); serr != nil {
+				r.logger.Error("failed to mark chain sync error",
+					"wallet_id", w.ID, "chain", cr.Chain, "error", serr)
+			}
+			continue
 		}
 		positions = append(positions, chainPositions...)
 	}
@@ -144,9 +155,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, erro
 				"asset", pos.AssetSymbol,
 				"flow_decimals", flow.Decimals,
 				"position_decimals", pos.Decimals)
-			return genesisCount, r.markDegraded(ctx, w.ID, fmt.Sprintf(
+			r.markChainDegraded(ctx, w.ID, pos.ChainID, fmt.Sprintf(
 				"decimals mismatch for %s on %s: flow=%d position=%d",
 				pos.AssetSymbol, pos.ChainID, flow.Decimals, pos.Decimals))
+			continue
 		}
 
 		delta := new(big.Int).Sub(pos.Quantity, netFlow)
@@ -171,9 +183,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, erro
 				continue
 			}
 
-			return genesisCount, r.markDegraded(ctx, w.ID, fmt.Sprintf(
+			r.markChainDegraded(ctx, w.ID, pos.ChainID, fmt.Sprintf(
 				"on-chain balance below calculated for %s on %s: on_chain=%s calculated=%s delta=%s",
 				pos.AssetSymbol, pos.ChainID, pos.Quantity.String(), netFlow.String(), delta.String()))
+			continue
 		}
 
 		if delta.Sign() == 0 {
@@ -207,19 +220,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, erro
 	return genesisCount, nil
 }
 
-// markDegraded records a reconciliation discrepancy on the wallet (so it becomes
-// visible instead of silently proceeding) and returns a hard error so the caller
-// aborts the sync. Used for both a beyond-dust negative delta (MT-SYNC-03) and a
-// decimals mismatch (MT-SYNC-04) — one consistent surfacing mechanism.
-func (r *Reconciler) markDegraded(ctx context.Context, walletID uuid.UUID, reason string) error {
+// markChainDegraded records a reconciliation discrepancy on ONE chain (so it
+// becomes visible instead of silently proceeding) without aborting the reconcile
+// of the wallet's other chains (issue #28). Used for both a beyond-dust negative
+// delta (MT-SYNC-03) and a decimals mismatch (MT-SYNC-04) — one consistent
+// surfacing mechanism. The caller skips synthesizing genesis for the offending
+// position and continues; the wallet-level rollup then surfaces the error.
+func (r *Reconciler) markChainDegraded(ctx context.Context, walletID uuid.UUID, chain, reason string) {
 	errMsg := "reconciliation discrepancy: " + reason
-	if err := r.walletRepo.SetSyncError(ctx, walletID, errMsg); err != nil {
-		r.logger.Error("failed to mark wallet sync degraded",
+	if err := r.walletRepo.SetChainSyncError(ctx, walletID, chain, errMsg); err != nil {
+		r.logger.Error("failed to mark chain sync degraded",
 			"wallet_id", walletID,
+			"chain", chain,
 			"reason", reason,
 			"error", err)
 	}
-	return fmt.Errorf("%s", errMsg)
 }
 
 // calculateNetFlows processes raw transactions and computes net flows per asset.

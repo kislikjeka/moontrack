@@ -271,8 +271,44 @@ func (s *Service) syncWallet(ctx context.Context, w *wallet.Wallet) error {
 	// Reset sync phase to idle after completion
 	_ = s.walletRepo.SetSyncPhase(ctx, w.ID, string(SyncPhaseIdle))
 
+	// Finalize per-chain outcomes: every chain that was NOT isolated as errored
+	// this cycle is marked synced at completion time, then the wallet-level status
+	// is derived from the chain rows (issue #28). A partially-failed wallet rolls up
+	// to 'error', which GetWalletsForSync re-selects next cycle; on re-claim every
+	// chain row is reset to syncing (error cleared) and the failed chain retries
+	// from its own (unadvanced) cursor while the healthy chains resume incrementally.
+	syncAt := time.Now()
+	if err := s.finalizeChainStatuses(ctx, w.ID, syncAt); err != nil {
+		s.logger.Error("failed to finalize per-chain sync statuses", "wallet_id", w.ID, "error", err)
+	}
+	if err := s.walletRepo.RollupWalletSyncStatus(ctx, w.ID); err != nil {
+		s.logger.Error("failed to roll up wallet sync status", "wallet_id", w.ID, "error", err)
+	}
+
 	s.logger.Info("wallet sync completed", "wallet_id", w.ID, "is_initial", isInitial)
 
+	return nil
+}
+
+// finalizeChainStatuses marks every chain that did NOT error this cycle as synced.
+// A chain isolated as errored by the collector or reconciler keeps its error status
+// (and its cursor), so it is retried from where it left off next cycle. Healthy
+// chains are completed at syncAt. This is what makes the wallet-level RollupStatus
+// meaningful: the chain rows are the source of truth (issue #28).
+func (s *Service) finalizeChainStatuses(ctx context.Context, walletID uuid.UUID, syncAt time.Time) error {
+	rows, err := s.walletRepo.GetChainSyncRows(ctx, walletID)
+	if err != nil {
+		return fmt.Errorf("failed to load chain rows: %w", err)
+	}
+	for _, cr := range rows {
+		if cr.SyncStatus == wallet.SyncStatusError {
+			continue // isolated failure — leave it to retry from its own cursor
+		}
+		if err := s.walletRepo.SetChainSyncCompleted(ctx, walletID, cr.Chain, syncAt); err != nil {
+			s.logger.Error("failed to mark chain synced",
+				"wallet_id", walletID, "chain", cr.Chain, "error", err)
+		}
+	}
 	return nil
 }
 

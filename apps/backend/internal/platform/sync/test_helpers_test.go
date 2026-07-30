@@ -78,6 +78,21 @@ func (m *MockWalletRepository) SetChainCollectCursor(ctx context.Context, wallet
 	return args.Error(0)
 }
 
+func (m *MockWalletRepository) SetChainSyncError(ctx context.Context, walletID uuid.UUID, chain, errMsg string) error {
+	args := m.Called(ctx, walletID, chain, errMsg)
+	return args.Error(0)
+}
+
+func (m *MockWalletRepository) SetChainSyncCompleted(ctx context.Context, walletID uuid.UUID, chain string, syncAt time.Time) error {
+	args := m.Called(ctx, walletID, chain, syncAt)
+	return args.Error(0)
+}
+
+func (m *MockWalletRepository) RollupWalletSyncStatus(ctx context.Context, walletID uuid.UUID) error {
+	args := m.Called(ctx, walletID)
+	return args.Error(0)
+}
+
 // =============================================================================
 // Mock Ledger Service
 // =============================================================================

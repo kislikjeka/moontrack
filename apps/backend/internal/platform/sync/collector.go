@@ -41,70 +41,85 @@ func NewCollector(
 	}
 }
 
-// CollectAll performs initial full collection of all transactions
+// CollectAll performs initial full collection of all transactions.
 func (c *Collector) CollectAll(ctx context.Context, w *wallet.Wallet) (int, error) {
-	if err := c.walletRepo.SetSyncPhase(ctx, w.ID, string(SyncPhaseCollecting)); err != nil {
-		return 0, fmt.Errorf("failed to set sync phase: %w", err)
-	}
-
-	var since time.Time
-	if c.config.InitialSyncLookback > 0 {
-		since = time.Now().Add(-c.config.InitialSyncLookback)
-	}
-	c.logger.Info("collecting all transactions",
-		"wallet_id", w.ID,
-		"address", w.Address,
-		"since", since)
-
-	return c.collect(ctx, w, since)
+	return c.collect(ctx, w, true)
 }
 
-// CollectIncremental collects only new transactions since last cursor
+// CollectIncremental collects only new transactions since each chain's cursor.
 func (c *Collector) CollectIncremental(ctx context.Context, w *wallet.Wallet) (int, error) {
+	return c.collect(ctx, w, false)
+}
+
+// chainSince computes the `since` window for a single chain, per issue #28: each
+// chain resumes from ITS OWN collect cursor, so a chain that fell behind (e.g.
+// failed last cycle) can never be dragged forward past its history by a faster
+// sibling. When the chain has no cursor yet, we fall back to the wallet's last
+// sync (incremental) and finally to the initial-lookback window.
+func (c *Collector) chainSince(w *wallet.Wallet, cr wallet.WalletChainSync, isInitial bool) time.Time {
+	if cr.CollectCursorAt != nil {
+		return *cr.CollectCursorAt
+	}
+	if !isInitial && w.LastSyncAt != nil {
+		return *w.LastSyncAt
+	}
+	if c.config.InitialSyncLookback > 0 {
+		return time.Now().Add(-c.config.InitialSyncLookback)
+	}
+	return time.Time{}
+}
+
+// collect fans out over the wallet's chain set (the rows of wallet_chain_sync ARE
+// the chains this wallet syncs, issue #27) and collects each chain INDEPENDENTLY
+// (issue #28): every chain resumes from its own cursor and a chain that errors is
+// isolated — its row is marked error, its cursor is left untouched (so it resumes
+// where it left off next cycle), and the loop continues to the remaining chains.
+// A single chain's failure never aborts the others or corrupts their state.
+func (c *Collector) collect(ctx context.Context, w *wallet.Wallet, isInitial bool) (int, error) {
 	if err := c.walletRepo.SetSyncPhase(ctx, w.ID, string(SyncPhaseCollecting)); err != nil {
 		return 0, fmt.Errorf("failed to set sync phase: %w", err)
 	}
 
-	var since time.Time
-	if w.CollectCursorAt != nil {
-		since = *w.CollectCursorAt
-	} else if w.LastSyncAt != nil {
-		since = *w.LastSyncAt
-	} else if c.config.InitialSyncLookback > 0 {
-		since = time.Now().Add(-c.config.InitialSyncLookback)
-	}
-
-	c.logger.Info("collecting incremental transactions",
-		"wallet_id", w.ID,
-		"address", w.Address,
-		"since", since)
-
-	return c.collect(ctx, w, since)
-}
-
-func (c *Collector) collect(ctx context.Context, w *wallet.Wallet, since time.Time) (int, error) {
-	// Fan out over the wallet's chain set: the rows of wallet_chain_sync ARE the
-	// chains this wallet is synced on (issue #27). The provider port is
-	// chain-aware, so the Collector owns the loop and invokes it once per enabled
-	// chain, aggregating results and advancing each chain's own collect cursor.
 	chainRows, err := c.walletRepo.GetChainSyncRows(ctx, w.ID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to load wallet chain set: %w", err)
 	}
 
-	var allTxs []DecodedTransaction
 	count := 0
-	var globalMaxMinedAt *time.Time
+	fetched := 0
+	failedChains := 0
 
 	for _, cr := range chainRows {
+		since := c.chainSince(w, cr, isInitial)
+
+		c.logger.Info("collecting chain transactions",
+			"wallet_id", w.ID,
+			"address", w.Address,
+			"chain", cr.Chain,
+			"since", since,
+			"is_initial", isInitial)
+
 		chainTxs, err := c.txProvider.GetTransactions(ctx, w.Address, cr.Chain, since)
 		if err != nil {
-			return count, fmt.Errorf("failed to get transactions for chain %s: %w", cr.Chain, err)
+			// Failure isolation: mark ONLY this chain errored and move on. The
+			// chain's cursor is deliberately left untouched so it resumes from its
+			// own high-water mark next cycle without skipping or re-fetching others.
+			c.logger.Warn("chain collect failed, isolating and continuing",
+				"wallet_id", w.ID,
+				"chain", cr.Chain,
+				"error", err)
+			if serr := c.walletRepo.SetChainSyncError(ctx, w.ID, cr.Chain,
+				fmt.Sprintf("collect failed: %v", err)); serr != nil {
+				c.logger.Error("failed to mark chain sync error",
+					"wallet_id", w.ID, "chain", cr.Chain, "error", serr)
+			}
+			failedChains++
+			continue
 		}
 
 		// Extract asset metadata for this chain's batch before storing raw txs.
 		c.extractAssets(ctx, chainTxs)
-		allTxs = append(allTxs, chainTxs...)
+		fetched += len(chainTxs)
 
 		var maxMinedAt *time.Time
 		for _, dt := range chainTxs {
@@ -134,31 +149,22 @@ func (c *Collector) collect(ctx context.Context, w *wallet.Wallet, since time.Ti
 			}
 		}
 
-		// Advance this chain's own collect cursor to its high-water mark.
+		// Advance ONLY this chain's collect cursor to its high-water mark. Nothing
+		// wallet-level: each chain owns its own resumption point (issue #28).
 		if maxMinedAt != nil {
 			if err := c.walletRepo.SetChainCollectCursor(ctx, w.ID, cr.Chain, *maxMinedAt); err != nil {
-				return count, fmt.Errorf("failed to update collect cursor for chain %s: %w", cr.Chain, err)
+				c.logger.Error("failed to update chain collect cursor",
+					"wallet_id", w.ID, "chain", cr.Chain, "error", err)
 			}
-			if globalMaxMinedAt == nil || maxMinedAt.After(*globalMaxMinedAt) {
-				globalMaxMinedAt = maxMinedAt
-			}
-		}
-	}
-
-	// Maintain the wallet-level collect cursor as the max across chains. It is the
-	// incremental-sync baseline today; per-chain independent incremental cursors
-	// land in #28. Keeping it in step preserves current incremental behavior.
-	if globalMaxMinedAt != nil {
-		if err := c.walletRepo.SetCollectCursor(ctx, w.ID, *globalMaxMinedAt); err != nil {
-			return count, fmt.Errorf("failed to update wallet collect cursor: %w", err)
 		}
 	}
 
 	c.logger.Info("collection complete",
 		"wallet_id", w.ID,
 		"chains", len(chainRows),
+		"failed_chains", failedChains,
 		"stored", count,
-		"total_fetched", len(allTxs))
+		"total_fetched", fetched)
 
 	return count, nil
 }

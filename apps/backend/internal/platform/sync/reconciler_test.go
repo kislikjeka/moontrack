@@ -87,8 +87,10 @@ func TestReconcile_PositiveDelta_SynthesizesGenesis(t *testing.T) {
 }
 
 // TestReconcile_NegativeDeltaBeyondDust_MarksDegraded verifies MT-SYNC-03: a
-// negative delta beyond the dust tolerance is surfaced (SetSyncError + hard error)
-// rather than silently skipped, and no genesis is synthesized.
+// negative delta beyond the dust tolerance is surfaced rather than silently
+// skipped, and no genesis is synthesized. Per issue #28 the discrepancy degrades
+// only the offending CHAIN (SetChainSyncError) and the reconcile continues rather
+// than aborting the whole wallet — the wallet-level error is a rollup concern.
 func TestReconcile_NegativeDeltaBeyondDust_MarksDegraded(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
@@ -100,7 +102,7 @@ func TestReconcile_NegativeDeltaBeyondDust_MarksDegraded(t *testing.T) {
 	rawTxRepo := new(MockRawTransactionRepository)
 
 	walletRepo.On("SetSyncPhase", ctx, w.ID, mock.Anything).Return(nil)
-	walletRepo.On("SetSyncError", ctx, w.ID, mock.Anything).Return(nil)
+	walletRepo.On("SetChainSyncError", ctx, w.ID, "ethereum", mock.Anything).Return(nil)
 	rawTxRepo.On("DeleteSyntheticByWallet", ctx, w.ID).Return(nil)
 	walletRepo.On("GetChainSyncRows", ctx, w.ID).Return([]wallet.WalletChainSync{
 		{WalletID: w.ID, Chain: "ethereum", SyncStatus: wallet.SyncStatusPending},
@@ -129,9 +131,9 @@ func TestReconcile_NegativeDeltaBeyondDust_MarksDegraded(t *testing.T) {
 	r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
 	count, err := r.Reconcile(ctx, w)
 
-	require.Error(t, err)
+	require.NoError(t, err, "a per-chain discrepancy is isolated, not a wallet-wide abort")
 	require.Equal(t, 0, count)
-	walletRepo.AssertCalled(t, "SetSyncError", ctx, w.ID, mock.Anything)
+	walletRepo.AssertCalled(t, "SetChainSyncError", ctx, w.ID, "ethereum", mock.Anything)
 	rawTxRepo.AssertNotCalled(t, "UpsertRawTransaction", mock.Anything, mock.Anything)
 }
 
@@ -183,7 +185,9 @@ func TestReconcile_NegativeDeltaWithinDust_Skipped(t *testing.T) {
 
 // TestReconcile_DecimalsMismatch_MarksDegraded verifies MT-SYNC-04: when the
 // calculated flow's decimals disagree with the on-chain position's decimals, the
-// reconciler treats it as a hard error and does NOT synthesize a genesis.
+// reconciler surfaces it and does NOT synthesize a genesis. Per issue #28 this
+// degrades only the offending CHAIN (SetChainSyncError) and the reconcile
+// continues rather than aborting the whole wallet.
 func TestReconcile_DecimalsMismatch_MarksDegraded(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
@@ -195,7 +199,7 @@ func TestReconcile_DecimalsMismatch_MarksDegraded(t *testing.T) {
 	rawTxRepo := new(MockRawTransactionRepository)
 
 	walletRepo.On("SetSyncPhase", ctx, w.ID, mock.Anything).Return(nil)
-	walletRepo.On("SetSyncError", ctx, w.ID, mock.Anything).Return(nil)
+	walletRepo.On("SetChainSyncError", ctx, w.ID, "ethereum", mock.Anything).Return(nil)
 	rawTxRepo.On("DeleteSyntheticByWallet", ctx, w.ID).Return(nil)
 	walletRepo.On("GetChainSyncRows", ctx, w.ID).Return([]wallet.WalletChainSync{
 		{WalletID: w.ID, Chain: "ethereum", SyncStatus: wallet.SyncStatusPending},
@@ -212,8 +216,8 @@ func TestReconcile_DecimalsMismatch_MarksDegraded(t *testing.T) {
 	r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
 	count, err := r.Reconcile(ctx, w)
 
-	require.Error(t, err)
+	require.NoError(t, err, "a per-chain discrepancy is isolated, not a wallet-wide abort")
 	require.Equal(t, 0, count)
-	walletRepo.AssertCalled(t, "SetSyncError", ctx, w.ID, mock.Anything)
+	walletRepo.AssertCalled(t, "SetChainSyncError", ctx, w.ID, "ethereum", mock.Anything)
 	rawTxRepo.AssertNotCalled(t, "UpsertRawTransaction", mock.Anything, mock.Anything)
 }
