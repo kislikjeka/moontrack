@@ -98,8 +98,22 @@ func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 				// skipped would strand one side of a real transfer forever, and
 				// marking it an error would burn the consecutive-error budget on
 				// an ordinary ordering race.
-				p.logger.Debug("raw deferred: shared transaction not recorded yet",
-					"wallet_id", w.ID, "raw_id", raw.ID, "external_id", raw.ExternalID)
+				//
+				// On a wallet that has synced before, the counterpart has had a
+				// cycle to appear, so a still-unresolved raw is no longer an
+				// ordinary race — it may be a counterpart wallet that was
+				// deleted or whose chain is not enabled, which would leave this
+				// raw pending indefinitely. Surface that at WARN so the stall is
+				// visible rather than silent. (Ageing such a raw out to a plain
+				// transfer_in is the bridge window's job — issue #33.)
+				if w.LastSyncAt != nil {
+					p.logger.Warn("raw still deferred after a previous sync: counterpart wallet has not recorded this event",
+						"wallet_id", w.ID, "raw_id", raw.ID, "external_id", raw.ExternalID,
+						"tx_hash", raw.TxHash, "chain_id", raw.ChainID)
+				} else {
+					p.logger.Debug("raw deferred: shared transaction not recorded yet",
+						"wallet_id", w.ID, "raw_id", raw.ID, "external_id", raw.ExternalID)
+				}
 				deferred++
 				consecutiveErrors = 0
 				continue

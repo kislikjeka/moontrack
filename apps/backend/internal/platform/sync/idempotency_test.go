@@ -1,6 +1,7 @@
 package sync_test
 
 import (
+	"bytes"
 	"context"
 	"math/big"
 	"os"
@@ -411,6 +412,139 @@ func TestNonOwningRaw_SourceNotYetRecorded_StaysPending(t *testing.T) {
 	rawTxRepo.AssertNotCalled(t, "MarkProcessed", mock.Anything, mock.Anything, mock.Anything)
 	rawTxRepo.AssertNotCalled(t, "MarkSkipped", mock.Anything, mock.Anything, mock.Anything)
 	rawTxRepo.AssertNotCalled(t, "MarkError", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestNonOwningRaw_DeferredAfterPreviousSync_WarnsAboutStall: a deferral on a
+// wallet that has synced before is no longer an ordinary ordering race — the
+// counterpart has had a cycle to appear. It may be a wallet the user deleted or
+// a chain they never enabled, which would leave this raw pending indefinitely.
+// The raw still stays pending (nothing is lost), but the stall becomes visible
+// instead of hiding at Debug level.
+func TestNonOwningRaw_DeferredAfterPreviousSync_WarnsAboutStall(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+
+	srcWallet := newTestWallet(userID, idemSourceAddr)
+	dstWallet := newTestWallet(userID, idemDestAddr)
+	synced := time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC)
+	dstWallet.LastSyncAt = &synced // this wallet has synced before
+
+	walletRepo := new(MockWalletRepository)
+	walletRepo.On("GetWalletsByAddressAndUserID", mock.Anything, idemSourceAddr, userID).
+		Return([]*wallet.Wallet{srcWallet}, nil).Maybe()
+	walletRepo.On("GetWalletsByAddressAndUserID", mock.Anything, mock.Anything, mock.Anything).
+		Return([]*wallet.Wallet{}, nil).Maybe()
+	walletRepo.On("SetSyncPhase", mock.Anything, dstWallet.ID, mock.Anything).Return(nil)
+	walletRepo.On("SetSyncCompletedAt", mock.Anything, dstWallet.ID, mock.Anything).Return(nil).Maybe()
+
+	ledgerSvc := new(MockLedgerService)
+	ledgerSvc.On("FindBySourceExternalID", mock.Anything, "noves", "ethereum:0xinternal").
+		Return(nil, nil).Once()
+
+	var logs bytes.Buffer
+	log := logger.New("test", &logs)
+	builder := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil)
+
+	inTx := idemTx("0xinternal", idemSourceAddr, idemDestAddr, sync.DirectionIn)
+	raw := idemRaw(dstWallet.ID, inTx)
+
+	rawTxRepo := new(MockRawTransactionRepository)
+	rawTxRepo.On("GetPendingByWallet", mock.Anything, dstWallet.ID).
+		Return([]*sync.RawTransaction{raw}, nil).Once()
+
+	proc := sync.NewProcessor(rawTxRepo, walletRepo, builder, ledgerSvc, log)
+	require.NoError(t, proc.ProcessAll(ctx, dstWallet))
+
+	assert.Contains(t, logs.String(), "still deferred after a previous sync",
+		"a persistent deferral must be visible, not silent")
+	assert.Contains(t, logs.String(), "WARN")
+
+	// Still pending: visibility must not cost us the retry.
+	rawTxRepo.AssertNotCalled(t, "MarkSkipped", mock.Anything, mock.Anything, mock.Anything)
+	rawTxRepo.AssertNotCalled(t, "MarkError", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// -----------------------------------------------------------------------------
+// AC4 — Demoable via the port seam
+//
+// The epic names TransactionDataProvider as the preferred seam: drive the full
+// collect → reconcile → process pipeline from a fake provider and assert on the
+// ledger outcome. This is the whole story end to end — the same on-chain event
+// delivered by the provider under two different wallets produces exactly one
+// ledger transaction, and the second wallet's raw references it.
+// -----------------------------------------------------------------------------
+
+// TestPortSeam_SameEventTwoWallets_OneLedgerTx drives Service.SyncWallet twice,
+// once per wallet, with the provider returning the same chain:txHash both times.
+func TestPortSeam_SameEventTwoWallets_OneLedgerTx(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+
+	walletA := newTestWallet(userID, idemSourceAddr)
+	walletB := newTestWallet(userID, idemDestAddr)
+
+	// The one on-chain event, as each wallet's provider reports it.
+	sharedTx := idemTx("0xshared", idemSourceAddr, idemThirdParty, sync.DirectionOut)
+
+	sharedTxID := uuid.New()
+	externalID := "ethereum:0xshared"
+
+	ledgerSvc := new(MockLedgerService)
+	// Wallet A wins the insert; wallet B collides on UNIQUE(source, external_id).
+	ledgerSvc.On("RecordTransaction", mock.Anything, mock.Anything, "noves", mock.Anything, mock.Anything, mock.Anything).
+		Return(&ledger.Transaction{ID: sharedTxID}, nil).Once()
+	ledgerSvc.On("RecordTransaction", mock.Anything, mock.Anything, "noves", mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, duplicateErr()).Once()
+	ledgerSvc.On("FindBySourceExternalID", mock.Anything, "noves", externalID).
+		Return(&ledger.Transaction{ID: sharedTxID}, nil).Once()
+
+	// Track what each wallet's raw ends up referencing.
+	referenced := map[uuid.UUID]uuid.UUID{}
+
+	syncOneWallet := func(w *wallet.Wallet) {
+		provider := new(MockTransactionDataProvider)
+		expectChainTxs(provider, ctx, w.Address, mock.Anything, []sync.DecodedTransaction{sharedTx})
+
+		walletRepo := new(MockWalletRepository)
+		walletRepo.On("GetWalletsForSync", mock.Anything).Return([]*wallet.Wallet{w}, nil)
+		walletRepo.On("GetWalletsByAddressAndUserID", mock.Anything, mock.Anything, mock.Anything).
+			Return([]*wallet.Wallet{}, nil).Maybe()
+		walletRepo.On("ClaimWalletForSync", ctx, w.ID).Return(true, nil)
+		walletRepo.On("SetSyncInProgress", ctx, w.ID).Return(nil)
+		walletRepo.On("SetSyncPhase", ctx, w.ID, mock.Anything).Return(nil)
+		walletRepo.On("SetCollectCursor", ctx, w.ID, mock.Anything).Return(nil)
+		walletRepo.On("SetSyncCompletedAt", ctx, w.ID, mock.Anything).Return(nil)
+		walletRepo.On("SetSyncError", ctx, w.ID, mock.Anything).Return(nil).Maybe()
+		expectSingleChainSet(walletRepo, ctx, w.ID)
+
+		// The collector stores the raw; the processor then reads it back.
+		stored := idemRaw(w.ID, sharedTx)
+		rawTxRepo := new(MockRawTransactionRepository)
+		rawTxRepo.On("UpsertRawTransaction", mock.Anything, mock.Anything).Return(nil)
+		rawTxRepo.On("GetPendingByWallet", mock.Anything, w.ID).
+			Return([]*sync.RawTransaction{stored}, nil)
+		rawTxRepo.On("MarkProcessed", mock.Anything, stored.ID, mock.Anything).
+			Run(func(args mock.Arguments) {
+				referenced[w.ID] = args.Get(2).(uuid.UUID)
+			}).Return(nil)
+
+		svc := newTestService(walletRepo, ledgerSvc, provider, nil, rawTxRepo)
+		require.NoError(t, svc.SyncWallet(ctx, w.ID))
+	}
+
+	syncOneWallet(walletA)
+	syncOneWallet(walletB)
+
+	// Exactly one ledger transaction survives, and BOTH wallets' raws point at it.
+	require.Len(t, ledgerSvc.recordedTransactions, 2, "both wallets attempt the insert")
+	assert.Equal(t, externalID, *ledgerSvc.recordedTransactions[0].ExternalID)
+	assert.Equal(t, externalID, *ledgerSvc.recordedTransactions[1].ExternalID)
+
+	assert.Equal(t, sharedTxID, referenced[walletA.ID], "owning wallet references the transaction")
+	assert.Equal(t, sharedTxID, referenced[walletB.ID],
+		"non-owning wallet references the SAME transaction — this is what makes "+
+			"wiping either wallet reach it")
+	ledgerSvc.AssertExpectations(t)
 }
 
 // TestDuplicateSkip_LookupFailure_Surfaces: if the duplicate winner cannot be

@@ -27,6 +27,7 @@ CREATE OR REPLACE FUNCTION wipe_wallet_ledger(p_wallet_id UUID) RETURNS void AS 
 DECLARE
     v_tx_ids UUID[];
     v_account_ids UUID[];
+    v_lot_ids UUID[];
 BEGIN
     -- Scope: transactions this wallet owns, PLUS transactions any of this
     -- wallet's raws reference (the shared-event case, e.g. the incoming side of
@@ -49,10 +50,37 @@ BEGIN
     FROM accounts WHERE wallet_id = p_wallet_id;
 
     IF v_tx_ids IS NOT NULL THEN
+        -- Lots about to be deleted.
+        SELECT array_agg(id) INTO v_lot_ids
+        FROM tax_lots WHERE transaction_id = ANY(v_tx_ids);
+
         DELETE FROM lot_override_history
         WHERE lot_id IN (SELECT id FROM tax_lots WHERE transaction_id = ANY(v_tx_ids));
 
         DELETE FROM lot_disposals WHERE transaction_id = ANY(v_tx_ids);
+
+        IF v_lot_ids IS NOT NULL THEN
+            -- An internal transfer carries cost basis across wallets: the
+            -- destination lot points at the source lot via
+            -- linked_source_lot_id, and a disposal can consume a lot recorded
+            -- under a different transaction. Either reference can outlive the
+            -- lots being deleted here — the counterpart lot survives whenever
+            -- it belongs to a transaction outside this wipe's scope (a manual
+            -- entry, say). Without clearing them first, the DELETE below fails
+            -- outright on tax_lots_linked_source_lot_id_fkey / lot_disposals_
+            -- lot_id_fkey and the whole wipe aborts.
+            --
+            -- Clearing rather than preserving is correct: the link is cost-basis
+            -- provenance derived during processing, and replay re-derives it
+            -- from the raws. A surviving lot keeps its own basis; it just loses
+            -- the pointer to a lot that no longer exists.
+            UPDATE tax_lots SET linked_source_lot_id = NULL
+            WHERE linked_source_lot_id = ANY(v_lot_ids);
+
+            DELETE FROM lot_override_history WHERE lot_id = ANY(v_lot_ids);
+            DELETE FROM lot_disposals WHERE lot_id = ANY(v_lot_ids);
+        END IF;
+
         DELETE FROM tax_lots WHERE transaction_id = ANY(v_tx_ids);
         DELETE FROM entries WHERE transaction_id = ANY(v_tx_ids);
 
