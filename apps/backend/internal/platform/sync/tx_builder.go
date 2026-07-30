@@ -176,6 +176,48 @@ func (p *TxBuilder) ProcessTransaction(ctx context.Context, w *wallet.Wallet, tx
 	return &ledgerTx.ID, nil
 }
 
+// ProcessStitchedBridge records a bridge send leg that the stitcher matched to a
+// receive leg on another chain, as ONE cross-chain internal_transfer (issue #33,
+// ADR-0002).
+//
+// It deliberately does NOT go through ProcessTransaction's classify-then-detect
+// path, because neither step can reach the right answer here. The classifier
+// sees an outbound-only transaction and says transfer_out; detectInternalTransfer
+// then looks for a counterparty address belonging to the user and finds the
+// BRIDGE CONTRACT (or the null address), because that is genuinely who the funds
+// were sent to on-chain. The knowledge that those funds came back to the user on
+// another chain exists only in the stitcher's cross-leg match, so the type is
+// asserted here rather than re-derived.
+//
+// tx.DestChainID must already be set to the destination chain; the caller
+// establishes that from the matching receive leg.
+func (p *TxBuilder) ProcessStitchedBridge(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) (*uuid.UUID, error) {
+	if tx.Status == "failed" {
+		p.logger.Debug("skipping failed stitched bridge leg", "tx_hash", tx.TxHash)
+		return nil, nil
+	}
+
+	// Source and destination wallet are the same row: one address, two chains.
+	// The internal-transfer model allows that exactly when the chains differ.
+	data := p.buildInternalTransferData(w, tx, &w.ID)
+	externalID := tx.ID
+
+	ledgerTx, err := p.ledgerSvc.RecordTransaction(ctx, ledger.TxTypeInternalTransfer, sourceName, &externalID, tx.MinedAt, data)
+	if err != nil {
+		if isDuplicateError(err) {
+			p.logger.Debug("stitched bridge already recorded (idempotent)",
+				"external_id", externalID, "wallet_id", w.ID)
+			return p.findSharedLedgerTx(ctx, externalID)
+		}
+		return nil, fmt.Errorf("failed to record stitched bridge transfer: %w", err)
+	}
+
+	p.logger.Debug("stitched bridge recorded as cross-chain internal transfer",
+		"tx_hash", tx.TxHash, "source_chain", tx.ChainID, "dest_chain", tx.DestChainID)
+
+	return &ledgerTx.ID, nil
+}
+
 // The review tag on a recorded transaction whose classification rests on a
 // shape the provider could not identify. It rides on the ledger transaction's
 // raw_data (JSONB), so the audit trail outlives any log retention window.

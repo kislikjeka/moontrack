@@ -35,6 +35,27 @@ func (c *Classifier) Classify(tx DecodedTransaction) ledger.TransactionType {
 		}
 	}
 
+	// A ROUND-TRIP bridge leg (issue #33, ADR-0002): the provider calls it a
+	// bridge, but a DIFFERENT asset came straight back to the same wallet within
+	// the one transaction. That is a bridge-as-swap, not a cross-chain leg, and
+	// it must be booked locally as the swap it is.
+	//
+	// This has to precede the OperationType switch. The adapter maps
+	// sendToBridge onto OpSend and receiveFromBridge onto OpReceive, and those
+	// cases return transfer_out / transfer_in outright — which for a round-trip
+	// would record only one side of the trade and silently drop the asset
+	// received in exchange, losing both the acquisition and its cost basis.
+	//
+	// The test is a differing asset, not merely both directions, and that
+	// distinction is load-bearing on real data: most genuine pure-sends carry a
+	// same-asset dust refund, and getting a sliver of your own asset back is not
+	// a trade — booking it as a swap would fabricate a disposal of an asset
+	// against itself. Ordinary sends and receives are untouched entirely: the
+	// rule is scoped to legs the provider itself identified as a bridge.
+	if c.isBridgeLeg(tx) && c.hasCrossAssetRoundTrip(tx.Transfers) {
+		return ledger.TxTypeSwap
+	}
+
 	switch tx.OperationType {
 	case OpTrade:
 		return ledger.TxTypeSwap
@@ -63,6 +84,44 @@ func (c *Classifier) Classify(tx DecodedTransaction) ledger.TransactionType {
 
 func (c *Classifier) isUniswapV3(protocol string) bool {
 	return protocol == "Uniswap V3"
+}
+
+// isBridgeLeg reports whether the provider classified this transaction as one
+// side of a cross-chain bridge. ProviderType is the only place that survives:
+// the adapter collapses sendToBridge onto OpSend and receiveFromBridge onto
+// OpReceive, making a bridge leg indistinguishable from an ordinary transfer by
+// operation type alone.
+func (c *Classifier) isBridgeLeg(tx DecodedTransaction) bool {
+	return tx.ProviderType == providerTypeSendToBridge ||
+		tx.ProviderType == providerTypeReceiveFromBridge
+}
+
+// hasCrossAssetRoundTrip reports whether the transfers show value leaving in one
+// asset and a DIFFERENT asset arriving in the same transaction — the shape that
+// makes a bridge leg a swap rather than a cross-chain movement.
+func (c *Classifier) hasCrossAssetRoundTrip(transfers []DecodedTransfer) bool {
+	out := make(map[string]bool)
+	in := make(map[string]bool)
+	for _, t := range transfers {
+		if t.AssetSymbol == "" {
+			continue
+		}
+		key := strings.ToLower(t.AssetSymbol)
+		if t.Direction == DirectionOut {
+			out[key] = true
+		} else if t.Direction == DirectionIn {
+			in[key] = true
+		}
+	}
+	if len(out) == 0 || len(in) == 0 {
+		return false
+	}
+	for asset := range in {
+		if !out[asset] {
+			return true // an asset arrived that did not leave: a trade happened
+		}
+	}
+	return false
 }
 
 func (c *Classifier) classifyLP(tx DecodedTransaction) ledger.TransactionType {

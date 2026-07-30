@@ -193,3 +193,66 @@ func TestClassify_ReceiveNonClaim_StaysTransferIn(t *testing.T) {
 	}
 	assert.Equal(t, ledger.TxTypeTransferIn, c.Classify(tx))
 }
+
+// TestClassifier_BridgeRoundTrip covers the bridge-as-swap rule (issue #33,
+// ADR-0002). The adapter maps sendToBridge onto OpSend, whose case returns
+// transfer_out outright — so without this rule a round-trip bridge would record
+// only the outflow and silently drop the asset received in exchange.
+func TestClassifier_BridgeRoundTrip(t *testing.T) {
+	c := sync.NewClassifier()
+
+	t.Run("different asset back -> swap", func(t *testing.T) {
+		// Real shape: 279.158283 USDC out, 0.00362749 cbBTC back, one tx.
+		tx := sync.DecodedTransaction{
+			OperationType: sync.OpSend,
+			ProviderType:  "sendToBridge",
+			Transfers: []sync.DecodedTransfer{
+				{AssetSymbol: "USDC", Direction: sync.DirectionOut, Amount: big.NewInt(279158283)},
+				{AssetSymbol: "cbBTC", Direction: sync.DirectionIn, Amount: big.NewInt(362749)},
+			},
+		}
+		assert.Equal(t, ledger.TxTypeSwap, c.Classify(tx),
+			"asset out and a different asset back in one transaction is a trade, "+
+				"and booking it as transfer_out would drop the acquisition entirely")
+	})
+
+	t.Run("same-asset dust refund -> still transfer_out", func(t *testing.T) {
+		// Real shape: most genuine pure-sends refund a sliver of the sent asset.
+		tx := sync.DecodedTransaction{
+			OperationType: sync.OpSend,
+			ProviderType:  "sendToBridge",
+			Transfers: []sync.DecodedTransfer{
+				{AssetSymbol: "ETH", Direction: sync.DirectionOut, Amount: big.NewInt(8915068809592452)},
+				{AssetSymbol: "ETH", Direction: sync.DirectionIn, Amount: big.NewInt(8809592452)},
+			},
+		}
+		assert.Equal(t, ledger.TxTypeTransferOut, c.Classify(tx),
+			"getting your own asset back is not a trade — a swap here would fabricate "+
+				"a disposal of the asset against itself")
+	})
+
+	t.Run("pure send -> transfer_out", func(t *testing.T) {
+		tx := sync.DecodedTransaction{
+			OperationType: sync.OpSend,
+			ProviderType:  "sendToBridge",
+			Transfers: []sync.DecodedTransfer{
+				{AssetSymbol: "USDC", Direction: sync.DirectionOut, Amount: big.NewInt(1000000)},
+			},
+		}
+		assert.Equal(t, ledger.TxTypeTransferOut, c.Classify(tx))
+	})
+
+	t.Run("ordinary send with both directions is untouched", func(t *testing.T) {
+		// Not a bridge leg: the rule must not widen to ordinary transfers.
+		tx := sync.DecodedTransaction{
+			OperationType: sync.OpSend,
+			ProviderType:  "sendToken",
+			Transfers: []sync.DecodedTransfer{
+				{AssetSymbol: "USDC", Direction: sync.DirectionOut, Amount: big.NewInt(1000000)},
+				{AssetSymbol: "ETH", Direction: sync.DirectionIn, Amount: big.NewInt(1)},
+			},
+		}
+		assert.Equal(t, ledger.TxTypeTransferOut, c.Classify(tx),
+			"the bridge round-trip rule is scoped to provider-identified bridge legs")
+	})
+}
