@@ -84,6 +84,7 @@ func convertTransaction(tx Transaction, domainChain string) (sync.DecodedTransac
 
 	var (
 		transfers    []sync.DecodedTransfer
+		legActions   []string
 		nftTokenID   string
 		needsReview  bool
 		reviewReason string
@@ -95,12 +96,44 @@ func convertTransaction(tx Transaction, domainChain string) (sync.DecodedTransac
 		if t.Action == "paidGas" {
 			return
 		}
+
+		// Every leg's action is recorded before any leg is dropped, receipts
+		// included. The action is what identifies the SHAPE of the transaction
+		// — a `collateralSharesMinted` says "lending market" no matter what the
+		// protocol field says — and on a lending supply the receipt leg is one
+		// of only two legs there are. Collecting after the drop would throw away
+		// the evidence that the drop was correct.
+		if t.Action != "" {
+			legActions = append(legActions, t.Action)
+		}
+
 		if t.NFT != nil && t.Token == nil {
 			if nftTokenID == "" && t.NFT.ID.String() != "" {
 				nftTokenID = t.NFT.ID.String()
 			}
 			return // NFT-only leg: not a fungible transfer
 		}
+
+		// A PROTOCOL RECEIPT never becomes a transfer (issue #57). The aToken
+		// minted against a supply, the debt token minted against a borrow, the
+		// LP token minted against added liquidity: each records a position the
+		// protocol already holds for the user, and booking it beside the
+		// principal it was minted against records one movement twice.
+		//
+		// This is decided from the leg's action, and deliberately not from the
+		// token: the receipt token is a genuine, quoted asset, so no property of
+		// the token can answer the question. It is decided HERE, at the provider
+		// boundary, because the action is provider vocabulary — everything
+		// downstream sees a transaction whose legs are all principal.
+		//
+		// The check runs after the NFT branch on purpose. `lpTokensMinted`
+		// arrives as an NFT-only leg on Uniswap V3, carrying no symbol and no
+		// contract but carrying the position id that LP tracking is keyed on;
+		// dropping it earlier would discard the id along with the receipt.
+		if sync.IsReceiptLeg(t.Action) {
+			return
+		}
+
 		if t.Token == nil {
 			return // neither token nor NFT: nothing to record
 		}
@@ -128,8 +161,9 @@ func convertTransaction(tx Transaction, domainChain string) (sync.DecodedTransac
 		TxHash:        txHash,
 		ChainID:       domainChain,
 		OperationType: mapOperationType(tx.ClassificationData.Type),
-		Protocol:      deriveProtocol(tx),
+		Protocol:      protocolName(tx),
 		Transfers:     transfers,
+		LegActions:    legActions,
 		Fee:           fee,
 		MinedAt:       time.Unix(tx.RawTransactionData.Timestamp, 0).UTC(),
 		Status:        statusOf(tx.ClassificationData.Type),
@@ -168,6 +202,7 @@ func convertTransfer(t Transfer, dir sync.TransferDirection) (sync.DecodedTransf
 		Direction:       dir,
 		Sender:          partyAddress(t.From),
 		Recipient:       partyAddress(t.To),
+		Action:          t.Action,
 	}, review
 }
 
@@ -370,46 +405,23 @@ func collectActs(tx Transaction) []string {
 	return acts
 }
 
-// deriveProtocol returns the best protocol hint for the classifier's
-// isUniswapV3 / isAAVE checks. protocol.name is authoritative when present but
-// is null on most real data, so we scan party names and nft names for known
-// markers (Uniswap V3, Aave).
-func deriveProtocol(tx Transaction) string {
-	if tx.ClassificationData.Protocol.Name != nil && *tx.ClassificationData.Protocol.Name != "" {
+// protocolName returns the protocol the provider named, or "" when it named
+// none. It is a label carried for display and for the lending-position
+// aggregate; nothing classifies on it.
+//
+// It used to guess. `protocol.name` is null on most real data, so the old
+// deriveProtocol scanned party names and NFT names for two hardcoded markers —
+// the literal "Uniswap V3" and the prefix "Aave" — and manufactured a protocol
+// string from them, which the classifier then matched against the same two
+// literals to decide LP versus lending. That recognized exactly two protocols
+// by name and silently degraded every other one to a generic deposit, and it
+// could not express what it was actually looking for: the QuickSwap fixture's
+// UNI-V2 receipt matches no marker at all. The classifier now reads the
+// provider's per-leg actions instead (issue #57), which name the operation
+// rather than the vendor, so the guess has nothing left to feed.
+func protocolName(tx Transaction) string {
+	if tx.ClassificationData.Protocol.Name != nil {
 		return *tx.ClassificationData.Protocol.Name
 	}
-
-	hints := collectNameHints(tx)
-	for _, h := range hints {
-		if strings.Contains(h, "Uniswap V3") {
-			return "Uniswap V3"
-		}
-	}
-	for _, h := range hints {
-		if strings.HasPrefix(h, "Aave") {
-			return h
-		}
-	}
 	return ""
-}
-
-// collectNameHints gathers party and nft names across all transfer legs.
-func collectNameHints(tx Transaction) []string {
-	var hints []string
-	scan := func(legs []Transfer) {
-		for _, leg := range legs {
-			if leg.From.Name != nil {
-				hints = append(hints, *leg.From.Name)
-			}
-			if leg.To.Name != nil {
-				hints = append(hints, *leg.To.Name)
-			}
-			if leg.NFT != nil {
-				hints = append(hints, leg.NFT.Name)
-			}
-		}
-	}
-	scan(tx.ClassificationData.Sent)
-	scan(tx.ClassificationData.Received)
-	return hints
 }

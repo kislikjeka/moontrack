@@ -153,6 +153,7 @@ func TestSync_LP_FullLifecycle(t *testing.T) {
 			ChainID:       "ethereum",
 			OperationType: sync.OpDeposit,
 			Protocol:      "Uniswap V3",
+			LegActions:    []string{"liquidityAdded", "lpTokensMinted"},
 			NFTTokenID:    nftTokenID,
 			Transfers: []sync.DecodedTransfer{
 				{
@@ -210,6 +211,7 @@ func TestSync_LP_FullLifecycle(t *testing.T) {
 			ChainID:       "ethereum",
 			OperationType: sync.OpReceive,
 			Protocol:      "Uniswap V3",
+			LegActions:    []string{"liquidityRemoved"},
 			NFTTokenID:    nftTokenID,
 			Acts:          []string{"claim"},
 			Transfers: []sync.DecodedTransfer{
@@ -263,6 +265,7 @@ func TestSync_LP_FullLifecycle(t *testing.T) {
 			ChainID:       "ethereum",
 			OperationType: sync.OpWithdraw,
 			Protocol:      "Uniswap V3",
+			LegActions:    []string{"lpTokenBurned", "liquidityRemoved"},
 			NFTTokenID:    nftTokenID,
 			Transfers: []sync.DecodedTransfer{
 				{
@@ -350,6 +353,7 @@ func TestSync_LP_UniV3Mint_ClassifiesAsDeposit(t *testing.T) {
 		ChainID:       "ethereum",
 		OperationType: sync.OpMint,
 		Protocol:      "Uniswap V3",
+		LegActions:    []string{"liquidityAdded"},
 		NFTTokenID:    "99999",
 		Transfers: []sync.DecodedTransfer{
 			{
@@ -396,6 +400,7 @@ func TestSync_LP_AaveDeposit_IsLendingSupply(t *testing.T) {
 		ChainID:       "ethereum",
 		OperationType: sync.OpDeposit,
 		Protocol:      "Aave V3",
+		LegActions:    []string{"deposited", "collateralSharesMinted"},
 		Transfers: []sync.DecodedTransfer{
 			{
 				AssetSymbol: "ETH",

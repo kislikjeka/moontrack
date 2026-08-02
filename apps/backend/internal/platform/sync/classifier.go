@@ -1,8 +1,6 @@
 package sync
 
 import (
-	"strings"
-
 	"github.com/kislikjeka/moontrack/internal/ledger"
 )
 
@@ -21,18 +19,46 @@ func (c *Classifier) Classify(tx DecodedTransaction) ledger.TransactionType {
 		return "" // no fungible transfers to process (e.g., NFT-only transaction)
 	}
 
-	// Uniswap V3 LP-specific classification
-	if c.isUniswapV3(tx.Protocol) {
+	// Liquidity-pool and lending-market classification, decided by the actions
+	// the provider stamped on the transaction's legs (issue #57).
+	//
+	// This used to be decided by protocol NAME, matched against two string
+	// literals ("Uniswap V3", "AAVE") that the adapter had itself manufactured
+	// by scanning party names, backed by a fallback that sniffed Aave's ticker
+	// conventions off the transfers. Both were reading a vendor's branding to
+	// infer an operation. The provider names the operation directly, per leg —
+	// `liquidityAdded`, `collateralSharesMinted`, `borrowed` — so the operation
+	// is read instead of inferred, and a protocol the hardcoded pair never
+	// heard of classifies the same as the two that were named.
+	if anyActionIn(tx.LegActions, liquidityActions) {
 		if lpType := c.classifyLP(tx); lpType != "" {
 			return lpType
 		}
 	}
 
-	// AAVE lending protocol (by protocol name or by asset heuristics)
-	if c.isAAVE(tx.Protocol) || c.hasAaveAssets(tx.Transfers) {
+	if anyActionIn(tx.LegActions, lendingActions) {
 		if lt := c.classifyLending(tx); lt != "" {
 			return lt
 		}
+	}
+
+	// A reward claim, named as such by the provider and by nothing else.
+	//
+	// `rewardsReceived` is PRINCIPAL — a reward is a genuine acquisition and
+	// stays a position, unlike the receipt tokens this pass drops — but it is
+	// not an ordinary inbound transfer either, and the operation type cannot
+	// say so: the adapter maps claimRewards onto OpReceive, which alone reads
+	// as transfer_in.
+	//
+	// It books as the protocol-NEUTRAL defi_claim rather than lp_claim_fees or
+	// lending_claim, because on real data the transaction carries no other
+	// protocol action to say which market it came from — a claim arrives as
+	// rewards in and gas out, nothing more. The old code answered by matching a
+	// party name against the literal "Uniswap V3" and calling every hit an LP
+	// fee collection; that was a guess dressed as a fact, and wrong for every
+	// protocol outside the two it knew. Claiming less is the accurate answer.
+	if anyActionIn(tx.LegActions, rewardActions) {
+		return ledger.TxTypeDefiClaim
 	}
 
 	// A ROUND-TRIP bridge leg (issue #33, ADR-0002): the provider calls it a
@@ -86,8 +112,15 @@ func (c *Classifier) Classify(tx DecodedTransaction) ledger.TransactionType {
 	}
 }
 
-func (c *Classifier) isUniswapV3(protocol string) bool {
-	return protocol == "Uniswap V3"
+// anyActionIn reports whether any leg of the transaction did something in the
+// given set of actions.
+func anyActionIn(legActions []string, set map[string]bool) bool {
+	for _, a := range legActions {
+		if set[a] {
+			return true
+		}
+	}
+	return false
 }
 
 // isBridgeLeg reports whether the provider classified this transaction as one
@@ -157,31 +190,6 @@ func directions(transfers []DecodedTransfer) (hasIn, hasOut bool) {
 		}
 	}
 	return hasIn, hasOut
-}
-
-func (c *Classifier) isAAVE(protocol string) bool {
-	return protocol == "AAVE" || protocol == "Aave" || protocol == "Aave V3" || protocol == "Aave V2"
-}
-
-// hasAaveAssets detects AAVE lending transactions by transfer asset names/symbols
-// when the provider does not tag the protocol. Aave aTokens and debt tokens have
-// distinctive naming: aEthWETH, variableDebtBasUSDC, stableDebtEthDAI, etc.
-func (c *Classifier) hasAaveAssets(transfers []DecodedTransfer) bool {
-	for _, t := range transfers {
-		if strings.HasPrefix(t.AssetName, "Aave ") {
-			return true
-		}
-		if strings.HasPrefix(t.AssetSymbol, "variableDebt") ||
-			strings.HasPrefix(t.AssetSymbol, "stableDebt") {
-			return true
-		}
-		// aToken pattern: lowercase 'a' + uppercase letter (e.g. aEthWETH, aBasUSDC)
-		if len(t.AssetSymbol) > 2 && t.AssetSymbol[0] == 'a' &&
-			t.AssetSymbol[1] >= 'A' && t.AssetSymbol[1] <= 'Z' {
-			return true
-		}
-	}
-	return false
 }
 
 func (c *Classifier) classifyLending(tx DecodedTransaction) ledger.TransactionType {

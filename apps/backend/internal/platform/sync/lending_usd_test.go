@@ -58,11 +58,16 @@ var _ sync.LendingPositionService = (*mockLendingPositionService)(nil)
 
 // lendingTransfer builds a transfer of `whole` whole-units of an asset priced at
 // `usdPrice` dollars, in the given direction. Amount is scaled by 10^decimals.
-func lendingTransfer(dir sync.TransferDirection, decimals int, whole int64, usdPriceDollars int64) sync.DecodedTransfer {
+//
+// The asset is the PRINCIPAL (plain USDC), not a receipt: since #57 a receipt
+// leg never reaches the ledger, so a lending position is valued off the
+// principal alone. `action` is what marks the leg as part of a lending
+// operation — the ticker no longer carries that meaning.
+func lendingTransfer(dir sync.TransferDirection, decimals int, whole int64, usdPriceDollars int64, action string) sync.DecodedTransfer {
 	amount := new(big.Int).Mul(big.NewInt(whole), new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil))
 	return sync.DecodedTransfer{
-		AssetSymbol:     "aUSDC",
-		AssetName:       "Aave USDC",
+		AssetSymbol:     "USDC",
+		AssetName:       "USD Coin",
 		ContractAddress: "0xdeadbeef",
 		Decimals:        decimals,
 		Amount:          amount,
@@ -70,6 +75,7 @@ func lendingTransfer(dir sync.TransferDirection, decimals int, whole int64, usdP
 		Sender:          "0x1111111111111111111111111111111111111111",
 		Recipient:       "0x2222222222222222222222222222222222222222",
 		USDPrice:        big.NewInt(usdPriceDollars * 1e8), // scaled by 1e8
+		Action:          action,
 	}
 }
 
@@ -93,13 +99,14 @@ func TestLendingUSD_AppliesDecimalsDivisor(t *testing.T) {
 		name   string
 		opType sync.OperationType
 		dir    sync.TransferDirection
+		action string
 		txType ledger.TransactionType
 	}{
-		{"supply", sync.OpDeposit, sync.DirectionOut, ledger.TxTypeLendingSupply},
-		{"withdraw", sync.OpWithdraw, sync.DirectionIn, ledger.TxTypeLendingWithdraw},
-		{"borrow", sync.OpReceive, sync.DirectionIn, ledger.TxTypeLendingBorrow},
-		{"repay", sync.OpSend, sync.DirectionOut, ledger.TxTypeLendingRepay},
-		{"claim", sync.OpClaim, sync.DirectionIn, ledger.TxTypeLendingClaim},
+		{"supply", sync.OpDeposit, sync.DirectionOut, "deposited", ledger.TxTypeLendingSupply},
+		{"withdraw", sync.OpWithdraw, sync.DirectionIn, "withdrawn", ledger.TxTypeLendingWithdraw},
+		{"borrow", sync.OpReceive, sync.DirectionIn, "borrowed", ledger.TxTypeLendingBorrow},
+		{"repay", sync.OpSend, sync.DirectionOut, "repaid", ledger.TxTypeLendingRepay},
+		{"claim", sync.OpClaim, sync.DirectionIn, "withdrawn", ledger.TxTypeLendingClaim},
 	}
 
 	for _, tc := range tests {
@@ -125,7 +132,8 @@ func TestLendingUSD_AppliesDecimalsDivisor(t *testing.T) {
 				ChainID:       "ethereum",
 				OperationType: tc.opType,
 				Protocol:      "AAVE",
-				Transfers:     []sync.DecodedTransfer{lendingTransfer(tc.dir, decimals, whole, priceDollars)},
+				LegActions:    []string{tc.action},
+				Transfers:     []sync.DecodedTransfer{lendingTransfer(tc.dir, decimals, whole, priceDollars, tc.action)},
 				MinedAt:       time.Now(),
 				Status:        "confirmed",
 			}

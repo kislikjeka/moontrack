@@ -172,23 +172,26 @@ func TestUnclassified_UnmappedProviderType_CarriesItsOwnType(t *testing.T) {
 	assert.Contains(t, logs.String(), "someBrandNewNovesType")
 }
 
-// TestUnclassified_BothDirections_AaveHeuristic_StillFlagged closes the hole
+// TestUnclassified_BothDirections_LendingRoute_StillFlagged closes the hole
 // that keying the flag on "was booked as a swap" would leave open.
 //
-// Classify consults the Aave asset heuristic BEFORE the in/out fallback, so an
-// unclassified tx carrying an aToken-shaped symbol books as lending_supply
-// rather than swap. That symbol test is a loose match on any `a` + uppercase
-// ticker, so an unknown DeFi shape can land there by coincidence — and it is
-// still an unknown shape with both directions, still capable of realizing
-// phantom PnL. The audit trail must not depend on which heuristic happened to
-// win: what makes the transaction risky is that the provider could not
-// classify it AND it moves value both ways.
-func TestUnclassified_BothDirections_AaveHeuristic_StillFlagged(t *testing.T) {
+// Classify consults the lending and liquidity leg actions BEFORE the in/out
+// fallback, so an unclassified tx whose legs carry a lending action books as
+// lending_supply rather than swap. It is still an unknown shape moving value
+// both ways, still capable of realizing phantom PnL. The audit trail must not
+// depend on which route happened to win: what makes the transaction risky is
+// that the provider could not classify it AND it moves value both ways.
+//
+// Since #57 the route is the provider's own per-leg action rather than a
+// ticker-shape guess — the transfer below carries plain USDC, and an aToken
+// ticker would change nothing.
+func TestUnclassified_BothDirections_LendingRoute_StillFlagged(t *testing.T) {
 	builder, ledgerSvc, logs, w := newUnclassifiedEnv(t)
 
-	aToken := inTransfer()
-	aToken.AssetSymbol = "aEthWETH" // trips hasAaveAssets
-	tx := unclassifiedTx("0xaave", aToken, outTransfer())
+	in := inTransfer()
+	in.Action = "borrowed"
+	tx := unclassifiedTx("0xaave", in, outTransfer())
+	tx.LegActions = []string{"borrowed"}
 
 	_, err := builder.ProcessTransaction(context.Background(), w, tx)
 	require.NoError(t, err)
@@ -206,16 +209,18 @@ func TestUnclassified_BothDirections_AaveHeuristic_StillFlagged(t *testing.T) {
 	assert.Contains(t, logs.String(), "0xaave")
 }
 
-// TestUnclassified_SingleDirection_AaveHeuristic_NotFlagged: the mirror. A
+// TestUnclassified_SingleDirection_LendingRoute_NotFlagged: the mirror. A
 // one-directional unclassified tx is unambiguous about direction, so it stays
-// unflagged even when a heuristic routes it somewhere other than transfer_in.
-func TestUnclassified_SingleDirection_AaveHeuristic_NotFlagged(t *testing.T) {
+// unflagged even when a leg action routes it somewhere other than transfer_in.
+func TestUnclassified_SingleDirection_LendingRoute_NotFlagged(t *testing.T) {
 	builder, ledgerSvc, logs, w := newUnclassifiedEnv(t)
 
-	aToken := inTransfer()
-	aToken.AssetSymbol = "aEthWETH"
+	in := inTransfer()
+	in.Action = "borrowed"
+	tx := unclassifiedTx("0xborrow", in)
+	tx.LegActions = []string{"borrowed"}
 
-	_, err := builder.ProcessTransaction(context.Background(), w, unclassifiedTx("0xborrow", aToken))
+	_, err := builder.ProcessTransaction(context.Background(), w, tx)
 	require.NoError(t, err)
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)

@@ -112,68 +112,101 @@ func TestClassifier_Execute_MultipleTransfersSameDirection(t *testing.T) {
 	assert.Equal(t, ledger.TxTypeTransferIn, c.Classify(tx))
 }
 
-func TestClassify_UniV3Deposit(t *testing.T) {
+// TestClassify_LPDeposit_ByLegAction: the transaction is an LP deposit because
+// a leg says liquidityAdded, not because a party was named "Uniswap V3". No
+// protocol name is set at all here — on real data it is null (#57).
+func TestClassify_LPDeposit_ByLegAction(t *testing.T) {
 	c := sync.NewClassifier()
 	tx := sync.DecodedTransaction{
 		OperationType: sync.OpDeposit,
-		Protocol:      "Uniswap V3",
-		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionOut, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
+		LegActions:    []string{"liquidityAdded", "lpTokensMinted"},
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionOut, AssetSymbol: "ETH", Amount: big.NewInt(1), Action: "liquidityAdded"}},
 	}
 	assert.Equal(t, ledger.TxTypeLPDeposit, c.Classify(tx))
 }
 
-func TestClassify_UniV3Withdraw(t *testing.T) {
+func TestClassify_LPWithdraw_ByLegAction(t *testing.T) {
 	c := sync.NewClassifier()
 	tx := sync.DecodedTransaction{
 		OperationType: sync.OpWithdraw,
-		Protocol:      "Uniswap V3",
-		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
+		LegActions:    []string{"lpTokenBurned", "liquidityRemoved"},
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(1), Action: "liquidityRemoved"}},
 	}
 	assert.Equal(t, ledger.TxTypeLPWithdraw, c.Classify(tx))
 }
 
-func TestClassify_UniV3Mint(t *testing.T) {
+func TestClassify_LPMint_ByLegAction(t *testing.T) {
 	c := sync.NewClassifier()
 	tx := sync.DecodedTransaction{
 		OperationType: sync.OpMint,
-		Protocol:      "Uniswap V3",
-		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionOut, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
+		LegActions:    []string{"liquidityAdded"},
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionOut, AssetSymbol: "ETH", Amount: big.NewInt(1), Action: "liquidityAdded"}},
 	}
 	assert.Equal(t, ledger.TxTypeLPDeposit, c.Classify(tx))
 }
 
-func TestClassify_UniV3Burn(t *testing.T) {
+func TestClassify_LPBurn_ByLegAction(t *testing.T) {
 	c := sync.NewClassifier()
 	tx := sync.DecodedTransaction{
 		OperationType: sync.OpBurn,
-		Protocol:      "Uniswap V3",
-		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
+		LegActions:    []string{"liquidityRemoved"},
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(1), Action: "liquidityRemoved"}},
 	}
 	assert.Equal(t, ledger.TxTypeLPWithdraw, c.Classify(tx))
 }
 
-func TestClassify_UniV3ClaimFees(t *testing.T) {
+// TestClassify_LPClaimFees_ByLegAction: a claim inside a liquidity pool is an
+// LP fee collection, and the pool is identified by the liquidity action on the
+// same transaction rather than by a protocol name.
+func TestClassify_LPClaimFees_ByLegAction(t *testing.T) {
 	c := sync.NewClassifier()
 	tx := sync.DecodedTransaction{
 		OperationType: sync.OpReceive,
-		Protocol:      "Uniswap V3",
+		LegActions:    []string{"liquidityRemoved"},
 		Acts:          []string{"claim"},
-		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "USDC", Amount: big.NewInt(1)}},
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "USDC", Amount: big.NewInt(1), Action: "liquidityRemoved"}},
 	}
 	assert.Equal(t, ledger.TxTypeLPClaimFees, c.Classify(tx))
 }
 
-func TestClassify_AaveDeposit_IsLendingSupply(t *testing.T) {
+// TestClassify_RewardsReceived_IsDefiClaim pins the boundary the receipt rule
+// draws: rewardsReceived is PRINCIPAL, so the reward stays a position — it is
+// never dropped like a receipt leg. It books as the protocol-NEUTRAL
+// defi_claim because a real claim transaction carries no action naming which
+// market paid it (#57).
+func TestClassify_RewardsReceived_IsDefiClaim(t *testing.T) {
+	c := sync.NewClassifier()
+	tx := sync.DecodedTransaction{
+		OperationType: sync.OpReceive,
+		LegActions:    []string{"rewardsReceived", "rewardsReceived"},
+		Acts:          []string{"claimRewards", "claim", "rewardsReceived"},
+		Transfers: []sync.DecodedTransfer{
+			{Direction: sync.DirectionIn, AssetSymbol: "USDC", Amount: big.NewInt(1), Action: "rewardsReceived"},
+			{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(2), Action: "rewardsReceived"},
+		},
+	}
+	assert.Equal(t, ledger.TxTypeDefiClaim, c.Classify(tx))
+}
+
+// TestClassify_LendingSupply_ByLegAction: identified by the deposited /
+// collateralSharesMinted pair the provider stamps, with no protocol name and no
+// aToken ticker anywhere — the receipt leg has already been dropped by the time
+// the classifier runs, so classification must not depend on seeing it.
+func TestClassify_LendingSupply_ByLegAction(t *testing.T) {
 	c := sync.NewClassifier()
 	tx := sync.DecodedTransaction{
 		OperationType: sync.OpDeposit,
-		Protocol:      "Aave",
-		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionOut, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
+		LegActions:    []string{"deposited", "collateralSharesMinted"},
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionOut, AssetSymbol: "ETH", Amount: big.NewInt(1), Action: "deposited"}},
 	}
 	assert.Equal(t, ledger.TxTypeLendingSupply, c.Classify(tx))
 }
 
-func TestClassify_NonAAVEDeposit_StaysDeFi(t *testing.T) {
+// TestClassify_DepositWithoutProtocolAction_StaysDeFi: a deposit whose legs
+// carry no lending or liquidity action is a generic defi_deposit. The protocol
+// name is deliberately set and deliberately ignored — nothing classifies on it
+// any more (#57).
+func TestClassify_DepositWithoutProtocolAction_StaysDeFi(t *testing.T) {
 	c := sync.NewClassifier()
 	tx := sync.DecodedTransaction{
 		OperationType: sync.OpDeposit,
@@ -183,13 +216,31 @@ func TestClassify_NonAAVEDeposit_StaysDeFi(t *testing.T) {
 	assert.Equal(t, ledger.TxTypeDefiDeposit, c.Classify(tx))
 }
 
+// TestClassify_ProtocolNameAloneDoesNotClassify is the negative of the four
+// matchers this change removed: the literal strings they matched on no longer
+// route anything. An "Aave" deposit with no lending leg action is a plain
+// defi_deposit, and an aToken-shaped ticker does not resurrect the heuristic.
+func TestClassify_ProtocolNameAloneDoesNotClassify(t *testing.T) {
+	c := sync.NewClassifier()
+	for _, protocol := range []string{"Aave", "Aave V3", "AAVE", "Uniswap V3"} {
+		tx := sync.DecodedTransaction{
+			OperationType: sync.OpDeposit,
+			Protocol:      protocol,
+			Transfers: []sync.DecodedTransfer{
+				{Direction: sync.DirectionOut, AssetSymbol: "aBasWETH", AssetName: "Aave Base WETH", Amount: big.NewInt(1)},
+			},
+		}
+		assert.Equal(t, ledger.TxTypeDefiDeposit, c.Classify(tx), "protocol %q must not classify on its own", protocol)
+	}
+}
+
 func TestClassify_ReceiveNonClaim_StaysTransferIn(t *testing.T) {
 	c := sync.NewClassifier()
 	tx := sync.DecodedTransaction{
 		OperationType: sync.OpReceive,
-		Protocol:      "Uniswap V3",
+		LegActions:    []string{"liquidityRemoved"},
 		Acts:          []string{"execute"},
-		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(1), Action: "liquidityRemoved"}},
 	}
 	assert.Equal(t, ledger.TxTypeTransferIn, c.Classify(tx))
 }

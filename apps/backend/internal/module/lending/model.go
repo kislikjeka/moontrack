@@ -2,7 +2,6 @@ package lending
 
 import (
 	"math/big"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -10,47 +9,12 @@ import (
 	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
-// AssetRole classifies an on-chain asset within a lending operation.
-//
-// Deprecated: unused. The entry builders no longer route by asset role — every
-// leg is booked as the principal (#44). This symbol-prefix matcher is one of
-// the four scheduled for removal in #57, which replaces it with the per-leg
-// action the provider already sends; it is kept only so that removal lands as
-// one change with its three siblings.
-type AssetRole int
-
-const (
-	// RoleLiquid is a plain ERC-20 or native asset (USDC, ETH, DAI, ...)
-	// that moves in/out of the user's wallet account.
-	RoleLiquid AssetRole = iota
-	// RoleCollateralReceipt is a supply-side receipt token (Aave aToken:
-	// aEthWETH, aBasUSDC, ...) that tracks the user's supplied-asset claim.
-	RoleCollateralReceipt
-	// RoleLiabilityReceipt is a borrow-side debt token (variableDebt*,
-	// stableDebt*) that tracks the user's outstanding debt balance.
-	RoleLiabilityReceipt
-)
-
-// ClassifyLendingAsset decides whether a lending-operation asset is a liquid
-// movable token or a receipt / debt token. Simple prefix match — reliable for
-// Aave's well-known symbol conventions; future protocols may need extension.
-//
-// Deprecated: unused, see [AssetRole].
-func ClassifyLendingAsset(symbol, _protocol string) AssetRole {
-	switch {
-	case strings.HasPrefix(symbol, "variableDebt"), strings.HasPrefix(symbol, "stableDebt"):
-		return RoleLiabilityReceipt
-	case len(symbol) > 2 && symbol[0] == 'a' && symbol[1] >= 'A' && symbol[1] <= 'Z':
-		// aToken pattern: lowercase 'a' + uppercase letter (aEthWETH, aBasUSDC).
-		return RoleCollateralReceipt
-	default:
-		return RoleLiquid
-	}
-}
-
 // LendingTransferItem represents one asset movement within a lending tx.
-// A single on-chain op can emit multiple transfers (debt receipt + real
-// asset on borrow, aToken + principal on supply, etc).
+// A single on-chain op can emit multiple transfers — a supply of two different
+// assets in one call, for instance. Only PRINCIPAL movements arrive here: the
+// receipt the protocol mints against them (aToken, debt token) is dropped at
+// the provider boundary, so a supply that once produced a principal leg and an
+// aToken leg now produces one leg (#57).
 type LendingTransferItem struct {
 	AssetID         string        `json:"asset_id"`
 	Decimals        int           `json:"decimals"`

@@ -6,21 +6,17 @@ import { AssetIcon } from '@/components/domain/AssetIcon'
 import { ChainIcon } from '@/components/domain/ChainIcon'
 import { formatDate, formatTokenAmount, formatUSD } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { parseDeFiAsset } from '@/lib/defi-asset'
-import type {
-  LendingPosition,
-  LendingPositionAsset,
-} from '@/types/lendingPosition'
+import type { LendingPosition } from '@/types/lendingPosition'
 
 interface LendingPositionCardProps {
   position: LendingPosition
 }
 
-function getDisplaySymbol(asset: LendingPositionAsset): string {
-  const parsed = parseDeFiAsset(asset.asset)
-  return parsed ? parsed.underlyingSymbol : asset.asset
-}
-
+// A lending position is recorded against the PRINCIPAL asset, never against the
+// receipt the protocol mints for it — the receipt is dropped at the provider
+// boundary and never reaches the ledger (#57). So `asset.asset` is already the
+// symbol to show: there is no aToken prefix left to strip, and the hardcoded
+// chain-prefix list that used to strip it has gone with the parser.
 export function LendingPositionCard({ position }: LendingPositionCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
 
@@ -77,11 +73,10 @@ export function LendingPositionCard({ position }: LendingPositionCardProps) {
             </div>
             <div className="space-y-1.5">
               {supplyAssets.map((asset, idx) => {
-                const symbol = getDisplaySymbol(asset)
                 return (
                   <div key={idx} className="flex items-center gap-2">
-                    <AssetIcon symbol={symbol} size="sm" />
-                    <span className="text-sm font-medium">{symbol}</span>
+                    <AssetIcon symbol={asset.asset} size="sm" />
+                    <span className="text-sm font-medium">{asset.asset}</span>
                     <span className="ml-auto text-sm font-mono text-muted-foreground">
                       {formatTokenAmount(asset.amount, asset.decimals)}
                     </span>
@@ -105,11 +100,10 @@ export function LendingPositionCard({ position }: LendingPositionCardProps) {
               </div>
               <div className="space-y-1.5">
                 {borrowAssets.map((asset, idx) => {
-                  const symbol = getDisplaySymbol(asset)
-                  return (
+                    return (
                     <div key={idx} className="flex items-center gap-2">
-                      <AssetIcon symbol={symbol} size="sm" />
-                      <span className="text-sm font-medium">{symbol}</span>
+                      <AssetIcon symbol={asset.asset} size="sm" />
+                      <span className="text-sm font-medium">{asset.asset}</span>
                       <span className="ml-auto text-sm font-mono text-muted-foreground">
                         {formatTokenAmount(asset.amount, asset.decimals)}
                       </span>

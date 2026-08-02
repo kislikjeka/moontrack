@@ -148,6 +148,25 @@ type DecodedTransaction struct {
 	NFTTokenID    string   // Uniswap V3 NFT position ID, empty if not applicable
 	Acts          []string // Action types from the provider acts array (e.g., ["claim", "execute"])
 
+	// LegActions holds the per-leg action of EVERY leg the provider sent,
+	// including the receipt legs the adapter then dropped and the NFT-only legs
+	// that never become transfers. It is what identifies the SHAPE of a
+	// protocol interaction — a `collateralSharesMinted` anywhere in the
+	// transaction means lending market, a `liquidityAdded` means liquidity pool
+	// — and it survives the leg drop precisely so the evidence for the drop
+	// outlives it.
+	//
+	// It replaces the protocol-name matching this classification used to rely
+	// on. `protocol.name` is null on most real data, so the old path guessed
+	// from party and NFT names against two hardcoded markers ("Uniswap V3",
+	// "Aave"), which recognized exactly two protocols and silently degraded
+	// every other one. The actions are the provider's own vocabulary and carry
+	// no protocol names at all.
+	//
+	// Distinct from Acts, which mixes the transaction type and a synthetic
+	// "claim" marker into the same flat list; LegActions is legs only.
+	LegActions []string
+
 	// NeedsReview is set when the adapter could not convert a value exactly
 	// (e.g. an amount carried more fractional digits than the token's decimals,
 	// so base-unit conversion would truncate). The downstream processor routes
@@ -207,6 +226,28 @@ type DecodedTransfer struct {
 	Recipient       string            // Lowercase address
 	USDPrice        *big.Int          // USD price scaled by 1e8, nil if unavailable
 	IconURL         string            // Token icon URL, empty if unavailable
+
+	// Action is the provider's own name for what this specific leg DID —
+	// `deposited`, `collateralSharesMinted`, `liquidityAdded`, `lpTokenBurned`,
+	// `rewardsReceived`, `received`, … Empty when the provider stamps none.
+	//
+	// It is the one signal that separates a protocol RECEIPT (an aToken, a debt
+	// token, an LP token: a claim the protocol mints against what it is already
+	// holding for you) from the PRINCIPAL it was minted against. That question
+	// is per-leg and cannot be answered anywhere else: it is not a property of
+	// the token — the receipt token is real and quoted, and the known-asset
+	// criterion says so correctly — but of the role the leg plays here.
+	//
+	// The transaction-level Acts slice cannot serve. It is built by flattening
+	// every leg's action into one distinct list, which discards precisely the
+	// leg attribution the rule needs (issue #37 read that flattened list and
+	// concluded, correctly for it, that no per-leg signal existed). The signal
+	// was never in Acts; it was in the raw per-leg field all along, and this is
+	// where it survives the port intact.
+	//
+	// Empty for any provider that supplies no per-leg action; such a leg is
+	// treated as principal, so nothing is ever dropped for want of this field.
+	Action string
 }
 
 // DecodedFee represents the gas fee for a decoded transaction

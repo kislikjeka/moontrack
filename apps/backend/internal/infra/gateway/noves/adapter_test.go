@@ -86,22 +86,37 @@ func TestConvert_Swap(t *testing.T) {
 	assert.Equal(t, bigStr(t, "1904071203646"), dt.Fee.Amount) // 0.000001904071203646 * 1e18
 }
 
+// TestConvert_LendingSupply is the receipt rule on a real Aave supply (#57).
+//
+// The provider sends two legs: the principal cbBTC leaving the wallet
+// (`deposited`) and the aToken coming back (`collateralSharesMinted`). Only the
+// principal becomes a transfer. Booking both recorded one supply twice — the
+// measurement in #44 found exactly that in the ledger, the principal and the
+// aToken sitting in `collateral.` for the same event, each pair internally
+// balanced so double-entry could never catch it.
 func TestConvert_LendingSupply(t *testing.T) {
 	dt := convert(t, "lending_supply.json", "base")
 
 	assert.Equal(t, sync.OpDeposit, dt.OperationType)
-	require.Len(t, dt.Transfers, 2) // cbBTC out + aBascbBTC in (paidGas filtered)
 
-	real, ok := transferBySymbol(dt.Transfers, "cbBTC")
-	require.True(t, ok)
-	assert.Equal(t, sync.DirectionOut, real.Direction)
+	// One transfer, not two: the principal. paidGas filtered, receipt dropped.
+	require.Len(t, dt.Transfers, 1)
+	principal := dt.Transfers[0]
+	assert.Equal(t, "cbBTC", principal.AssetSymbol)
+	assert.Equal(t, sync.DirectionOut, principal.Direction)
+	assert.Equal(t, "deposited", principal.Action, "the leg must carry the provider's own action")
 
-	receipt, ok := transferBySymbol(dt.Transfers, "aBascbBTC")
-	require.True(t, ok)
-	assert.Equal(t, sync.DirectionIn, receipt.Direction)
-	assert.Equal(t, "Aave Base cbBTC", receipt.AssetName)
+	// The receipt token is gone from the transfers entirely.
+	_, ok := transferBySymbol(dt.Transfers, "aBascbBTC")
+	assert.False(t, ok, "the aToken receipt must not survive as a transfer")
 
-	// The aToken heuristic must fire: classifier -> lending supply.
+	// Its action does survive, on LegActions — that is what still identifies the
+	// transaction as a lending supply once the leg itself is gone.
+	assert.Contains(t, dt.LegActions, "collateralSharesMinted")
+	assert.Contains(t, dt.LegActions, "deposited")
+
+	// Classified by leg action, with no protocol name and no aToken ticker left.
+	assert.Empty(t, dt.Protocol, "this fixture's protocol.name is null")
 	assert.Equal(t, ledger.TxTypeLendingSupply, sync.NewClassifier().Classify(dt))
 }
 
@@ -174,13 +189,23 @@ func TestConvert_LPAddNFT(t *testing.T) {
 		assert.NotEmpty(t, tr.AssetSymbol, "no NFT leg should be a fungible transfer")
 	}
 
-	// NFT position id captured from the nft.id JSON string.
+	// NFT position id captured from the nft.id JSON string. The lpTokensMinted
+	// leg is BOTH the receipt and the carrier of this id, so the receipt rule
+	// has to run after the id is taken — dropping the leg earlier would lose
+	// the id that LP position tracking is keyed on.
 	assert.Equal(t, "5325584", dt.NFTTokenID)
 
-	// Protocol derived from the nft/party name "Uniswap V3 Positions NFT-V1".
-	assert.Equal(t, "Uniswap V3", dt.Protocol)
+	// The receipt's action survives on LegActions even though the leg has no
+	// symbol and no contract address at all — the NFT case (#57). This is the
+	// case none of the removed symbol matchers could express.
+	assert.Contains(t, dt.LegActions, "lpTokensMinted")
+	assert.Contains(t, dt.LegActions, "liquidityAdded")
 
-	// Classifier: Uniswap V3 + deposit → LP deposit.
+	// No protocol name is derived any more: protocol.name is null on this
+	// fixture, and nothing scans party or NFT names for "Uniswap V3".
+	assert.Empty(t, dt.Protocol)
+
+	// Classified by the liquidityAdded leg action instead.
 	assert.Equal(t, ledger.TxTypeLPDeposit, sync.NewClassifier().Classify(dt))
 }
 
@@ -190,7 +215,8 @@ func TestConvert_LPRemove(t *testing.T) {
 	assert.Equal(t, sync.OpWithdraw, dt.OperationType)
 	require.Len(t, dt.Transfers, 1) // one-sided ETH received; paidGas-only sent filtered
 	assert.Equal(t, sync.DirectionIn, dt.Transfers[0].Direction)
-	assert.Equal(t, "Uniswap V3", dt.Protocol)
+	assert.Equal(t, "liquidityRemoved", dt.Transfers[0].Action)
+	assert.Empty(t, dt.Protocol, "protocol.name is null; nothing guesses it any more")
 
 	assert.Equal(t, ledger.TxTypeLPWithdraw, sync.NewClassifier().Classify(dt))
 }
@@ -204,12 +230,16 @@ func TestConvert_LPRemoveUniV2(t *testing.T) {
 	assert.Equal(t, "polygon", dt.ChainID)
 	assert.Equal(t, "QuickSwap", dt.Protocol)
 
-	// paidGas filtered: 1 sent (UNI-V2) + 2 received (USDC, agEUR) = 3 transfers.
-	require.Len(t, dt.Transfers, 3)
+	// paidGas filtered AND the UNI-V2 LP receipt dropped by its lpTokenBurned
+	// action: 2 received (USDC, agEUR) remain. `UNI-V2` is the ticker that
+	// matched NONE of the four symbol matchers this change removed — it is not
+	// `a`+uppercase, not variableDebt, not stableDebt — which is why the rule
+	// had to move off ticker shapes and onto the action.
+	require.Len(t, dt.Transfers, 2)
 
-	lp, ok := transferBySymbol(dt.Transfers, "UNI-V2")
-	require.True(t, ok)
-	assert.Equal(t, sync.DirectionOut, lp.Direction)
+	_, ok := transferBySymbol(dt.Transfers, "UNI-V2")
+	assert.False(t, ok, "the UNI-V2 LP receipt must not survive as a transfer")
+	assert.Contains(t, dt.LegActions, "lpTokenBurned")
 
 	usdc, ok := transferBySymbol(dt.Transfers, "USDC")
 	require.True(t, ok)
@@ -224,8 +254,10 @@ func TestConvert_LPRemoveUniV2(t *testing.T) {
 	require.NotNil(t, dt.Fee)
 	assert.Equal(t, "POL", dt.Fee.AssetSymbol)
 
-	// Not Uniswap V3, no Aave assets → default withdraw path.
-	assert.Equal(t, ledger.TxTypeDefiWithdraw, sync.NewClassifier().Classify(dt))
+	// liquidityRemoved on the surviving legs → LP withdraw, on a protocol the
+	// two removed hardcoded markers had never heard of.
+	assert.Equal(t, "QuickSwap", dt.Protocol)
+	assert.Equal(t, ledger.TxTypeLPWithdraw, sync.NewClassifier().Classify(dt))
 }
 
 func TestConvert_ClaimRewards(t *testing.T) {
@@ -234,11 +266,26 @@ func TestConvert_ClaimRewards(t *testing.T) {
 	// claimRewards maps to OpReceive so the classifier's OpReceive+claim-act
 	// path (LPClaimFees / LendingClaim) fires.
 	assert.Equal(t, sync.OpReceive, dt.OperationType)
-	assert.Equal(t, "Uniswap V3", dt.Protocol)
+	assert.Empty(t, dt.Protocol, "protocol.name is null on this fixture")
 	assert.Contains(t, dt.Acts, "claim", "claim-ish type must add a 'claim' act")
 
-	// Uniswap V3 + claim → LP claim fees.
-	assert.Equal(t, ledger.TxTypeLPClaimFees, sync.NewClassifier().Classify(dt))
+	// rewardsReceived is PRINCIPAL, not a receipt: both reward legs survive.
+	// This is the boundary the receipt rule draws — a reward is a genuine
+	// acquisition and stays a position, unlike an aToken or an LP token (#57).
+	require.Len(t, dt.Transfers, 2)
+	for _, tr := range dt.Transfers {
+		assert.Equal(t, sync.DirectionIn, tr.Direction)
+		assert.Equal(t, "rewardsReceived", tr.Action)
+	}
+	usdc, ok := transferBySymbol(dt.Transfers, "USDC")
+	require.True(t, ok)
+	assert.Equal(t, sync.DirectionIn, usdc.Direction)
+
+	// Books as the protocol-NEUTRAL defi_claim. The transaction carries no
+	// action naming which market paid the reward, so claiming it was a Uniswap
+	// V3 fee collection — which the old party-name scan did — asserted more
+	// than the data supports.
+	assert.Equal(t, ledger.TxTypeDefiClaim, sync.NewClassifier().Classify(dt))
 }
 
 func TestConvert_UnclassifiedBoth(t *testing.T) {
@@ -318,6 +365,64 @@ func TestConvert_DecimalsZeroReceiptDoesNotPanic(t *testing.T) {
 	require.Len(t, dt.Transfers, 1)
 	assert.Equal(t, bigStr(t, "1000"), dt.Transfers[0].Amount)
 	assert.False(t, dt.NeedsReview)
+}
+
+// TestConvert_ReceiptLegWithoutSymbolOrAddress is the case that decided the
+// design (#57): a receipt leg carrying NO symbol and NO contract address.
+//
+// Uniswap V3 mints its LP receipt as an NFT, so the leg arrives with `nft` set
+// and `token` nil — there is no ticker to match a prefix against and no address
+// to look up in a registry. Every one of the four symbol matchers this change
+// removed was structurally incapable of seeing it. The action is the only thing
+// the leg carries, and it is enough.
+//
+// The adapter must handle it by action and must not panic on the nil token.
+func TestConvert_ReceiptLegWithoutSymbolOrAddress(t *testing.T) {
+	tx := Transaction{
+		ClassificationData: ClassificationData{
+			Type: "addLiquidity",
+			Sent: []Transfer{
+				{
+					Action: "liquidityAdded",
+					Amount: "100",
+					From:   Party{Address: strptr("0xabc")},
+					To:     Party{Address: strptr("0xpool")},
+					Token:  &Token{Symbol: "USDC", Name: "USD Coin", Address: "0xusdc", Decimals: 6},
+				},
+			},
+			Received: []Transfer{
+				{
+					// No token, no symbol, no contract address — only an action
+					// and an NFT id.
+					Action: "lpTokensMinted",
+					Amount: "1",
+					From:   Party{Address: strptr("0x0000000000000000000000000000000000000000")},
+					To:     Party{Address: strptr("0xabc")},
+					NFT:    &NFT{ID: json.Number("7777"), Name: "Uniswap V3 Positions NFT-V1"},
+				},
+			},
+		},
+		RawTransactionData: RawTransactionData{
+			TransactionHash: "0xnosymbol",
+			Timestamp:       1700000000,
+		},
+	}
+
+	dt, err := convertTransaction(tx, "base")
+	require.NoError(t, err, "a leg with neither symbol nor address must not break conversion")
+
+	// The receipt contributed no transfer; the principal is the only one.
+	require.Len(t, dt.Transfers, 1)
+	assert.Equal(t, "USDC", dt.Transfers[0].AssetSymbol)
+	assert.Equal(t, "liquidityAdded", dt.Transfers[0].Action)
+
+	// The receipt's action survived even though the leg did not, and so did the
+	// NFT id it was carrying.
+	assert.Contains(t, dt.LegActions, "lpTokensMinted")
+	assert.Equal(t, "7777", dt.NFTTokenID)
+
+	// Classified from the action alone.
+	assert.Equal(t, ledger.TxTypeLPDeposit, sync.NewClassifier().Classify(dt))
 }
 
 func strptr(s string) *string { return &s }

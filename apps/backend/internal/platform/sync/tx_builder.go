@@ -160,6 +160,8 @@ func (p *TxBuilder) ProcessTransaction(ctx context.Context, w *wallet.Wallet, tx
 		return nil, nil
 	}
 
+	p.reportUnknownLegActions(tx)
+
 	txType := p.classifier.Classify(tx)
 	p.logger.Debug("transaction classified", "tx_hash", tx.TxHash, "op_type", tx.OperationType, "tx_type", string(txType))
 
@@ -342,6 +344,40 @@ const (
 	unclassifiedProviderTypeKey = "unclassified_provider_type"
 )
 
+// reportUnknownLegActions logs every leg action the provider stamped that
+// MoonTrack's closed vocabulary does not recognize (issue #57).
+//
+// This is the audit surface for the one limitation the receipt rule accepts.
+// The vocabulary of leg actions belongs to the provider, not to us, and is not
+// frozen: a lending protocol that mints its receipt under an action we have
+// never seen will have that receipt treated as principal and booked as a
+// position, double-counting the supply exactly as before the rule existed.
+// Nothing in the data distinguishes that case from a genuine new principal
+// action, so it cannot be decided automatically — which is precisely why it
+// must not pass in silence. A WARN turns an invisible mis-booking into a
+// searchable line naming the action, so the vocabulary can be extended from
+// evidence.
+//
+// The unrecognized leg is treated as PRINCIPAL, never dropped. Guessing the
+// other way would silently delete real movements on every protocol whose
+// vocabulary we have not yet met, and a lost movement is the one outcome the
+// product does not accept; an over-counted position is visible and repairable
+// by re-sync, a deleted one is neither.
+func (p *TxBuilder) reportUnknownLegActions(tx DecodedTransaction) {
+	for _, action := range tx.LegActions {
+		if !IsUnknownLegAction(action) {
+			continue
+		}
+		p.logger.Warn("unrecognized provider leg action treated as principal",
+			"tx_hash", price.SanitizeLogField(tx.TxHash),
+			"chain_id", price.SanitizeLogField(tx.ChainID),
+			"external_id", price.SanitizeLogField(tx.ID),
+			"leg_action", price.SanitizeLogField(action),
+			"provider_type", price.SanitizeLogField(tx.ProviderType),
+		)
+	}
+}
+
 // tagUnclassifiedForReview makes the genuinely risky unclassified shape
 // observable, mutating data to carry the tag (issue #30).
 //
@@ -355,12 +391,13 @@ const (
 // failed to decode) that PnL is phantom.
 //
 // The condition is both-direction-and-unclassified, deliberately NOT "was
-// booked as a swap". Classify consults its protocol and asset heuristics
-// before the in/out fallback, so an unclassified transaction carrying an
-// aToken-shaped symbol books as lending_supply instead — and hasAaveAssets
-// matches any `a` + uppercase ticker, so an unknown shape can land there by
-// coincidence. Keying on the resulting type would let exactly those escape the
-// audit trail, which is the outcome this exists to prevent.
+// booked as a swap". Classify consults the per-leg protocol actions before the
+// in/out fallback, so an unclassified transaction whose legs carry a lending or
+// liquidity action books as lending_supply or an LP type instead — a shape the
+// provider could not name can still land there, since the action says which
+// market it touched but not what it did. Keying on the resulting type would let
+// exactly those escape the audit trail, which is the outcome this exists to
+// prevent.
 //
 // The judgment call is deferred rather than guessed: the transaction IS
 // recorded, so no data is lost, and the classification is left alone — this
@@ -1046,8 +1083,10 @@ func (p *TxBuilder) buildSingleTransfer(ctx context.Context, t DecodedTransfer, 
 // --- Lending data builders ---
 
 func (p *TxBuilder) buildLendingSupplyData(w *wallet.Wallet, tx DecodedTransaction) map[string]interface{} {
-	// Supply: the primary asset being supplied flows OUT of the wallet.
-	// A receipt token (aToken) flows IN simultaneously — capture both.
+	// Supply: the principal being supplied flows OUT of the wallet. The aToken
+	// the protocol mints back never arrives here — it is dropped at the
+	// provider boundary as a receipt (#57), so what remains is the principal
+	// and only the principal.
 	return p.buildLendingData(w, tx, DirectionOut)
 }
 
@@ -1095,9 +1134,10 @@ func (p *TxBuilder) buildLendingData(w *wallet.Wallet, tx DecodedTransaction, pr
 			first = t
 		}
 	}
-	// Include the opposite-direction transfer too (e.g. for supply, the aToken
-	// flows IN; for borrow, nothing flows OUT — so this is a no-op for borrow).
-	// Handlers inspect direction to decide routing.
+	// Include opposite-direction legs too. Since #57 these are never receipts —
+	// those are gone before this point — but a real operation can still move
+	// principal both ways (a supply that also returns dust, a repay that
+	// reclaims excess). Handlers inspect direction to decide routing.
 	for i := range tx.Transfers {
 		t := &tx.Transfers[i]
 		if t.Direction == primary {

@@ -447,6 +447,9 @@ func TestTxBuilder_DeFiDeposit(t *testing.T) {
 		},
 	})
 	tx.Protocol = "Aave V3"
+	// Lending is identified by the provider's per-leg actions, not by the
+	// protocol string above and not by an aToken ticker (#57).
+	tx.LegActions = []string{"deposited", "collateralSharesMinted"}
 
 	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
@@ -486,6 +489,9 @@ func TestTxBuilder_DeFiWithdraw(t *testing.T) {
 		},
 	})
 	tx.Protocol = "Aave V3"
+	// Lending is identified by the provider's per-leg actions, not by the
+	// protocol string above and not by an aToken ticker (#57).
+	tx.LegActions = []string{"collateralSharesBurned", "withdrawn"}
 
 	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
@@ -526,6 +532,9 @@ func TestTxBuilder_DeFiClaim(t *testing.T) {
 		},
 	})
 	tx.Protocol = "Aave V3"
+	// Lending is identified by the provider's per-leg actions, not by the
+	// protocol string above and not by an aToken ticker (#57).
+	tx.LegActions = []string{"withdrawn"}
 
 	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)

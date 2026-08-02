@@ -12,9 +12,7 @@ import {
 import { AssetIcon } from '@/components/domain/AssetIcon'
 import { ChainIcon } from '@/components/domain/ChainIcon'
 import { LotDetailTable } from '@/components/domain/LotDetailTable'
-import { Badge } from '@/components/ui/badge'
 import { formatUSD, formatCrypto } from '@/lib/format'
-import { parseDeFiAsset } from '@/lib/defi-asset'
 import { getChainName } from '@/types/wallet'
 import type { HoldingGroup, ChainHolding } from '@/types/portfolio'
 
@@ -136,26 +134,12 @@ function AssetGroupRows({
         <TableCell>
           <div className="flex items-center gap-2">
             <Chevron className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-            {(() => {
-              const defi = parseDeFiAsset(group.asset_id)
-              if (defi) {
-                return (
-                  <>
-                    <AssetIcon symbol={defi.underlyingSymbol} size="sm" />
-                    <span className="font-medium">{defi.underlyingSymbol}</span>
-                    <Badge variant={defi.type === 'supplied' ? 'liquidity' : 'loss'}>
-                      {defi.type === 'supplied' ? 'Supplied' : 'Borrowed'}
-                    </Badge>
-                  </>
-                )
-              }
-              return (
-                <>
-                  <AssetIcon symbol={group.asset_id} size="sm" />
-                  <span className="font-medium">{group.asset_id}</span>
-                </>
-              )
-            })()}
+            {/* Holdings are principal assets only. A protocol receipt (aToken,
+                debt token, LP token) never reaches the ledger since #57, so
+                there is no receipt ticker left here to decode into an
+                underlying symbol and a Supplied/Borrowed badge. */}
+            <AssetIcon symbol={group.asset_id} size="sm" />
+            <span className="font-medium">{group.asset_id}</span>
           </div>
         </TableCell>
         <TableCell className="text-right font-mono">
