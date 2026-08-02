@@ -21,7 +21,10 @@ func seedAsset(t *testing.T) uuid.UUID {
 	repo := NewAssetRepository(testDB.Pool)
 	id := uuid.New()
 	// Unique address and symbol per invocation to avoid unique constraint conflicts.
-	addr := fmt.Sprintf("0x%032x", [16]byte(id))
+	// An EVM address is 20 bytes / 40 hex chars; a UUID supplies 16, so the
+	// remaining 8 hex digits are zero-padded. %032x would produce a 32-char
+	// address that fails contract-address validation.
+	addr := fmt.Sprintf("0x%040x", [16]byte(id))
 	symbol := fmt.Sprintf("T%s", id.String()[:6])
 	a, _, err := repo.UpsertByOnChainIdentity(ctx, "ethereum", addr, symbol, "Test Token", 18)
 	require.NoError(t, err)

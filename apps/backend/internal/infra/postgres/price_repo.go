@@ -84,25 +84,47 @@ func (r *PriceRepository) GetCurrentPrice(ctx context.Context, assetID uuid.UUID
 	return price, nil
 }
 
-// GetPriceAt retrieves the price at or before a specific time
+// GetPriceAt retrieves the price for a specific past moment.
+//
+// A row is only returned when it actually covers `at` — that is, when `at`
+// falls inside the tolerance window implied by that row's own granularity (see
+// asset.PricePointCovers). A point outside its window is a miss, not an
+// approximation: the caller gets ErrNoPriceData and goes to a provider instead
+// of silently receiving a stale spot price.
+//
+// Rows are walked newest-first rather than taking only the nearest one,
+// because the nearest row is often a spot write from the background updater —
+// it covers nothing, but an older aligned point may still cover `at`. Stopping
+// at the nearest row would hide that cached answer and re-query the provider
+// on every lookup.
 func (r *PriceRepository) GetPriceAt(ctx context.Context, assetID uuid.UUID, at time.Time) (*asset.PricePoint, error) {
+	// The widest window any granularity implies is a day, so a row older than
+	// that can never cover `at`.
 	query := `
 		SELECT time, asset_id, price_usd, volume_24h, market_cap, source
 		FROM price_history
-		WHERE asset_id = $1 AND time <= $2
+		WHERE asset_id = $1 AND time <= $2 AND time >= $3
 		ORDER BY time DESC
-		LIMIT 1
 	`
 
-	price, err := r.scanPricePoint(r.pool.QueryRow(ctx, query, assetID, at))
+	rows, err := r.pool.Query(ctx, query, assetID, at, at.Add(-asset.GranularityDaily.ToleranceWindow()))
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, asset.ErrNoPriceData
-		}
+		return nil, fmt.Errorf("failed to get price at time: %w", err)
+	}
+	defer rows.Close()
+
+	prices, err := r.scanPricePoints(rows)
+	if err != nil {
 		return nil, fmt.Errorf("failed to get price at time: %w", err)
 	}
 
-	return price, nil
+	for i := range prices {
+		if asset.PricePointCovers(prices[i].Time, at) {
+			return &prices[i], nil
+		}
+	}
+
+	return nil, asset.ErrNoPriceData
 }
 
 // GetPriceHistory retrieves price history for a time range with specified interval

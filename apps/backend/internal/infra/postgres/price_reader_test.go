@@ -83,18 +83,19 @@ func TestPriceReader_HistoricalPicksByPriority(t *testing.T) {
 
 	assetID := seedAsset(t)
 
-	queryTime := time.Now().UTC().Truncate(time.Second)
-	twoHoursAgo := queryTime.Add(-2 * time.Hour)
-	threeHoursAgo := queryTime.Add(-3 * time.Hour)
+	// Both points must cover queryTime, so that priority — not the tolerance
+	// window — is what decides the winner here.
+	queryTime := time.Date(2025, 3, 14, 15, 30, 0, 0, time.UTC)
+	sameHour := queryTime.Truncate(time.Hour)
+	sameDay := time.Date(2025, 3, 14, 0, 0, 0, 0, time.UTC)
 
-	// geckoterminal: more recent, lower priority (both within ts cutoff)
-	seedPrice(t, assetID, twoHoursAgo, 300, price.SourceGeckoTerminal)
-	// coingecko: older, higher priority
-	seedPrice(t, assetID, threeHoursAgo, 400, price.SourceCoinGecko)
+	// defillama: more recent (hourly point in the same hour), lower priority
+	seedPrice(t, assetID, sameHour, 300, price.SourceDefiLlama)
+	// coingecko: older (daily point for the same day), higher priority
+	seedPrice(t, assetID, sameDay, 400, price.SourceCoinGecko)
 
 	reader := NewPriceReader(testDB.Pool, []price.Source{
 		price.SourceCoinGecko,
-		price.SourceGeckoTerminal,
 		price.SourceDefiLlama,
 	})
 

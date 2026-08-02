@@ -80,6 +80,14 @@ func (m *memJobRepo) UnlockWithoutCounting(ctx context.Context, id uuid.UUID, ne
 }
 func (m *memJobRepo) ReapStale(ctx context.Context, d time.Duration) (int, error) { return 0, nil }
 
+// get returns a snapshot of the job by ID, for asserting on attempt counts and
+// terminal status after ProcessOne.
+func (m *memJobRepo) get(id uuid.UUID) price.BackfillJob {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return *m.jobs[id]
+}
+
 type memAssetLookup struct {
 	mu sync.Mutex
 	a  asset.Asset
@@ -124,7 +132,7 @@ type stubProv struct {
 	err error
 }
 
-func (s *stubProv) Name() price.Source { return price.SourceGeckoTerminal }
+func (s *stubProv) Name() price.Source { return price.SourceDefiLlama }
 func (s *stubProv) GetPrice(ctx context.Context, a asset.Asset) (*big.Int, error) {
 	return nil, price.ErrNotFound
 }
@@ -290,4 +298,39 @@ func TestWorker_ProcessOne_HookFails_UnlocksWithoutCounting(t *testing.T) {
 	require.Equal(t, price.JobStatusPending, got.Status, "job must be unlocked (back to pending)")
 	// Price was recorded before hook ran — that's expected; only the hook failed.
 	require.Len(t, pr.recorded, 1, "recorder should have been called before hook failure")
+}
+
+// TestWorker_TransientFailureDoesNotBurnAnAttempt is the worker-side half of
+// the dead-provider removal. A transient provider failure must leave the job's
+// attempt count untouched, so repeated outages never walk a lot to terminal
+// "unpriceable". Before the removal, the always-NotFound GeckoTerminal stub
+// turned this same scenario into a counted attempt.
+// The control case is TestWorker_NotFound_IncrementsAttempts: a genuine
+// "no data" answer still counts, as it should.
+func TestWorker_TransientFailureDoesNotBurnAnAttempt(t *testing.T) {
+	ctx := context.Background()
+	jr := newMemJobRepo()
+	aLookup := &memAssetLookup{a: asset.Asset{ID: uuid.New(), Symbol: "XTKN"}}
+	pr := &memPriceRecorder{}
+	hk := &memResolvedHook{}
+	resolver := price.NewResolver([]price.Provider{
+		&stubProv{err: price.ErrTransient},
+	}, nil, logger.NewNoop())
+
+	job, err := jr.Enqueue(ctx, aLookup.a.ID, time.Now().UTC().Truncate(time.Minute))
+	require.NoError(t, err)
+
+	w := price.NewBackfillWorker(price.WorkerDeps{
+		Jobs: jr, Resolver: resolver, AssetLookup: aLookup,
+		PriceRecorder: pr, OnResolved: hk.OnResolved, Logger: logger.NewNoop(),
+		RateLimitSleep: 1 * time.Millisecond,
+	})
+	require.NoError(t, w.ProcessOne(ctx))
+
+	got := jr.get(job.ID)
+	require.Equal(t, 0, got.Attempts, "a transient failure must not count as an attempt")
+	require.Equal(t, price.JobStatusPending, got.Status,
+		"the job stays pending for a retry, not terminal")
+	require.Empty(t, pr.recorded)
+	require.Equal(t, 0, hk.called)
 }

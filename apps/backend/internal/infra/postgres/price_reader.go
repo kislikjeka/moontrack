@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kislikjeka/moontrack/internal/platform/asset"
 	"github.com/kislikjeka/moontrack/internal/platform/price"
 )
 
@@ -95,43 +96,62 @@ func (r *PriceReader) Current(ctx context.Context, assetID uuid.UUID) (*big.Int,
 	return v, price.Source(sourceStr), nil
 }
 
-// Historical returns the best price at or before ts, choosing the highest-priority
-// source. If no rows exist for the given time constraint, returns price.ErrNotFound.
+// Historical returns the best price for ts, choosing the highest-priority
+// source among the rows that actually cover ts.
+//
+// A row covers ts only when ts falls inside the tolerance window implied by
+// that row's own granularity (see asset.PricePointCovers) — otherwise the
+// nearest-at-or-before row would let an arbitrarily stale spot point stand in
+// for a point-in-time price. Returns price.ErrNotFound when no row covers ts.
 func (r *PriceReader) Historical(ctx context.Context, assetID uuid.UUID, ts time.Time) (*price.HistoricalPrice, price.Source, error) {
 	priorityCase := r.buildPriorityCase()
 
+	// The widest window any granularity implies is a day, so a row older than
+	// that can never cover ts. That bound keeps the candidate set small; the
+	// authoritative per-row check happens in Go, where the window is derived
+	// from each row's own granularity.
+	//
+	// Every candidate is considered, not just the nearest one per source: the
+	// nearest row may well be a spot point that fails its (zero-width) window,
+	// while an older aligned point from the same source still covers ts.
+	// Ordering is priority first, then recency, so the first covering row is
+	// the best answer.
 	query := fmt.Sprintf(`
-		WITH nearest AS (
-			SELECT DISTINCT ON (source) source, time, price_usd
-			FROM price_history
-			WHERE asset_id = $1 AND time <= $2
-			ORDER BY source, time DESC
-		)
 		SELECT source, time, price_usd
-		FROM nearest
-		ORDER BY %s
-		LIMIT 1
+		FROM price_history
+		WHERE asset_id = $1 AND time <= $2 AND time >= $3
+		ORDER BY %s, time DESC
 	`, priorityCase)
 
-	var sourceStr, priceStr string
-	var rowTime time.Time
-	err := r.pool.QueryRow(ctx, query, assetID, ts).Scan(&sourceStr, &rowTime, &priceStr)
+	rows, err := r.pool.Query(ctx, query, assetID, ts, ts.Add(-asset.GranularityDaily.ToleranceWindow()))
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, "", price.ErrNotFound
+		return nil, "", fmt.Errorf("price_reader: historical: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var sourceStr, priceStr string
+		var rowTime time.Time
+		if err := rows.Scan(&sourceStr, &rowTime, &priceStr); err != nil {
+			return nil, "", fmt.Errorf("price_reader: historical: %w", err)
 		}
+		// Rows arrive in priority order; take the first one that covers ts.
+		if !asset.PricePointCovers(rowTime, ts) {
+			continue
+		}
+		v, ok := new(big.Int).SetString(priceStr, 10)
+		if !ok {
+			return nil, "", fmt.Errorf("price_reader: historical: invalid numeric value %q", priceStr)
+		}
+		return &price.HistoricalPrice{
+			PriceUSD:   v,
+			Timestamp:  rowTime,
+			Confidence: 1.0,
+		}, price.Source(sourceStr), nil
+	}
+	if err := rows.Err(); err != nil {
 		return nil, "", fmt.Errorf("price_reader: historical: %w", err)
 	}
 
-	v, ok := new(big.Int).SetString(priceStr, 10)
-	if !ok {
-		return nil, "", fmt.Errorf("price_reader: historical: invalid numeric value %q", priceStr)
-	}
-
-	hp := &price.HistoricalPrice{
-		PriceUSD:   v,
-		Timestamp:  rowTime,
-		Confidence: 1.0,
-	}
-	return hp, price.Source(sourceStr), nil
+	return nil, "", price.ErrNotFound
 }

@@ -41,7 +41,7 @@ func newHP(p int64) *price.HistoricalPrice {
 func TestResolver_FirstProviderWins(t *testing.T) {
 	r := price.NewResolver([]price.Provider{
 		&stubProvider{name: price.SourceCoinGecko, hist: newHP(100)},
-		&stubProvider{name: price.SourceGeckoTerminal, hist: newHP(200)},
+		&stubProvider{name: price.SourceDefiLlama, hist: newHP(200)},
 	}, nil, logger.NewNoop())
 
 	hp, src, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
@@ -53,23 +53,57 @@ func TestResolver_FirstProviderWins(t *testing.T) {
 func TestResolver_FallsThroughOnNotFound(t *testing.T) {
 	r := price.NewResolver([]price.Provider{
 		&stubProvider{name: price.SourceCoinGecko, err: price.ErrNotFound},
-		&stubProvider{name: price.SourceGeckoTerminal, hist: newHP(222)},
+		&stubProvider{name: price.SourceDefiLlama, hist: newHP(222)},
 	}, nil, logger.NewNoop())
 
 	hp, src, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
 	require.NoError(t, err)
 	require.Equal(t, int64(222), hp.PriceUSD.Int64())
-	require.Equal(t, price.SourceGeckoTerminal, src)
+	require.Equal(t, price.SourceDefiLlama, src)
 }
 
 func TestResolver_ReturnsNotFoundWhenAllMiss(t *testing.T) {
 	r := price.NewResolver([]price.Provider{
 		&stubProvider{name: price.SourceCoinGecko, err: price.ErrNotFound},
-		&stubProvider{name: price.SourceGeckoTerminal, err: price.ErrNotFound},
+		&stubProvider{name: price.SourceDefiLlama, err: price.ErrNotFound},
 	}, nil, logger.NewNoop())
 
 	_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
 	require.ErrorIs(t, err, price.ErrNotFound)
+}
+
+// TestResolver_TransientStaysTransientWithoutADeadProvider pins the reason the
+// GeckoTerminal stub had to go. It answered NotFound unconditionally, and
+// NotFound is priority 2 in ResolveHistorical — above transient. With the stub
+// in the chain, a transient CoinGecko failure came back as ErrNotFound, which
+// the backfill worker counts as an attempt and which walks the lot toward
+// terminal "unpriceable". With only live providers, a transient failure stays
+// transient, so the worker reschedules without burning an attempt.
+func TestResolver_TransientStaysTransientWithoutADeadProvider(t *testing.T) {
+	r := price.NewResolver([]price.Provider{
+		&stubProvider{name: price.SourceCoinGecko, err: price.ErrTransient},
+		&stubProvider{name: price.SourceDefiLlama, err: price.ErrTransient},
+	}, nil, logger.NewNoop())
+
+	_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	require.ErrorIs(t, err, price.ErrTransient)
+	require.False(t, errors.Is(err, price.ErrNotFound),
+		"no provider positively answered 'no data' — the verdict must stay transient")
+}
+
+// TestResolver_AlwaysNotFoundProviderWouldPoisonTransientVerdict documents the
+// exact failure mode the removal prevents: an always-NotFound stub anywhere in
+// the chain converts a transient verdict into a counted attempt.
+func TestResolver_AlwaysNotFoundProviderWouldPoisonTransientVerdict(t *testing.T) {
+	deadStub := &stubProvider{name: price.SourceGeckoTerminal, err: price.ErrNotFound}
+	r := price.NewResolver([]price.Provider{
+		&stubProvider{name: price.SourceCoinGecko, err: price.ErrTransient},
+		deadStub,
+	}, nil, logger.NewNoop())
+
+	_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	require.ErrorIs(t, err, price.ErrNotFound,
+		"this is why the dead provider must not be wired: it overrides the transient verdict")
 }
 
 func TestResolver_PreservesRateLimitedError(t *testing.T) {

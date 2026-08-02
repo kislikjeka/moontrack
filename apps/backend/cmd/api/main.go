@@ -13,7 +13,6 @@ import (
 
 	"github.com/kislikjeka/moontrack/internal/infra/gateway/coingecko"
 	"github.com/kislikjeka/moontrack/internal/infra/gateway/defillama"
-	"github.com/kislikjeka/moontrack/internal/infra/gateway/geckoterminal"
 	"github.com/kislikjeka/moontrack/internal/infra/gateway/noves"
 	"github.com/kislikjeka/moontrack/internal/infra/postgres"
 	infraRedis "github.com/kislikjeka/moontrack/internal/infra/redis"
@@ -318,12 +317,8 @@ func main() {
 	// Wire price fallback providers, backfill worker, and resolved hook.
 	// This pipeline is always-on — every sync that produces an unpriced asset
 	// enqueues a backfill job, and the worker resolves it from
-	// CoinGecko / GeckoTerminal / DefiLlama in priority order.
+	// CoinGecko / DefiLlama in priority order.
 	{
-		gtBaseURL := os.Getenv("GECKOTERMINAL_BASE_URL")
-		if gtBaseURL == "" {
-			gtBaseURL = "https://api.geckoterminal.com/api/v2"
-		}
 		dlBaseURL := os.Getenv("DEFILLAMA_BASE_URL")
 		if dlBaseURL == "" {
 			dlBaseURL = "https://coins.llama.fi"
@@ -360,7 +355,6 @@ func main() {
 		}
 		_ = backfillWorkers
 
-		gtClient := geckoterminal.NewClient(geckoterminal.Config{BaseURL: gtBaseURL})
 		dlClient := defillama.NewClient(defillama.Config{
 			BaseURL:       dlBaseURL,
 			MinConfidence: dlMinConf,
@@ -369,9 +363,14 @@ func main() {
 		redisAdapter := infraRedis.NewPriceRedisAdapter(redisClient)
 		priceHistCache := price.NewCache(redisAdapter, 30*24*time.Hour)
 
+		// GeckoTerminal is intentionally absent: its historical lookup was a
+		// stub that always answered NotFound. That is not neutral in the
+		// resolver — NotFound outranks transient errors, so the stub
+		// guaranteed the verdict could never come back transient, and it
+		// burned an attempt on every job, pushing lots toward terminal
+		// "unpriceable". DeFi-token coverage is DefiLlama's job (#39).
 		providers := []price.Provider{
 			price.NewCoinGeckoProvider(assetSvc),
-			price.NewGeckoTerminalProvider(gtClient),
 			price.NewDefiLlamaProvider(dlClient),
 		}
 		resolver := price.NewResolver(providers, priceHistCache, log)
@@ -403,7 +402,7 @@ func main() {
 		}()
 		log.Info("Price fallback worker started",
 			"rate_seconds", backfillRateSec,
-			"providers", []string{"coingecko", "geckoterminal", "defillama"},
+			"providers", []string{"coingecko", "defillama"},
 		)
 	}
 
