@@ -953,9 +953,11 @@ func (p *TxBuilder) buildLendingClaimData(w *wallet.Wallet, tx DecodedTransactio
 }
 
 // buildLendingData emits the shared lending data map shape. It collects all
-// transfers matching the primary direction into `transfers`, picks the first
-// such transfer for legacy flat fields (`asset`, `amount`, etc.), and always
-// includes the full array so handlers can route receipt vs. liquid assets.
+// transfers matching the primary direction into `transfers`, then appends the
+// opposite-direction ones, so the handler sees every leg of the op. It also
+// picks the first primary transfer for the flat display fields (`asset`,
+// `amount`, ...), which only the transactions reader consumes — the ledger
+// entry builders read `transfers` exclusively.
 func (p *TxBuilder) buildLendingData(w *wallet.Wallet, tx DecodedTransaction, primary TransferDirection) map[string]interface{} {
 	data := p.buildBaseData(w, tx)
 
@@ -1001,6 +1003,9 @@ func (p *TxBuilder) findTransfer(transfers []DecodedTransfer, dir TransferDirect
 	return nil
 }
 
+// setLendingAssetFields writes the flat display fields read by LendingReader
+// (internal/module/transactions) for the transaction list and detail views.
+// The ledger entry builders do not read them.
 func (p *TxBuilder) setLendingAssetFields(data map[string]interface{}, t *DecodedTransfer) {
 	data["asset"] = t.AssetSymbol
 	data["amount"] = money.NewBigInt(t.Amount).String()

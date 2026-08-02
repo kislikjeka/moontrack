@@ -32,13 +32,9 @@ func (h *LendingSupplyHandler) Handle(ctx context.Context, data map[string]inter
 		return nil, err
 	}
 
-	entries := make([]*ledger.Entry, 0)
-	if len(txn.Transfers) > 0 {
-		for i := range txn.Transfers {
-			entries = append(entries, generateSupplyItemEntries(&txn, &txn.Transfers[i])...)
-		}
-	} else {
-		entries = append(entries, generateSupplyEntries(&txn)...)
+	entries := make([]*ledger.Entry, 0, 2*len(txn.Transfers))
+	for i := range txn.Transfers {
+		entries = append(entries, generateSupplyItemEntries(&txn, &txn.Transfers[i])...)
 	}
 	if gasEntries := generateGasFeeEntries(&txn); gasEntries != nil {
 		entries = append(entries, gasEntries...)

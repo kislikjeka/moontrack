@@ -144,11 +144,15 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 	// =========================================================================
 	supplyTx, err := svc.RecordTransaction(ctx, ledger.TxTypeLendingSupply, "blockchain", stringPtr("supply-eth"),
 		time.Now().Add(-4*time.Hour), map[string]interface{}{
-			"wallet_id":        walletID.String(),
-			"asset":            "ETH",
-			"amount":           money.NewBigIntFromInt64(2000000000000000000).String(), // 2 ETH
-			"decimals":         18,
-			"usd_price":        money.NewBigIntFromInt64(200000000000).String(), // $2000
+			"wallet_id": walletID.String(),
+			"transfers": []map[string]interface{}{
+				{
+					"asset_id": "ETH",
+					"amount":   money.NewBigIntFromInt64(2000000000000000000).String(),
+					"decimals": 18,
+					"usd_rate": money.NewBigIntFromInt64(200000000000).String(),
+				},
+			},
 			"chain_id":         chain,
 			"protocol":         protocol,
 			"tx_hash":          "0xsupply_eth",
@@ -186,11 +190,15 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 	// =========================================================================
 	borrowTx, err := svc.RecordTransaction(ctx, ledger.TxTypeLendingBorrow, "blockchain", stringPtr("borrow-usdc"),
 		time.Now().Add(-3*time.Hour), map[string]interface{}{
-			"wallet_id":        walletID.String(),
-			"asset":            "USDC",
-			"amount":           money.NewBigIntFromInt64(1000000000).String(), // 1000 USDC
-			"decimals":         6,
-			"usd_price":        money.NewBigIntFromInt64(100000000).String(), // $1
+			"wallet_id": walletID.String(),
+			"transfers": []map[string]interface{}{
+				{
+					"asset_id": "USDC",
+					"amount":   money.NewBigIntFromInt64(1000000000).String(),
+					"decimals": 6,
+					"usd_rate": money.NewBigIntFromInt64(100000000).String(),
+				},
+			},
 			"chain_id":         chain,
 			"protocol":         protocol,
 			"tx_hash":          "0xborrow_usdc",
@@ -228,11 +236,15 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 	// =========================================================================
 	repayTx, err := svc.RecordTransaction(ctx, ledger.TxTypeLendingRepay, "blockchain", stringPtr("repay-usdc"),
 		time.Now().Add(-2*time.Hour), map[string]interface{}{
-			"wallet_id":        walletID.String(),
-			"asset":            "USDC",
-			"amount":           money.NewBigIntFromInt64(500000000).String(), // 500 USDC
-			"decimals":         6,
-			"usd_price":        money.NewBigIntFromInt64(100000000).String(), // $1
+			"wallet_id": walletID.String(),
+			"transfers": []map[string]interface{}{
+				{
+					"asset_id": "USDC",
+					"amount":   money.NewBigIntFromInt64(500000000).String(),
+					"decimals": 6,
+					"usd_rate": money.NewBigIntFromInt64(100000000).String(),
+				},
+			},
 			"chain_id":         chain,
 			"protocol":         protocol,
 			"tx_hash":          "0xrepay_usdc",
@@ -265,11 +277,15 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 	// =========================================================================
 	withdrawTx, err := svc.RecordTransaction(ctx, ledger.TxTypeLendingWithdraw, "blockchain", stringPtr("withdraw-eth"),
 		time.Now().Add(-1*time.Hour), map[string]interface{}{
-			"wallet_id":        walletID.String(),
-			"asset":            "ETH",
-			"amount":           money.NewBigIntFromInt64(1000000000000000000).String(), // 1 ETH
-			"decimals":         18,
-			"usd_price":        money.NewBigIntFromInt64(200000000000).String(), // $2000
+			"wallet_id": walletID.String(),
+			"transfers": []map[string]interface{}{
+				{
+					"asset_id": "ETH",
+					"amount":   money.NewBigIntFromInt64(1000000000000000000).String(),
+					"decimals": 18,
+					"usd_rate": money.NewBigIntFromInt64(200000000000).String(),
+				},
+			},
 			"chain_id":         chain,
 			"protocol":         protocol,
 			"tx_hash":          "0xwithdraw_eth",
@@ -302,11 +318,15 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 	// =========================================================================
 	claimTx, err := svc.RecordTransaction(ctx, ledger.TxTypeLendingClaim, "blockchain", stringPtr("claim-aave"),
 		time.Now().Add(-30*time.Minute), map[string]interface{}{
-			"wallet_id":        walletID.String(),
-			"asset":            "AAVE",
-			"amount":           money.NewBigIntFromInt64(500000000000000000).String(), // 0.5 AAVE
-			"decimals":         18,
-			"usd_price":        money.NewBigIntFromInt64(10000000000).String(), // $100
+			"wallet_id": walletID.String(),
+			"transfers": []map[string]interface{}{
+				{
+					"asset_id": "AAVE",
+					"amount":   money.NewBigIntFromInt64(500000000000000000).String(),
+					"decimals": 18,
+					"usd_rate": money.NewBigIntFromInt64(10000000000).String(),
+				},
+			},
 			"chain_id":         chain,
 			"protocol":         protocol,
 			"tx_hash":          "0xclaim_aave",
@@ -373,7 +393,7 @@ func TestIntegration_SupplyEntries(t *testing.T) {
 			"wallet_id":        walletID.String(),
 			"asset_id":         "ETH",
 			"decimals":         18,
-			"amount":           money.NewBigIntFromInt64(10000000000000000000).String(),
+			"amount":           "10000000000000000000", // 10 ETH — exceeds int64
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
 			"chain_id":         "ethereum",
 			"tx_hash":          "0xseed",
@@ -388,11 +408,15 @@ func TestIntegration_SupplyEntries(t *testing.T) {
 	// Supply 1 ETH
 	tx, err := svc.RecordTransaction(ctx, ledger.TxTypeLendingSupply, "blockchain", stringPtr("supply-test"),
 		time.Now().Add(-1*time.Hour), map[string]interface{}{
-			"wallet_id":        walletID.String(),
-			"asset":            "ETH",
-			"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
-			"decimals":         18,
-			"usd_price":        money.NewBigIntFromInt64(200000000000).String(),
+			"wallet_id": walletID.String(),
+			"transfers": []map[string]interface{}{
+				{
+					"asset_id": "ETH",
+					"amount":   money.NewBigIntFromInt64(1000000000000000000).String(),
+					"decimals": 18,
+					"usd_rate": money.NewBigIntFromInt64(200000000000).String(),
+				},
+			},
 			"chain_id":         "ethereum",
 			"protocol":         "Aave V3",
 			"tx_hash":          "0xsupply_test",

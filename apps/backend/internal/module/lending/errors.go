@@ -9,6 +9,7 @@ var (
 	ErrInvalidAsset    = errors.New("invalid asset: must not be empty")
 	ErrInvalidAmount   = errors.New("invalid amount: must be positive")
 	ErrInvalidDecimals = errors.New("invalid decimals: must be positive")
+	ErrNoTransfers     = errors.New("invalid transfers: must not be empty")
 	ErrWalletNotFound  = errors.New("wallet not found")
 	ErrUnauthorized    = errors.New("unauthorized: wallet does not belong to user")
 )

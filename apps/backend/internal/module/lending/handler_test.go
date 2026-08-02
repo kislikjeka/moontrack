@@ -3,6 +3,7 @@ package lending_test
 import (
 	"context"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,19 +54,31 @@ func assertEntriesBalanced(t *testing.T, entries []*ledger.Entry) {
 		"entries must balance: debits=%s credits=%s", debitSum.String(), creditSum.String())
 }
 
+// buildTestData is a single-transfer lending op: 1 ETH at $2000.
 func buildTestData(walletID uuid.UUID) map[string]interface{} {
 	return map[string]interface{}{
-		"wallet_id":        walletID.String(),
-		"tx_hash":          "0xtest123",
-		"chain_id":         "ethereum",
-		"occurred_at":      time.Now().UTC().Format(time.RFC3339),
-		"protocol":         "Aave V3",
-		"asset":            "ETH",
-		"amount":           "1000000000000000000",
-		"decimals":         float64(18),
-		"usd_price":        "200000000000",
-		"contract_address": "0xcontract",
+		"wallet_id":   walletID.String(),
+		"tx_hash":     "0xtest123",
+		"chain_id":    "ethereum",
+		"occurred_at": time.Now().UTC().Format(time.RFC3339),
+		"protocol":    "Aave V3",
+		"transfers": []map[string]interface{}{
+			{
+				"asset_id":         "ETH",
+				"decimals":         18,
+				"amount":           "1000000000000000000",
+				"usd_rate":         "200000000000",
+				"contract_address": "0xcontract",
+			},
+		},
 	}
+}
+
+// setTestAsset rewrites the single transfer's asset and decimals.
+func setTestAsset(data map[string]interface{}, assetID string, decimals int) {
+	transfers := data["transfers"].([]map[string]interface{})
+	transfers[0]["asset_id"] = assetID
+	transfers[0]["decimals"] = decimals
 }
 
 func setupHandler(t *testing.T) (uuid.UUID, uuid.UUID, *MockWalletRepository, *logger.Logger, context.Context) {
@@ -120,10 +133,21 @@ func TestLendingSupplyHandler_ValidateData_MissingAsset(t *testing.T) {
 
 	handler := lending.NewLendingSupplyHandler(mockRepo, log)
 	data := buildTestData(walletID)
-	delete(data, "asset")
+	setTestAsset(data, "", 18)
 
 	err := handler.ValidateData(ctx, data)
 	assert.Error(t, err)
+}
+
+func TestLendingSupplyHandler_ValidateData_NoTransfers(t *testing.T) {
+	_, walletID, mockRepo, log, ctx := setupHandler(t)
+
+	handler := lending.NewLendingSupplyHandler(mockRepo, log)
+	data := buildTestData(walletID)
+	delete(data, "transfers")
+
+	err := handler.ValidateData(ctx, data)
+	assert.ErrorIs(t, err, lending.ErrNoTransfers)
 }
 
 func TestLendingSupplyHandler_ValidateData_Unauthorized(t *testing.T) {
@@ -139,6 +163,62 @@ func TestLendingSupplyHandler_ValidateData_Unauthorized(t *testing.T) {
 
 	err := handler.ValidateData(ctx, data)
 	assert.Error(t, err)
+}
+
+// TestLendingSupplyHandler_SingleCollateralLeg is the port-level check for
+// #44: one supply books exactly one collateral leg, for the principal amount.
+// Before, the same supply landed in collateral twice — once as the principal
+// and once as the protocol receipt (aToken) on the same amount, with the
+// receipt's other side parked in a lending clearing account. Each pair
+// balanced on its own, so double-entry never caught it; the position was
+// simply counted twice. The canonical entry carries the principal, and no leg
+// routes through clearing.
+func TestLendingSupplyHandler_SingleCollateralLeg(t *testing.T) {
+	_, walletID, mockRepo, log, ctx := setupHandler(t)
+
+	handler := lending.NewLendingSupplyHandler(mockRepo, log)
+
+	const principal = "47126695565145175" // ~0.0471 ETH, from the #44 measurement
+
+	data := map[string]interface{}{
+		"wallet_id":   walletID.String(),
+		"tx_hash":     "0xsupply",
+		"chain_id":    "base",
+		"occurred_at": time.Now().UTC().Format(time.RFC3339),
+		"protocol":    "Aave V3",
+		"transfers": []map[string]interface{}{
+			{
+				"asset_id":         "ETH",
+				"decimals":         18,
+				"amount":           principal,
+				"usd_rate":         "200000000000",
+				"contract_address": "",
+				"direction":        "out",
+			},
+		},
+	}
+
+	entries, err := handler.Handle(ctx, data)
+	require.NoError(t, err)
+	assertEntriesBalanced(t, entries)
+
+	var collateralLegs []*ledger.Entry
+	for _, e := range entries {
+		code, _ := e.Metadata["account_code"].(string)
+		assert.NotContains(t, code, "clearing.",
+			"lending clearing namespace must not appear, got %s", code)
+		if strings.HasPrefix(code, "collateral.") {
+			collateralLegs = append(collateralLegs, e)
+		}
+	}
+
+	require.Len(t, collateralLegs, 1, "one supply must book exactly one collateral leg")
+	assert.Equal(t, "ETH", collateralLegs[0].AssetID, "collateral must hold the principal, not the receipt")
+
+	want, _ := new(big.Int).SetString(principal, 10)
+	assert.Equal(t, 0, collateralLegs[0].Amount.Cmp(want),
+		"collateral must equal the principal, not double it: got %s want %s",
+		collateralLegs[0].Amount, want)
 }
 
 // === Withdraw Handler ===
@@ -165,8 +245,7 @@ func TestLendingBorrowHandler_Handle(t *testing.T) {
 	assert.Equal(t, ledger.TxTypeLendingBorrow, handler.Type())
 
 	data := buildTestData(walletID)
-	data["asset"] = "USDC"
-	data["decimals"] = float64(6)
+	setTestAsset(data, "USDC", 6)
 
 	entries, err := handler.Handle(ctx, data)
 
@@ -255,12 +334,17 @@ func TestLendingBorrowHandler_MultiAsset(t *testing.T) {
 		}
 	}
 
-	// Debt receipt: debit clears through protocol, credit on liability.
+	// The debt receipt takes the same shape as any other leg — the builders
+	// no longer special-case receipts, and no leg routes through clearing
+	// (#44). Dropping the receipt leg outright is #57's job, at the provider
+	// adapter, not this handler's.
 	for _, e := range perAsset["variableDebtBasUSDC"] {
 		code, _ := e.Metadata["account_code"].(string)
+		assert.NotContains(t, code, "clearing.",
+			"no lending leg may route through clearing, got %s", code)
 		if e.DebitCredit == ledger.Debit {
-			assert.Contains(t, code, "clearing.", "debt token debit should clear, got %s", code)
-			assert.Equal(t, ledger.EntryTypeClearing, e.EntryType)
+			assert.Contains(t, code, "wallet.", "debt token debit should be wallet, got %s", code)
+			assert.Equal(t, ledger.EntryTypeAssetIncrease, e.EntryType)
 		} else {
 			assert.Contains(t, code, "liability.", "debt token credit should be liability, got %s", code)
 			assert.Equal(t, ledger.EntryTypeLiabilityIncrease, e.EntryType)
@@ -277,8 +361,7 @@ func TestLendingRepayHandler_Handle(t *testing.T) {
 	assert.Equal(t, ledger.TxTypeLendingRepay, handler.Type())
 
 	data := buildTestData(walletID)
-	data["asset"] = "USDC"
-	data["decimals"] = float64(6)
+	setTestAsset(data, "USDC", 6)
 
 	entries, err := handler.Handle(ctx, data)
 
@@ -296,7 +379,7 @@ func TestLendingClaimHandler_Handle(t *testing.T) {
 	assert.Equal(t, ledger.TxTypeLendingClaim, handler.Type())
 
 	data := buildTestData(walletID)
-	data["asset"] = "AAVE"
+	setTestAsset(data, "AAVE", 18)
 
 	entries, err := handler.Handle(ctx, data)
 
@@ -317,10 +400,13 @@ func TestLendingTransaction_Validate(t *testing.T) {
 		{"missing wallet_id", func(txn *lending.LendingTransaction) { txn.WalletID = uuid.Nil }, true},
 		{"missing tx_hash", func(txn *lending.LendingTransaction) { txn.TxHash = "" }, true},
 		{"missing chain_id", func(txn *lending.LendingTransaction) { txn.ChainID = "" }, true},
-		{"missing asset", func(txn *lending.LendingTransaction) { txn.Asset = "" }, true},
-		{"nil amount", func(txn *lending.LendingTransaction) { txn.Amount = nil }, true},
-		{"zero amount", func(txn *lending.LendingTransaction) { txn.Amount = money.NewBigInt(big.NewInt(0)) }, true},
-		{"zero decimals", func(txn *lending.LendingTransaction) { txn.Decimals = 0 }, true},
+		{"no transfers", func(txn *lending.LendingTransaction) { txn.Transfers = nil }, true},
+		{"missing asset", func(txn *lending.LendingTransaction) { txn.Transfers[0].AssetID = "" }, true},
+		{"nil amount", func(txn *lending.LendingTransaction) { txn.Transfers[0].Amount = nil }, true},
+		{"zero amount", func(txn *lending.LendingTransaction) {
+			txn.Transfers[0].Amount = money.NewBigInt(big.NewInt(0))
+		}, true},
+		{"zero decimals", func(txn *lending.LendingTransaction) { txn.Transfers[0].Decimals = 0 }, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -328,9 +414,13 @@ func TestLendingTransaction_Validate(t *testing.T) {
 				WalletID: uuid.New(),
 				TxHash:   "0xtest",
 				ChainID:  "ethereum",
-				Asset:    "ETH",
-				Amount:   money.NewBigInt(big.NewInt(1000)),
-				Decimals: 18,
+				Transfers: []lending.LendingTransferItem{
+					{
+						AssetID:  "ETH",
+						Amount:   money.NewBigInt(big.NewInt(1000)),
+						Decimals: 18,
+					},
+				},
 			}
 			tt.modify(txn)
 			err := txn.Validate()

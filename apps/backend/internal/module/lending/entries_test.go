@@ -30,22 +30,27 @@ func assertEntriesBalanced(t *testing.T, entries []*ledger.Entry) {
 
 func baseTxn() *LendingTransaction {
 	return &LendingTransaction{
-		WalletID:        uuid.New(),
-		TxHash:          "0xabc123",
-		ChainID:         "ethereum",
-		OccurredAt:      time.Now().UTC(),
-		Protocol:        "Aave V3",
-		Asset:           "ETH",
-		Amount:          money.NewBigInt(big.NewInt(1_000_000_000_000_000_000)), // 1 ETH
+		WalletID:   uuid.New(),
+		TxHash:     "0xabc123",
+		ChainID:    "ethereum",
+		OccurredAt: time.Now().UTC(),
+		Protocol:   "Aave V3",
+	}
+}
+
+// baseItem is 1 ETH at $2000 (price scaled 10^8).
+func baseItem() *LendingTransferItem {
+	return &LendingTransferItem{
+		AssetID:         "ETH",
 		Decimals:        18,
-		USDPrice:        money.NewBigInt(big.NewInt(200_000_000_000)), // $2000 scaled 10^8
+		Amount:          money.NewBigInt(big.NewInt(1_000_000_000_000_000_000)),
+		USDRate:         money.NewBigInt(big.NewInt(200_000_000_000)),
 		ContractAddress: "0xcontract",
 	}
 }
 
-func TestGenerateSupplyEntries(t *testing.T) {
-	txn := baseTxn()
-	entries := generateSupplyEntries(txn)
+func TestGenerateSupplyItemEntries(t *testing.T) {
+	entries := generateSupplyItemEntries(baseTxn(), baseItem())
 
 	require.Len(t, entries, 2)
 	assertEntriesBalanced(t, entries)
@@ -63,9 +68,8 @@ func TestGenerateSupplyEntries(t *testing.T) {
 	assert.Contains(t, entries[1].Metadata["account_code"], "wallet.")
 }
 
-func TestGenerateWithdrawEntries(t *testing.T) {
-	txn := baseTxn()
-	entries := generateWithdrawEntries(txn)
+func TestGenerateWithdrawItemEntries(t *testing.T) {
+	entries := generateWithdrawItemEntries(baseTxn(), baseItem())
 
 	require.Len(t, entries, 2)
 	assertEntriesBalanced(t, entries)
@@ -82,11 +86,12 @@ func TestGenerateWithdrawEntries(t *testing.T) {
 	assert.Equal(t, "COLLATERAL", entries[1].Metadata["account_type"])
 }
 
-func TestGenerateBorrowEntries(t *testing.T) {
-	txn := baseTxn()
-	txn.Asset = "USDC"
-	txn.Decimals = 6
-	entries := generateBorrowEntries(txn)
+func TestGenerateBorrowItemEntries(t *testing.T) {
+	item := baseItem()
+	item.AssetID = "USDC"
+	item.Decimals = 6
+
+	entries := generateBorrowItemEntries(baseTxn(), item)
 
 	require.Len(t, entries, 2)
 	assertEntriesBalanced(t, entries)
@@ -104,11 +109,12 @@ func TestGenerateBorrowEntries(t *testing.T) {
 	assert.Equal(t, "LIABILITY", entries[1].Metadata["account_type"])
 }
 
-func TestGenerateRepayEntries(t *testing.T) {
-	txn := baseTxn()
-	txn.Asset = "USDC"
-	txn.Decimals = 6
-	entries := generateRepayEntries(txn)
+func TestGenerateRepayItemEntries(t *testing.T) {
+	item := baseItem()
+	item.AssetID = "USDC"
+	item.Decimals = 6
+
+	entries := generateRepayItemEntries(baseTxn(), item)
 
 	require.Len(t, entries, 2)
 	assertEntriesBalanced(t, entries)
@@ -125,10 +131,11 @@ func TestGenerateRepayEntries(t *testing.T) {
 	assert.Contains(t, entries[1].Metadata["account_code"], "wallet.")
 }
 
-func TestGenerateClaimEntries(t *testing.T) {
-	txn := baseTxn()
-	txn.Asset = "AAVE"
-	entries := generateClaimEntries(txn)
+func TestGenerateClaimItemEntries(t *testing.T) {
+	item := baseItem()
+	item.AssetID = "AAVE"
+
+	entries := generateClaimItemEntries(baseTxn(), item)
 
 	require.Len(t, entries, 2)
 	assertEntriesBalanced(t, entries)
@@ -143,6 +150,35 @@ func TestGenerateClaimEntries(t *testing.T) {
 	assert.Equal(t, ledger.Credit, entries[1].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeIncome, entries[1].EntryType)
 	assert.Contains(t, entries[1].Metadata["account_code"].(string), "income.lending.")
+}
+
+// TestSupplyItemEntries_NoClearingNamespace pins the decision from #44: the
+// lending clearing namespace existed only to balance the protocol receipt's
+// leg, and the receipt no longer reaches the ledger at all. No lending entry
+// may route through clearing, for any op.
+func TestSupplyItemEntries_NoClearingNamespace(t *testing.T) {
+	txn := baseTxn()
+	item := baseItem()
+
+	generators := map[string]func(*LendingTransaction, *LendingTransferItem) []*ledger.Entry{
+		"supply":   generateSupplyItemEntries,
+		"withdraw": generateWithdrawItemEntries,
+		"borrow":   generateBorrowItemEntries,
+		"repay":    generateRepayItemEntries,
+		"claim":    generateClaimItemEntries,
+	}
+
+	for op, gen := range generators {
+		t.Run(op, func(t *testing.T) {
+			for _, e := range gen(txn, item) {
+				code, _ := e.Metadata["account_code"].(string)
+				assert.NotContains(t, code, "clearing.",
+					"%s must not route through a clearing account, got %s", op, code)
+				assert.NotEqual(t, ledger.EntryTypeClearing, e.EntryType,
+					"%s must not emit a clearing entry", op)
+			}
+		})
+	}
 }
 
 func TestGenerateGasFeeEntries(t *testing.T) {
@@ -170,7 +206,6 @@ func TestGenerateGasFeeEntries(t *testing.T) {
 }
 
 func TestGenerateGasFeeEntries_NoFee(t *testing.T) {
-	txn := baseTxn()
-	entries := generateGasFeeEntries(txn)
+	entries := generateGasFeeEntries(baseTxn())
 	assert.Nil(t, entries)
 }

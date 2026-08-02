@@ -10,8 +10,13 @@ import (
 	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
-// AssetRole classifies an on-chain asset within a lending operation so the
-// handler knows which side of the double-entry pair to post on.
+// AssetRole classifies an on-chain asset within a lending operation.
+//
+// Deprecated: unused. The entry builders no longer route by asset role — every
+// leg is booked as the principal (#44). This symbol-prefix matcher is one of
+// the four scheduled for removal in #57, which replaces it with the per-leg
+// action the provider already sends; it is kept only so that removal lands as
+// one change with its three siblings.
 type AssetRole int
 
 const (
@@ -29,6 +34,8 @@ const (
 // ClassifyLendingAsset decides whether a lending-operation asset is a liquid
 // movable token or a receipt / debt token. Simple prefix match — reliable for
 // Aave's well-known symbol conventions; future protocols may need extension.
+//
+// Deprecated: unused, see [AssetRole].
 func ClassifyLendingAsset(symbol, _protocol string) AssetRole {
 	switch {
 	case strings.HasPrefix(symbol, "variableDebt"), strings.HasPrefix(symbol, "stableDebt"):
@@ -87,27 +94,21 @@ func (t *LendingTransferItem) GetUSDRate() *big.Int {
 
 // LendingTransaction represents an AAVE lending operation.
 type LendingTransaction struct {
-	WalletID        uuid.UUID     `json:"wallet_id"`
-	TxHash          string        `json:"tx_hash"`
-	ChainID         string        `json:"chain_id"`
-	OccurredAt      time.Time     `json:"occurred_at"`
-	Protocol        string        `json:"protocol,omitempty"`
-	Asset           string        `json:"asset"` // Legacy single-asset symbol
-	Amount          *money.BigInt `json:"amount"`
-	Decimals        int           `json:"decimals"`
-	USDPrice        *money.BigInt `json:"usd_price,omitempty"`
-	ContractAddress string        `json:"contract_address,omitempty"`
-	FeeAsset        string        `json:"fee_asset,omitempty"`
-	FeeAmount       *money.BigInt `json:"fee_amount,omitempty"`
-	FeeDecimals     int           `json:"fee_decimals,omitempty"`
-	FeeUSDPrice     *money.BigInt `json:"fee_usd_price,omitempty"`
+	WalletID    uuid.UUID     `json:"wallet_id"`
+	TxHash      string        `json:"tx_hash"`
+	ChainID     string        `json:"chain_id"`
+	OccurredAt  time.Time     `json:"occurred_at"`
+	Protocol    string        `json:"protocol,omitempty"`
+	FeeAsset    string        `json:"fee_asset,omitempty"`
+	FeeAmount   *money.BigInt `json:"fee_amount,omitempty"`
+	FeeDecimals int           `json:"fee_decimals,omitempty"`
+	FeeUSDPrice *money.BigInt `json:"fee_usd_price,omitempty"`
 
 	// Transfers holds all asset movements emitted by the on-chain op.
-	// When non-empty the handler iterates this slice (routing each item
-	// by ClassifyLendingAsset) and ignores the legacy flat Asset/Amount
-	// fields. Empty slice => legacy single-asset path for raw_transactions
-	// rows written before multi-asset support was added.
-	Transfers []LendingTransferItem `json:"transfers,omitempty"`
+	// The handler books one balanced pair per item; a lending op always
+	// carries at least one, since the classifier drops zero-transfer
+	// transactions before they reach a handler.
+	Transfers []LendingTransferItem `json:"transfers"`
 }
 
 // Validate validates the lending transaction data.
@@ -121,22 +122,13 @@ func (t *LendingTransaction) Validate() error {
 	if t.ChainID == "" {
 		return ErrInvalidChainID
 	}
-	if len(t.Transfers) > 0 {
-		for i := range t.Transfers {
-			if err := t.Transfers[i].Validate(); err != nil {
-				return err
-			}
+	if len(t.Transfers) == 0 {
+		return ErrNoTransfers
+	}
+	for i := range t.Transfers {
+		if err := t.Transfers[i].Validate(); err != nil {
+			return err
 		}
-		return nil
-	}
-	if t.Asset == "" {
-		return ErrInvalidAsset
-	}
-	if t.Amount == nil || t.Amount.IsNil() || t.Amount.Sign() <= 0 {
-		return ErrInvalidAmount
-	}
-	if t.Decimals <= 0 {
-		return ErrInvalidDecimals
 	}
 	return nil
 }
