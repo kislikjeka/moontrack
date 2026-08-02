@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -13,12 +12,15 @@ import (
 	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
-// negativeDeltaDustTolerance is the maximum absolute base-unit magnitude of a
-// negative reconciliation delta (on-chain < calculated) that is treated as
-// rounding noise and skipped. Amounts are stored in base units (NUMERIC(78,0)),
-// so a handful of base units is negligible dust at any realistic decimals scale.
-// Anything strictly larger is surfaced as a degraded sync rather than swallowed.
-var negativeDeltaDustTolerance = big.NewInt(10)
+// deltaDustTolerance is the maximum ABSOLUTE base-unit magnitude of a
+// reconciliation delta treated as rounding noise. Amounts are stored in base
+// units (NUMERIC(78,0)), so a handful of them is negligible at any realistic
+// decimals scale.
+//
+// Applied to |delta|, so the sign does not change the handling (issue #53). It
+// guards against rounding, NOT against significance: whether a discrepancy
+// matters is the reconciliation report's judgement (#41), not a number here.
+var deltaDustTolerance = big.NewInt(10)
 
 // Reconciler handles Phase 2: comparing transaction flows with on-chain balances
 type Reconciler struct {
@@ -46,16 +48,20 @@ func NewReconciler(
 	}
 }
 
-// Reconcile compares calculated flows from raw transactions with on-chain positions.
-// For any positive delta (on-chain > calculated), it creates a single synthetic genesis.
+// Reconcile compares calculated flows from raw transactions with on-chain
+// positions and FLAGS every discrepancy beyond dust on the chain it occurred on.
+//
+// It writes nothing to the ledger. Reconciliation detects, it does not repair
+// (issue #53): a delta means the position and the transaction history disagree,
+// and the only honest response is to say so. The previous behaviour — booking a
+// positive delta as a synthetic `genesis_balance`, i.e. income out of nowhere —
+// was removed because it destroyed the very signal it was computed from, and it
+// did so with a cost basis of zero that no backfill would ever revisit.
+//
+// Returns the number of positions whose delta was flagged.
 func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, error) {
 	if err := r.walletRepo.SetSyncPhase(ctx, w.ID, string(SyncPhaseReconciling)); err != nil {
 		return 0, fmt.Errorf("failed to set sync phase: %w", err)
-	}
-
-	// Delete old synthetic raw transactions before re-reconciling
-	if err := r.rawTxRepo.DeleteSyntheticByWallet(ctx, w.ID); err != nil {
-		return 0, fmt.Errorf("failed to delete old synthetics: %w", err)
 	}
 
 	// Load all raw transactions
@@ -79,9 +85,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, erro
 	// this set: the position provider is chain-aware and the Reconciler owns the
 	// fan-out. Per issue #28 a per-chain fetch error is ISOLATED: mark only that
 	// chain errored and skip it, then keep reconciling the healthy chains. A chain
-	// whose balance failed to load contributes no positions, so no genesis is
-	// fabricated for it (genesis can only ADD, so a missing balance is safe to
-	// skip); its sibling chains still reconcile and record ledger data.
+	// whose balance failed to load contributes no positions, so nothing is
+	// compared for it — and it is already flagged by the fetch failure itself.
 	chainRows, err := r.walletRepo.GetChainSyncRows(ctx, w.ID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to load wallet chain set: %w", err)
@@ -113,19 +118,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, erro
 	// Extract and upsert asset metadata from positions
 	r.extractAssetsFromPositions(ctx, positions)
 
-	// Get earliest mined_at for genesis timestamp
-	earliestMinedAt, err := r.rawTxRepo.GetEarliestMinedAt(ctx, w.ID)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get earliest mined_at: %w", err)
-	}
-
-	// Default genesis time if no raw transactions exist
-	genesisTime := time.Now().Add(-24 * time.Hour)
-	if earliestMinedAt != nil {
-		genesisTime = earliestMinedAt.Add(-1 * time.Second)
-	}
-
-	genesisCount := 0
+	flaggedCount := 0
 
 	for _, pos := range positions {
 		if pos.Quantity == nil || pos.Quantity.Sign() <= 0 {
@@ -146,7 +139,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, erro
 		// never re-checked, while pos.Quantity is scaled at pos.Decimals. Summing
 		// netFlow (at flow.Decimals) and subtracting pos.Quantity (at pos.Decimals)
 		// only makes sense when the two scales agree. A mismatch makes the delta
-		// garbage, so treat it as a hard reconciliation error and do NOT synthesize.
+		// garbage, so it is flagged as its own discrepancy and the position skipped
+		// — there is no comparable delta to report.
 		// Only meaningful when a flow exists (no flow => nothing to compare against).
 		if exists && flow.Decimals != pos.Decimals {
 			r.logger.Error("decimals mismatch between calculated flow and on-chain position",
@@ -155,78 +149,63 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, erro
 				"asset", pos.AssetSymbol,
 				"flow_decimals", flow.Decimals,
 				"position_decimals", pos.Decimals)
-			r.markChainDegraded(ctx, w.ID, pos.ChainID, fmt.Sprintf(
+			r.flagChain(ctx, w.ID, pos.ChainID, fmt.Sprintf(
 				"decimals mismatch for %s on %s: flow=%d position=%d",
 				pos.AssetSymbol, pos.ChainID, flow.Decimals, pos.Decimals))
+			flaggedCount++
 			continue
 		}
 
+		// The delta is the whole product of reconciliation: how far the on-chain
+		// position is from what the collected transactions account for. It is a
+		// verdict, never an instruction to write anything.
 		delta := new(big.Int).Sub(pos.Quantity, netFlow)
 
-		if delta.Sign() < 0 {
-			// MT-SYNC-03: on-chain balance is LESS than what our transaction history
-			// calculated. Genesis can only ADD to a balance, so we cannot correct an
-			// over-report here; if swallowed it becomes a permanent, invisible error.
-			r.logger.Warn("negative delta (on-chain < calculated)",
-				"wallet_id", w.ID,
-				"chain_id", pos.ChainID,
-				"asset", pos.AssetSymbol,
-				"on_chain", pos.Quantity.String(),
-				"calculated", netFlow.String(),
-				"delta", delta.String())
-
-			// Tolerate dust (rounding noise): a negative delta whose absolute value is
-			// within a tiny hardcoded base-unit threshold is treated as noise and skipped.
-			// Anything beyond that is a real discrepancy → mark the sync degraded.
-			absDelta := new(big.Int).Abs(delta)
-			if absDelta.Cmp(negativeDeltaDustTolerance) <= 0 {
-				continue
-			}
-
-			r.markChainDegraded(ctx, w.ID, pos.ChainID, fmt.Sprintf(
-				"on-chain balance below calculated for %s on %s: on_chain=%s calculated=%s delta=%s",
-				pos.AssetSymbol, pos.ChainID, pos.Quantity.String(), netFlow.String(), delta.String()))
+		// Dust is rounding noise in either direction — not a discrepancy.
+		absDelta := new(big.Int).Abs(delta)
+		if absDelta.Cmp(deltaDustTolerance) <= 0 {
 			continue
 		}
 
-		if delta.Sign() == 0 {
-			continue // Complete history, no genesis needed
-		}
-
-		// Create synthetic genesis raw transaction
-		raw := buildGenesisRaw(w.ID, pos, delta, genesisTime)
-		if err := r.rawTxRepo.UpsertRawTransaction(ctx, raw); err != nil {
-			r.logger.Error("failed to upsert genesis raw transaction",
-				"wallet_id", w.ID,
-				"chain_id", pos.ChainID,
-				"asset", pos.AssetSymbol,
-				"error", err)
-			continue
-		}
-
-		genesisCount++
-		r.logger.Info("created genesis raw transaction",
+		// Beyond dust, in EITHER direction: the position and the history disagree.
+		// The sign only tells us which way (on-chain over- or under-reports
+		// relative to the ledger), not how seriously to take it, so both are
+		// flagged identically (issue #53).
+		r.logger.Warn("reconciliation delta beyond dust",
 			"wallet_id", w.ID,
 			"chain_id", pos.ChainID,
 			"asset", pos.AssetSymbol,
+			"on_chain", pos.Quantity.String(),
+			"calculated", netFlow.String(),
 			"delta", delta.String())
+
+		r.flagChain(ctx, w.ID, pos.ChainID, fmt.Sprintf(
+			"balance does not match transaction history for %s on %s: on_chain=%s calculated=%s delta=%s",
+			pos.AssetSymbol, pos.ChainID, pos.Quantity.String(), netFlow.String(), delta.String()))
+		flaggedCount++
 	}
 
 	r.logger.Info("reconciliation complete",
 		"wallet_id", w.ID,
-		"genesis_created", genesisCount,
+		"flagged", flaggedCount,
 		"positions_checked", len(positions))
 
-	return genesisCount, nil
+	return flaggedCount, nil
 }
 
-// markChainDegraded records a reconciliation discrepancy on ONE chain (so it
-// becomes visible instead of silently proceeding) without aborting the reconcile
-// of the wallet's other chains (issue #28). Used for both a beyond-dust negative
-// delta (MT-SYNC-03) and a decimals mismatch (MT-SYNC-04) — one consistent
-// surfacing mechanism. The caller skips synthesizing genesis for the offending
-// position and continues; the wallet-level rollup then surfaces the error.
-func (r *Reconciler) markChainDegraded(ctx context.Context, walletID uuid.UUID, chain, reason string) {
+// flagChain records a reconciliation discrepancy on ONE chain (so it becomes
+// visible instead of silently proceeding) without aborting the reconcile of the
+// wallet's other chains (issue #28). Used for a beyond-dust delta of either sign
+// (MT-SYNC-03) and for a decimals mismatch (MT-SYNC-04) — one consistent
+// surfacing mechanism.
+//
+// The flag deliberately carries no magnitude and no threshold of its own: it says
+// "here the numbers do not add up, go look", and the reconciliation report (#41)
+// is what says how much and why. Two reporting surfaces that each judge
+// significance would eventually disagree; one indicator plus one report cannot.
+// The caller skips the offending position and continues; the wallet-level rollup
+// then surfaces the error.
+func (r *Reconciler) flagChain(ctx context.Context, walletID uuid.UUID, chain, reason string) {
 	errMsg := "reconciliation discrepancy: " + reason
 	if err := r.walletRepo.SetChainSyncError(ctx, walletID, chain, errMsg); err != nil {
 		r.logger.Error("failed to mark chain sync degraded",
@@ -316,49 +295,5 @@ func (r *Reconciler) extractAssetsFromPositions(ctx context.Context, positions [
 				"chain_id", pos.ChainID,
 				"error", err)
 		}
-	}
-}
-
-// buildGenesisRaw creates a synthetic genesis RawTransaction for a missing balance delta
-func buildGenesisRaw(walletID uuid.UUID, pos OnChainPosition, delta *big.Int, genesisTime time.Time) *RawTransaction {
-	externalID := fmt.Sprintf("genesis:%s:%s:%s", walletID.String(), pos.ChainID, pos.AssetSymbol)
-
-	// Build a synthetic DecodedTransaction that the Processor can process as genesis
-	genesisTx := DecodedTransaction{
-		ID:            externalID,
-		TxHash:        fmt.Sprintf("genesis_%s_%s", pos.ChainID, pos.AssetSymbol),
-		ChainID:       pos.ChainID,
-		OperationType: OpReceive,
-		Transfers: []DecodedTransfer{
-			{
-				AssetSymbol:     pos.AssetSymbol,
-				ContractAddress: pos.ContractAddress,
-				Decimals:        pos.Decimals,
-				Amount:          delta,
-				Direction:       DirectionIn,
-			},
-		},
-		MinedAt: genesisTime,
-		Status:  "confirmed",
-	}
-
-	// Add USD price if available
-	if pos.USDPrice != nil {
-		genesisTx.Transfers[0].USDPrice = pos.USDPrice
-	}
-
-	rawJSON, _ := json.Marshal(genesisTx)
-
-	return &RawTransaction{
-		WalletID:         walletID,
-		ExternalID:       externalID,
-		TxHash:           genesisTx.TxHash,
-		ChainID:          pos.ChainID,
-		OperationType:    string(OpReceive),
-		MinedAt:          genesisTime,
-		Status:           "confirmed",
-		RawJSON:          rawJSON,
-		ProcessingStatus: ProcessingStatusPending,
-		IsSynthetic:      true,
 	}
 }

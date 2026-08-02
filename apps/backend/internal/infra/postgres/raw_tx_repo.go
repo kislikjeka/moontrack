@@ -149,31 +149,6 @@ func (r *RawTransactionRepository) ResetProcessingStatus(ctx context.Context, wa
 	return nil
 }
 
-// GetEarliestMinedAt returns the earliest mined_at timestamp for a wallet's raw transactions.
-func (r *RawTransactionRepository) GetEarliestMinedAt(ctx context.Context, walletID uuid.UUID) (*time.Time, error) {
-	query := `SELECT MIN(mined_at) FROM raw_transactions WHERE wallet_id = $1`
-
-	var minedAt *time.Time
-	err := r.pool.QueryRow(ctx, query, walletID).Scan(&minedAt)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get earliest mined_at: %w", err)
-	}
-
-	return minedAt, nil
-}
-
-// DeleteSyntheticByWallet deletes all synthetic raw transactions for a wallet.
-func (r *RawTransactionRepository) DeleteSyntheticByWallet(ctx context.Context, walletID uuid.UUID) error {
-	query := `DELETE FROM raw_transactions WHERE wallet_id = $1 AND is_synthetic = true`
-
-	_, err := r.pool.Exec(ctx, query, walletID)
-	if err != nil {
-		return fmt.Errorf("failed to delete synthetic raw transactions: %w", err)
-	}
-
-	return nil
-}
-
 // queryRawTransactions is a shared helper for querying and scanning raw transactions.
 func (r *RawTransactionRepository) queryRawTransactions(ctx context.Context, query string, args ...any) ([]*sync.RawTransaction, error) {
 	rows, err := r.pool.Query(ctx, query, args...)

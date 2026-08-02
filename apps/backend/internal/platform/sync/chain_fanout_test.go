@@ -92,20 +92,19 @@ func TestCollector_FansOutOverEnabledChains(t *testing.T) {
 
 // TestReconciler_FansOutOverEnabledChains verifies Phase 2 runs per enabled
 // chain: the reconciler invokes the chain-aware position provider once per chain
-// in the wallet's chain set, and a positive delta on each chain synthesizes a
-// genesis for that chain.
+// in the wallet's chain set, and an unexplained balance on each chain flags that
+// chain (issue #53 — the flag lands on the chain the discrepancy is on, and a
+// flag on one chain does not stop the others).
 func TestReconciler_FansOutOverEnabledChains(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	w := newTestWallet(userID, "0x2222222222222222222222222222222222222222")
-	t1 := time.Date(2024, 6, 15, 10, 0, 0, 0, time.UTC)
 
 	walletRepo := new(MockWalletRepository)
 	posProvider := new(MockPositionDataProvider)
 	rawTxRepo := new(MockRawTransactionRepository)
 
 	walletRepo.On("SetSyncPhase", ctx, w.ID, mock.Anything).Return(nil)
-	rawTxRepo.On("DeleteSyntheticByWallet", ctx, w.ID).Return(nil)
 
 	chains := []string{"ethereum", "base", "arbitrum"}
 	rows := make([]wallet.WalletChainSync, 0, len(chains))
@@ -115,9 +114,8 @@ func TestReconciler_FansOutOverEnabledChains(t *testing.T) {
 	walletRepo.On("GetChainSyncRows", ctx, w.ID).Return(rows, nil)
 
 	// No collected raws → no calculated flow; each chain shows an on-chain balance
-	// → a genesis per chain.
+	// nothing explains → one flagged discrepancy per chain.
 	rawTxRepo.On("GetAllByWallet", ctx, w.ID).Return([]*pkgsync.RawTransaction{}, nil)
-	rawTxRepo.On("GetEarliestMinedAt", ctx, w.ID).Return(&t1, nil)
 
 	for _, c := range chains {
 		posProvider.On("GetPositions", ctx, w.Address, c).Return([]pkgsync.OnChainPosition{
@@ -125,20 +123,20 @@ func TestReconciler_FansOutOverEnabledChains(t *testing.T) {
 		}, nil)
 	}
 
-	genesisChains := map[string]bool{}
-	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).
+	flaggedChains := map[string]bool{}
+	walletRepo.On("SetChainSyncError", ctx, w.ID, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
-			raw := args.Get(1).(*pkgsync.RawTransaction)
-			genesisChains[raw.ChainID] = true
+			flaggedChains[args.Get(2).(string)] = true
 		}).Return(nil)
 
 	r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
 	count, err := r.Reconcile(ctx, w)
 
 	require.NoError(t, err)
-	assert.Equal(t, 3, count, "one genesis synthesized per enabled chain")
+	assert.Equal(t, 3, count, "one discrepancy flagged per enabled chain")
 	for _, c := range chains {
 		posProvider.AssertCalled(t, "GetPositions", ctx, w.Address, c)
-		assert.True(t, genesisChains[c], "genesis created for chain %s", c)
+		assert.True(t, flaggedChains[c], "chain %s flagged", c)
 	}
+	rawTxRepo.AssertNotCalled(t, "UpsertRawTransaction", mock.Anything, mock.Anything)
 }

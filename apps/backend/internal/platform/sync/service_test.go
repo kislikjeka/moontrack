@@ -181,7 +181,6 @@ func TestSyncWallet_InitialSync_ProcessesAllPhases(t *testing.T) {
 	expectSingleChainSet(walletRepo, ctx, walletID)
 
 	// --- Phase 2: Reconcile ---
-	rawTxRepo.On("DeleteSyntheticByWallet", ctx, walletID).Return(nil)
 
 	// Reconciler loads all raw transactions
 	rawID1 := uuid.New()
@@ -196,7 +195,6 @@ func TestSyncWallet_InitialSync_ProcessesAllPhases(t *testing.T) {
 	posProvider.On("GetPositions", ctx, walletAddr, "ethereum").Return([]pkgsync.OnChainPosition{
 		{ChainID: "ethereum", AssetSymbol: "ETH", Decimals: 18, Quantity: new(big.Int).Add(big.NewInt(1e18), big.NewInt(2e18))},
 	}, nil)
-	rawTxRepo.On("GetEarliestMinedAt", ctx, walletID).Return(&t1Time, nil)
 
 	// --- Phase 3: Process ---
 	rawTxRepo.On("GetPendingByWallet", ctx, walletID).Return(allRaws, nil)
@@ -378,13 +376,11 @@ func TestSyncWallet_TransactionsProcessedOldestFirst(t *testing.T) {
 	expectSingleChainSet(walletRepo, ctx, walletID)
 
 	// Reconcile: no genesis needed (exact balance match)
-	rawTxRepo.On("DeleteSyntheticByWallet", ctx, walletID).Return(nil)
 	totalETH := new(big.Int).Add(big.NewInt(1e18), big.NewInt(2e18))
 	totalETH.Add(totalETH, big.NewInt(3e18))
 	posProvider.On("GetPositions", ctx, walletAddr, "ethereum").Return([]pkgsync.OnChainPosition{
 		{ChainID: "ethereum", AssetSymbol: "ETH", Decimals: 18, Quantity: totalETH},
 	}, nil)
-	rawTxRepo.On("GetEarliestMinedAt", ctx, walletID).Return(&t1Time, nil)
 
 	// GetAllByWallet for reconcile (return in reverse order to prove Processor re-sorts)
 	allRaws := []*pkgsync.RawTransaction{
@@ -423,9 +419,17 @@ func TestSyncWallet_TransactionsProcessedOldestFirst(t *testing.T) {
 	assert.Equal(t, "tx-3", processedOrder[2], "newest transaction should be processed last")
 }
 
-// TestSyncWallet_InitialSync_ReconcileCreatesGenesis tests that reconciliation
-// creates a genesis raw transaction when on-chain balance > calculated flows
-func TestSyncWallet_InitialSync_ReconcileCreatesGenesis(t *testing.T) {
+// TestSyncWallet_InitialSync_UnexplainedBalanceFlagsChainWithoutLedgerWrite is
+// the whole-pipeline statement of issue #53. It runs the same scenario that used
+// to produce a genesis — collected history explains less than the on-chain
+// position does — and asserts the outcome has inverted: the chain is flagged and
+// the ledger sees only the real transaction.
+//
+// This is the end-to-end counterpart of the reconciler's unit tests: it proves
+// the synthesized raw is not merely un-built but that nothing downstream
+// resurrects it, so no `genesis_balance` reaches the ledger and no lot can be
+// opened at the zero cost basis genesis used to imply.
+func TestSyncWallet_InitialSync_UnexplainedBalanceFlagsChainWithoutLedgerWrite(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	walletID := uuid.New()
@@ -453,7 +457,9 @@ func TestSyncWallet_InitialSync_ReconcileCreatesGenesis(t *testing.T) {
 
 	t1Time := time.Date(2024, 6, 15, 10, 0, 0, 0, time.UTC)
 
-	// We only have a send of 1 USDC, but on-chain shows 2 USDC → genesis needed for 3 USDC (send+remaining)
+	// History explains only a 1 USDC send (net flow -1), but on-chain shows
+	// 2 USDC. Delta = 2 - (-1) = +3 USDC — the exact shape that used to be
+	// booked as a 3 USDC genesis.
 	txSend := pkgsync.DecodedTransaction{
 		ID:            "tx-send-1",
 		TxHash:        "0xaaa",
@@ -478,7 +484,6 @@ func TestSyncWallet_InitialSync_ReconcileCreatesGenesis(t *testing.T) {
 	expectSingleChainSet(walletRepo, ctx, walletID)
 
 	// Phase 2: Reconcile
-	rawTxRepo.On("DeleteSyntheticByWallet", ctx, walletID).Return(nil)
 	sendRaw := &pkgsync.RawTransaction{
 		ID: uuid.New(), WalletID: walletID, ExternalID: "tx-send-1", TxHash: "0xaaa",
 		ChainID: "ethereum", OperationType: "send", MinedAt: t1Time, Status: "confirmed",
@@ -486,45 +491,18 @@ func TestSyncWallet_InitialSync_ReconcileCreatesGenesis(t *testing.T) {
 	}
 	rawTxRepo.On("GetAllByWallet", ctx, walletID).Return([]*pkgsync.RawTransaction{sendRaw}, nil)
 
-	// On-chain shows 2 USDC. Net flow is -1 USDC (outflow). Delta = 2 - (-1) = 3 USDC genesis needed.
 	posProvider.On("GetPositions", ctx, walletAddr, "ethereum").Return([]pkgsync.OnChainPosition{
 		{ChainID: "ethereum", AssetSymbol: "USDC", Decimals: 6, Quantity: big.NewInt(2_000_000)},
 	}, nil)
-	rawTxRepo.On("GetEarliestMinedAt", ctx, walletID).Return(&t1Time, nil)
 
-	// Phase 3: Process — return genesis + send in chronological order
-	genesisTime := t1Time.Add(-1 * time.Second)
-	genesisRaw := &pkgsync.RawTransaction{
-		ID: uuid.New(), WalletID: walletID,
-		ExternalID: fmt.Sprintf("genesis:%s:ethereum:USDC", walletID.String()),
-		TxHash:     "genesis_ethereum_USDC", ChainID: "ethereum",
-		OperationType: "receive", MinedAt: genesisTime, Status: "confirmed",
-		ProcessingStatus: pkgsync.ProcessingStatusPending,
-		IsSynthetic:      true,
-	}
-	// Build the genesis RawJSON
-	genesisTx := pkgsync.DecodedTransaction{
-		ID:            genesisRaw.ExternalID,
-		TxHash:        genesisRaw.TxHash,
-		ChainID:       "ethereum",
-		OperationType: pkgsync.OpReceive,
-		Transfers: []pkgsync.DecodedTransfer{{
-			AssetSymbol: "USDC", Decimals: 6,
-			Amount:    big.NewInt(3_000_000), // delta
-			Direction: pkgsync.DirectionIn,
-		}},
-		MinedAt: genesisTime,
-		Status:  "confirmed",
-	}
-	genesisRaw.RawJSON = marshalDecodedTx(genesisTx)
+	// The reconciler flags the chain instead of synthesizing anything.
+	walletRepo.On("SetChainSyncError", ctx, walletID, "ethereum", mock.Anything).Return(nil)
 
-	rawTxRepo.On("GetPendingByWallet", ctx, walletID).Return([]*pkgsync.RawTransaction{genesisRaw, sendRaw}, nil)
+	// Phase 3: Process — only the real send is pending. There is no second raw:
+	// the reconciler wrote none.
+	rawTxRepo.On("GetPendingByWallet", ctx, walletID).Return([]*pkgsync.RawTransaction{sendRaw}, nil)
 
 	walletRepo.On("GetWalletsByAddressAndUserID", ctx, mock.Anything, userID).Return([]*wallet.Wallet{}, nil)
-
-	// Genesis is processed as genesis_balance
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeGenesisBalance, "sync_genesis", mock.Anything, mock.Anything, mock.Anything).
-		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
 	// Send is processed as transfer_out
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferOut, "noves", mock.Anything, mock.Anything, mock.Anything).
@@ -536,12 +514,16 @@ func TestSyncWallet_InitialSync_ReconcileCreatesGenesis(t *testing.T) {
 
 	svc := newTestService(walletRepo, ledgerSvc, provider, posProvider, rawTxRepo)
 	err := svc.SyncWallet(ctx, walletID)
-	require.NoError(t, err)
+	require.NoError(t, err, "an unexplained balance is a flag, not a sync failure")
 
-	// Verify: genesis + send = 2 RecordTransaction calls
-	ledgerSvc.AssertNumberOfCalls(t, "RecordTransaction", 2)
-	ledgerSvc.AssertCalled(t, "RecordTransaction", ctx, ledger.TxTypeGenesisBalance, "sync_genesis", mock.Anything, mock.Anything, mock.Anything)
+	// The only ledger write is the transaction that actually happened on chain.
+	ledgerSvc.AssertNumberOfCalls(t, "RecordTransaction", 1)
 	ledgerSvc.AssertCalled(t, "RecordTransaction", ctx, ledger.TxTypeTransferOut, "noves", mock.Anything, mock.Anything, mock.Anything)
+	ledgerSvc.AssertNotCalled(t, "RecordTransaction", ctx, ledger.TxTypeGenesisBalance,
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+
+	// The discrepancy is not swallowed — it is on the chain for the user to see.
+	walletRepo.AssertCalled(t, "SetChainSyncError", ctx, walletID, "ethereum", mock.Anything)
 }
 
 // TestSyncWallet_ConsecutiveErrors_StopsAfterThreshold tests that the Processor
@@ -608,13 +590,11 @@ func TestSyncWallet_ConsecutiveErrors_StopsAfterThreshold(t *testing.T) {
 	expectSingleChainSet(walletRepo, ctx, walletID)
 
 	// Phase 2: Reconcile
-	rawTxRepo.On("DeleteSyntheticByWallet", ctx, walletID).Return(nil)
 	rawTxRepo.On("GetAllByWallet", ctx, walletID).Return(pendingRaws, nil)
 	totalETH := new(big.Int).Mul(big.NewInt(1e18), big.NewInt(8))
 	posProvider.On("GetPositions", ctx, walletAddr, "ethereum").Return([]pkgsync.OnChainPosition{
 		{ChainID: "ethereum", AssetSymbol: "ETH", Decimals: 18, Quantity: totalETH},
 	}, nil)
-	rawTxRepo.On("GetEarliestMinedAt", ctx, walletID).Return(&txs[0].MinedAt, nil)
 
 	// Phase 3: Process — all fail
 	rawTxRepo.On("GetPendingByWallet", ctx, walletID).Return(pendingRaws, nil)

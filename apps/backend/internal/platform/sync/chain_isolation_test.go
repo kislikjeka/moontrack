@@ -199,21 +199,19 @@ func TestCollector_FailedChainResumesFromOwnCursor(t *testing.T) {
 
 // TestReconciler_OneChainErrors_OthersReconcile mirrors the collector isolation on
 // Phase 2: a per-chain GetPositions failure must isolate to that chain — mark it
-// error, skip its genesis, and still synthesize genesis for the healthy chains.
+// errored and skip it — while the healthy chains are still compared and flagged
+// on their own merits.
 func TestReconciler_OneChainErrors_OthersReconcile(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	w := newTestWallet(userID, "0x4444444444444444444444444444444444444444")
-	t1 := time.Date(2024, 6, 15, 10, 0, 0, 0, time.UTC)
 
 	walletRepo := new(MockWalletRepository)
 	posProvider := new(MockPositionDataProvider)
 	rawTxRepo := new(MockRawTransactionRepository)
 
 	walletRepo.On("SetSyncPhase", ctx, w.ID, mock.Anything).Return(nil)
-	rawTxRepo.On("DeleteSyntheticByWallet", ctx, w.ID).Return(nil)
 	rawTxRepo.On("GetAllByWallet", ctx, w.ID).Return([]*pkgsync.RawTransaction{}, nil)
-	rawTxRepo.On("GetEarliestMinedAt", ctx, w.ID).Return(&t1, nil)
 
 	rows := []wallet.WalletChainSync{
 		chainRow(w.ID, "arbitrum", nil),
@@ -231,22 +229,28 @@ func TestReconciler_OneChainErrors_OthersReconcile(t *testing.T) {
 	posProvider.On("GetPositions", ctx, w.Address, "base").
 		Return([]pkgsync.OnChainPosition(nil), errors.New("positions 503 on base"))
 
-	genesisChains := map[string]bool{}
-	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).
+	// Both a fetch failure and a reconciliation discrepancy land in the same
+	// field, so record the reason to tell them apart.
+	chainErrReasons := map[string]string{}
+	walletRepo.On("SetChainSyncError", ctx, w.ID, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
-			raw := args.Get(1).(*pkgsync.RawTransaction)
-			genesisChains[raw.ChainID] = true
+			chainErrReasons[args.Get(2).(string)] = args.Get(3).(string)
 		}).Return(nil)
-
-	walletRepo.On("SetChainSyncError", ctx, w.ID, "base", mock.Anything).Return(nil)
 
 	r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
 	count, err := r.Reconcile(ctx, w)
 
 	require.NoError(t, err, "one chain's position failure must not abort the whole reconcile")
-	assert.Equal(t, 2, count, "genesis synthesized for eth + arbitrum only")
-	assert.True(t, genesisChains["ethereum"])
-	assert.True(t, genesisChains["arbitrum"])
-	assert.False(t, genesisChains["base"], "no genesis for a chain whose balance failed to load")
-	walletRepo.AssertCalled(t, "SetChainSyncError", ctx, w.ID, "base", mock.Anything)
+
+	// eth + arbitrum were compared and each flagged an unexplained balance.
+	assert.Equal(t, 2, count, "eth + arbitrum compared; base never got as far as a delta")
+	assert.Contains(t, chainErrReasons["ethereum"], "reconciliation discrepancy")
+	assert.Contains(t, chainErrReasons["arbitrum"], "reconciliation discrepancy")
+
+	// base failed to load, so it is errored for THAT reason, not for a delta it
+	// was never in a position to compute.
+	assert.Contains(t, chainErrReasons["base"], "reconcile failed")
+
+	// Nothing is written for any chain, healthy or not.
+	rawTxRepo.AssertNotCalled(t, "UpsertRawTransaction", mock.Anything, mock.Anything)
 }

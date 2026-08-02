@@ -7,9 +7,10 @@ import (
 )
 
 // Compile-time check that SyncAdapter also implements PositionDataProvider. The
-// reconciler (Phase 2) needs on-chain balances to detect genesis deltas; Noves
-// exposes them per-chain via the balances endpoint, and the reconciler owns the
-// fan-out over the wallet's chain set (issue #27).
+// reconciler (Phase 2) needs on-chain balances to detect where a position and the
+// collected history disagree; Noves exposes them per-chain via the balances
+// endpoint, and the reconciler owns the fan-out over the wallet's chain set
+// (issue #27).
 var _ sync.PositionDataProvider = (*SyncAdapter)(nil)
 
 // GetPositions fetches on-chain token balances for a single chain and converts

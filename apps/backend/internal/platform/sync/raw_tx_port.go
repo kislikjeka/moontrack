@@ -2,7 +2,6 @@ package sync
 
 import (
 	"context"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -29,10 +28,4 @@ type RawTransactionRepository interface {
 
 	// ResetProcessingStatus resets all raw transactions for a wallet back to pending
 	ResetProcessingStatus(ctx context.Context, walletID uuid.UUID) error
-
-	// GetEarliestMinedAt returns the earliest mined_at timestamp for a wallet's raw transactions
-	GetEarliestMinedAt(ctx context.Context, walletID uuid.UUID) (*time.Time, error)
-
-	// DeleteSyntheticByWallet deletes all synthetic raw transactions for a wallet
-	DeleteSyntheticByWallet(ctx context.Context, walletID uuid.UUID) error
 }

@@ -72,7 +72,7 @@ func NewService(
 	// Create sub-services for the 3-phase sync pipeline
 	if txProvider != nil && rawTxRepo != nil {
 		svc.collector = NewCollector(txProvider, rawTxRepo, walletRepo, assetRepo, config, logger)
-		svc.processor = NewProcessor(rawTxRepo, walletRepo, txBuilder, ledgerSvc, logger)
+		svc.processor = NewProcessor(rawTxRepo, walletRepo, txBuilder, logger)
 	}
 	if posProvider != nil && rawTxRepo != nil {
 		svc.reconciler = NewReconciler(rawTxRepo, posProvider, walletRepo, assetRepo, logger)
@@ -231,15 +231,17 @@ func (s *Service) syncWallet(ctx context.Context, w *wallet.Wallet) error {
 		}
 		s.logger.Info("collect phase complete", "wallet_id", w.ID, "collected", count)
 
-		// Phase 2: Reconcile with on-chain balances (creates genesis raws)
+		// Phase 2: Reconcile against on-chain balances. This writes nothing to the
+		// ledger — it flags the chains whose positions the collected history does
+		// not explain (issue #53).
 		if s.reconciler != nil {
-			genesisCount, err := s.reconciler.Reconcile(ctx, w)
+			flaggedCount, err := s.reconciler.Reconcile(ctx, w)
 			if err != nil {
 				errMsg := fmt.Sprintf("reconcile phase failed: %v", err)
 				_ = s.walletRepo.SetSyncError(ctx, w.ID, errMsg)
 				return fmt.Errorf("reconcile phase failed: %w", err)
 			}
-			s.logger.Info("reconcile phase complete", "wallet_id", w.ID, "genesis_created", genesisCount)
+			s.logger.Info("reconcile phase complete", "wallet_id", w.ID, "flagged", flaggedCount)
 		}
 
 		// Phase 3: Process all in chronological order

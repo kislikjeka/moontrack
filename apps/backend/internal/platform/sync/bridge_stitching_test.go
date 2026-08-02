@@ -757,12 +757,6 @@ func (r *stitchRawRepo) MarkError(_ context.Context, rawID uuid.UUID, msg string
 
 func (r *stitchRawRepo) ResetProcessingStatus(context.Context, uuid.UUID) error { return nil }
 
-func (r *stitchRawRepo) GetEarliestMinedAt(context.Context, uuid.UUID) (*time.Time, error) {
-	return nil, nil
-}
-
-func (r *stitchRawRepo) DeleteSyntheticByWallet(context.Context, uuid.UUID) error { return nil }
-
 var _ sync.RawTransactionRepository = (*stitchRawRepo)(nil)
 
 type stitchEnv struct {
@@ -808,7 +802,7 @@ func newStitchPipelineEnv(t *testing.T, userID uuid.UUID, w *wallet.Wallet, txs 
 	builder := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil)
 
 	return &stitchEnv{
-		processor: sync.NewProcessor(rawRepo, walletRepo, builder, ledgerSvc, log),
+		processor: sync.NewProcessor(rawRepo, walletRepo, builder, log),
 		ledgerSvc: ledgerSvc,
 		rawRepo:   rawRepo,
 	}

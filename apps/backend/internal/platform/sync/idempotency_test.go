@@ -315,9 +315,9 @@ func TestInternalTransfer_IncomingSide_SourceNotYetRecorded(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 // newIdemProcessor wires a Processor over the given raw store and TxBuilder.
-func newIdemProcessor(rawTxRepo *MockRawTransactionRepository, walletRepo *MockWalletRepository, builder *sync.TxBuilder, ledgerSvc *MockLedgerService) *sync.Processor {
+func newIdemProcessor(rawTxRepo *MockRawTransactionRepository, walletRepo *MockWalletRepository, builder *sync.TxBuilder) *sync.Processor {
 	log := logger.New("test", os.Stdout)
-	return sync.NewProcessor(rawTxRepo, walletRepo, builder, ledgerSvc, log)
+	return sync.NewProcessor(rawTxRepo, walletRepo, builder, log)
 }
 
 // idemRaw wraps a decoded transaction as a pending raw_transaction row.
@@ -369,7 +369,7 @@ func TestNonOwningRaw_MarkedProcessedWithSharedTxID(t *testing.T) {
 	walletRepo.On("SetSyncPhase", mock.Anything, dstWallet.ID, mock.Anything).Return(nil)
 	walletRepo.On("SetSyncCompletedAt", mock.Anything, dstWallet.ID, mock.Anything).Return(nil)
 
-	proc := newIdemProcessor(rawTxRepo, walletRepo, env.builder, env.ledgerSvc)
+	proc := newIdemProcessor(rawTxRepo, walletRepo, env.builder)
 	require.NoError(t, proc.ProcessAll(ctx, dstWallet))
 
 	rawTxRepo.AssertCalled(t, "MarkProcessed", mock.Anything, raw.ID, internalTxID)
@@ -406,7 +406,7 @@ func TestNonOwningRaw_SourceNotYetRecorded_StaysPending(t *testing.T) {
 	walletRepo.On("SetSyncPhase", mock.Anything, dstWallet.ID, mock.Anything).Return(nil)
 	walletRepo.On("SetSyncCompletedAt", mock.Anything, dstWallet.ID, mock.Anything).Return(nil).Maybe()
 
-	proc := newIdemProcessor(rawTxRepo, walletRepo, env.builder, env.ledgerSvc)
+	proc := newIdemProcessor(rawTxRepo, walletRepo, env.builder)
 	require.NoError(t, proc.ProcessAll(ctx, dstWallet))
 
 	rawTxRepo.AssertNotCalled(t, "MarkProcessed", mock.Anything, mock.Anything, mock.Anything)
@@ -452,7 +452,7 @@ func TestNonOwningRaw_DeferredAfterPreviousSync_WarnsAboutStall(t *testing.T) {
 	rawTxRepo.On("GetPendingByWallet", mock.Anything, dstWallet.ID).
 		Return([]*sync.RawTransaction{raw}, nil).Once()
 
-	proc := sync.NewProcessor(rawTxRepo, walletRepo, builder, ledgerSvc, log)
+	proc := sync.NewProcessor(rawTxRepo, walletRepo, builder, log)
 	require.NoError(t, proc.ProcessAll(ctx, dstWallet))
 
 	assert.Contains(t, logs.String(), "still deferred after a previous sync",

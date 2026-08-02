@@ -200,19 +200,6 @@ func (m *MockRawTransactionRepository) ResetProcessingStatus(ctx context.Context
 	return args.Error(0)
 }
 
-func (m *MockRawTransactionRepository) GetEarliestMinedAt(ctx context.Context, walletID uuid.UUID) (*time.Time, error) {
-	args := m.Called(ctx, walletID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*time.Time), args.Error(1)
-}
-
-func (m *MockRawTransactionRepository) DeleteSyntheticByWallet(ctx context.Context, walletID uuid.UUID) error {
-	args := m.Called(ctx, walletID)
-	return args.Error(0)
-}
-
 // =============================================================================
 // Mock PositionDataProvider
 // =============================================================================

@@ -11,17 +11,19 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
-// Processor handles Phase 3: processing raw transactions through the ledger
+// Processor handles Phase 3: processing raw transactions through the ledger.
+//
+// Every raw it books goes through the TxBuilder — there is no direct path to the
+// ledger service. That is what guarantees each booked transaction passes the
+// builder's price resolution and so can acquire a cost basis (issue #53).
 type Processor struct {
 	rawTxRepo  RawTransactionRepository
 	walletRepo WalletRepository
 	txBuilder  *TxBuilder
-	ledgerSvc  LedgerService
 	logger     *logger.Logger
 }
 
@@ -30,14 +32,12 @@ func NewProcessor(
 	rawTxRepo RawTransactionRepository,
 	walletRepo WalletRepository,
 	txBuilder *TxBuilder,
-	ledgerSvc LedgerService,
 	log *logger.Logger,
 ) *Processor {
 	return &Processor{
 		rawTxRepo:  rawTxRepo,
 		walletRepo: walletRepo,
 		txBuilder:  txBuilder,
-		ledgerSvc:  ledgerSvc,
 		logger:     log.WithField("component", "processor"),
 	}
 }
@@ -147,11 +147,7 @@ func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 			ledgerTxID, processErr = p.processStitchedSource(ctx, w, raw, plan.DestinationChain(i), plan.NetAmount(i))
 
 		case StitchNone:
-			if raw.IsSynthetic {
-				ledgerTxID, processErr = p.processGenesis(ctx, w, raw)
-			} else {
-				ledgerTxID, processErr = p.processRegular(ctx, w, raw)
-			}
+			ledgerTxID, processErr = p.processRegular(ctx, w, raw)
 		}
 
 		if processErr != nil {
@@ -200,7 +196,6 @@ func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 				"wallet_id", w.ID,
 				"raw_id", raw.ID,
 				"external_id", raw.ExternalID,
-				"is_synthetic", raw.IsSynthetic,
 				"error", processErr)
 
 			if err := p.rawTxRepo.MarkError(ctx, raw.ID, processErr.Error()); err != nil {
@@ -282,9 +277,6 @@ func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 func (p *Processor) planStitch(w *wallet.Wallet, raws []*RawTransaction) StitchPlan {
 	decoded := make([]DecodedTransaction, len(raws))
 	for i, raw := range raws {
-		if raw.IsSynthetic {
-			continue // genesis raws are not bridge legs
-		}
 		if err := json.Unmarshal(raw.RawJSON, &decoded[i]); err != nil {
 			p.logger.Warn("failed to decode raw for bridge stitching, leaving it unstitched",
 				"wallet_id", w.ID, "raw_id", raw.ID, "error", err)
@@ -346,55 +338,7 @@ func (p *Processor) processStitchedSource(
 	return p.txBuilder.ProcessStitchedBridge(ctx, w, dt, netAmount)
 }
 
-// processGenesis processes a synthetic genesis raw transaction
-func (p *Processor) processGenesis(ctx context.Context, w *wallet.Wallet, raw *RawTransaction) (*uuid.UUID, error) {
-	var dt DecodedTransaction
-	if err := json.Unmarshal(raw.RawJSON, &dt); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal genesis tx: %w", err)
-	}
-
-	if len(dt.Transfers) == 0 {
-		return nil, fmt.Errorf("genesis tx has no transfers")
-	}
-
-	t := dt.Transfers[0]
-	usdRate := "0"
-	if t.USDPrice != nil {
-		usdRate = t.USDPrice.String()
-	}
-
-	rawData := map[string]interface{}{
-		"wallet_id":   w.ID.String(),
-		"chain_id":    dt.ChainID,
-		"asset_id":    t.AssetSymbol,
-		"amount":      t.Amount.String(),
-		"decimals":    t.Decimals,
-		"usd_rate":    usdRate,
-		"occurred_at": raw.MinedAt.Format(time.RFC3339),
-	}
-
-	if t.ContractAddress != "" {
-		rawData["contract_address"] = t.ContractAddress
-	}
-
-	externalID := raw.ExternalID
-
-	ledgerTx, err := p.ledgerSvc.RecordTransaction(
-		ctx,
-		ledger.TxTypeGenesisBalance,
-		"sync_genesis",
-		&externalID,
-		raw.MinedAt,
-		rawData,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return &ledgerTx.ID, nil
-}
-
-// processRegular processes a regular (non-synthetic) raw transaction via TxBuilder
+// processRegular processes a raw transaction via TxBuilder
 func (p *Processor) processRegular(ctx context.Context, w *wallet.Wallet, raw *RawTransaction) (*uuid.UUID, error) {
 	var dt DecodedTransaction
 	if err := json.Unmarshal(raw.RawJSON, &dt); err != nil {
