@@ -39,6 +39,7 @@ type TxBuilder struct {
 	assetUpsert        AssetUpserter
 	jobEnqueuer        JobEnqueuer
 	assetRegistry      AssetRegistry
+	knownFilter        *KnownAssetFilter
 	classifier         *Classifier
 	logger             *logger.Logger
 	addressCache       map[string][]uuid.UUID
@@ -49,7 +50,10 @@ type TxBuilder struct {
 // assetRegistry may be nil, in which case identity resolution is skipped and
 // the builder behaves exactly as before the registry existed. Tests that do not
 // exercise identity rely on that.
-func NewTxBuilder(walletRepo WalletRepository, ledgerSvc LedgerService, lpPositionSvc LPPositionService, lendingPositionSvc LendingPositionService, log *logger.Logger, assetUpsert AssetUpserter, jobEnqueuer JobEnqueuer, assetRegistry AssetRegistry) *TxBuilder {
+//
+// knownFilter may likewise be nil, in which case every leg is admitted. An
+// unwired filter must never empty the ledger.
+func NewTxBuilder(walletRepo WalletRepository, ledgerSvc LedgerService, lpPositionSvc LPPositionService, lendingPositionSvc LendingPositionService, log *logger.Logger, assetUpsert AssetUpserter, jobEnqueuer JobEnqueuer, assetRegistry AssetRegistry, knownFilter *KnownAssetFilter) *TxBuilder {
 	return &TxBuilder{
 		walletRepo:         walletRepo,
 		ledgerSvc:          ledgerSvc,
@@ -58,6 +62,7 @@ func NewTxBuilder(walletRepo WalletRepository, ledgerSvc LedgerService, lpPositi
 		assetUpsert:        assetUpsert,
 		jobEnqueuer:        jobEnqueuer,
 		assetRegistry:      assetRegistry,
+		knownFilter:        knownFilter,
 		classifier:         NewClassifier(),
 		logger:             log.WithField("component", "tx_builder"),
 		addressCache:       make(map[string][]uuid.UUID),
@@ -152,6 +157,81 @@ func (p *TxBuilder) resolveAssetIdentities(ctx context.Context, tx DecodedTransa
 	}
 }
 
+// filterKnownLegs drops every leg whose asset is not known (issue #58, decision
+// #37), returning the transaction with a filtered Transfers slice and the number
+// of legs removed.
+//
+// THIS IS APPLICATION POINT 1 OF TWO. It is placed on the resolve, at the same
+// single point where identities are minted, and BEFORE the builders run. That
+// placement is what closes the trap named in the decision: the flat legacy
+// fields (`asset_id`, `amount`, `contract_address` …) are computed by the
+// builders from the FIRST leg, independently of the transfers array — see
+// buildTransferInData, buildTransferOutData, buildInternalTransferData and
+// setLendingAssetFields, each of which picks a `first` of its own. Filtering
+// after the builders would leave those two views disagreeing: the array would be
+// clean while the flat fields still named a spam token, or worse, the flat
+// fields would name a token the array no longer contained. Filtering the slice
+// BEFORE any builder reads it makes both views correct from one edit, because
+// every `first` is chosen out of the already-filtered slice.
+//
+// The fee leg is deliberately NOT filtered. Gas is paid in the chain's native
+// coin, which is known by construction; there is no path by which a fee is an
+// unknown asset, and dropping fees on a filtered transaction would silently
+// change the cost basis of a legitimate movement.
+//
+// Failing OPEN on a registry error is deliberate: if the local table cannot be
+// read, the honest response is to record the movement, not to drop it. A lost
+// movement is the one outcome the product does not accept, and it would be
+// indistinguishable from correctly-filtered spam afterwards.
+func (p *TxBuilder) filterKnownLegs(ctx context.Context, tx DecodedTransaction) (DecodedTransaction, int) {
+	if p.knownFilter == nil || len(tx.Transfers) == 0 {
+		return tx, 0
+	}
+
+	kept := make([]DecodedTransfer, 0, len(tx.Transfers))
+	dropped := 0
+
+	for i := range tx.Transfers {
+		t := &tx.Transfers[i]
+
+		// Same chain attribution as the identity resolve: the inbound leg of a
+		// stitched bridge belongs to the destination chain, so it must be judged
+		// against that chain's knownness, not the observed chain's.
+		chain := tx.ChainID
+		if tx.DestChainID != "" && t.Direction == DirectionIn {
+			chain = tx.DestChainID
+		}
+
+		key := NewAssetKey(chain, t.ContractAddress)
+		verdict, err := p.knownFilter.Resolve(ctx, key, t.AssetSymbol)
+		if err != nil {
+			p.logger.Warn("known-asset filter failed, admitting leg",
+				"chain", price.SanitizeLogField(key.Chain),
+				"contract", price.SanitizeLogField(key.Contract),
+				"asset_symbol", price.SanitizeLogField(t.AssetSymbol),
+				"error", price.SanitizeLogField(err.Error()))
+			kept = append(kept, *t)
+			continue
+		}
+		if verdict.Known {
+			kept = append(kept, *t)
+			continue
+		}
+
+		dropped++
+		p.logger.Info("leg excluded from ledger: asset not known",
+			"tx_hash", price.SanitizeLogField(tx.TxHash),
+			"chain", price.SanitizeLogField(key.Chain),
+			"contract", price.SanitizeLogField(key.Contract),
+			"asset_symbol", price.SanitizeLogField(t.AssetSymbol),
+			"knownness_status", string(verdict.Status),
+			"checked", verdict.Checked())
+	}
+
+	tx.Transfers = kept
+	return tx, dropped
+}
+
 // ProcessTransaction classifies a decoded transaction and records it to the ledger.
 // Returns the ledger transaction ID on success, nil if skipped, or an error.
 func (p *TxBuilder) ProcessTransaction(ctx context.Context, w *wallet.Wallet, tx DecodedTransaction) (*uuid.UUID, error) {
@@ -175,6 +255,20 @@ func (p *TxBuilder) ProcessTransaction(ctx context.Context, w *wallet.Wallet, tx
 	// incoming side records no ledger transaction, but the assets it saw are
 	// real and the registry is a catalogue of assets, not of bookkeeping.
 	p.resolveAssetIdentities(ctx, tx)
+
+	// Apply the known-asset filter on the resolved identities (issue #58). Legs
+	// whose asset is not known are dropped HERE, before any builder runs, so an
+	// unknown token cannot reach the ledger by any route.
+	tx, dropped := p.filterKnownLegs(ctx, tx)
+	if dropped > 0 && len(tx.Transfers) == 0 {
+		// Every leg was filtered out: there is no movement left to record. This
+		// is the spam case — recording an empty transaction would create a
+		// ledger row and a raw pointing at it for an event that, as far as the
+		// books are concerned, did not happen.
+		p.logger.Info("skipping transaction: every leg filtered as unknown asset",
+			"tx_hash", tx.TxHash, "external_id", tx.ID, "dropped_legs", dropped)
+		return nil, nil
+	}
 
 	txType, destWalletID := p.detectInternalTransfer(ctx, w, tx, txType)
 
@@ -310,6 +404,16 @@ func (p *TxBuilder) ProcessStitchedBridge(ctx context.Context, w *wallet.Wallet,
 	// legs resolve against two different chains — handled inside the resolver,
 	// which reads DestChainID for the inbound leg.
 	p.resolveAssetIdentities(ctx, tx)
+
+	// The filter applies here too. A stitched bridge takes its own route to the
+	// ledger, bypassing ProcessTransaction's classify path entirely, so leaving
+	// it out would make the bridge a hole straight through the filter.
+	tx, dropped := p.filterKnownLegs(ctx, tx)
+	if dropped > 0 && len(tx.Transfers) == 0 {
+		p.logger.Info("skipping stitched bridge: every leg filtered as unknown asset",
+			"tx_hash", tx.TxHash, "external_id", tx.ID, "dropped_legs", dropped)
+		return nil, nil
+	}
 
 	// Source and destination wallet are the same row: one address, two chains.
 	// The internal-transfer model allows that exactly when the chains differ.

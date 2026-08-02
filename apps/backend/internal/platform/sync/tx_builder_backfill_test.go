@@ -98,7 +98,7 @@ func TestTxBuilder_MissingPrice_UpsertAndEnqueue(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil, nil)
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
 	w := newTestWallet(userID, walletAddr)
@@ -189,7 +189,7 @@ func TestTxBuilder_MissingPrice_NativeToken(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil, nil)
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
 	w := newTestWallet(userID, walletAddr)
@@ -265,7 +265,7 @@ func TestTxBuilder_OutgoingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil, nil)
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
 	w := newTestWallet(userID, walletAddr)
@@ -334,7 +334,7 @@ func TestTxBuilder_IncomingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil, nil)
 	userID := uuid.New()
 	walletAddr := "0x2222222222222222222222222222222222222222"
 	w := newTestWallet(userID, walletAddr)
@@ -397,7 +397,7 @@ func TestTxBuilder_InvalidContractAddress_NoEnqueue(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil, nil)
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
 	w := newTestWallet(userID, walletAddr)

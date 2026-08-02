@@ -105,7 +105,7 @@ func newIdemEnv(t *testing.T, userID uuid.UUID, owned map[string]*wallet.Wallet)
 	log := logger.New("test", os.Stdout)
 
 	return &idemEnv{
-		builder:   sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, nil),
+		builder:   sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, nil, nil),
 		ledgerSvc: ledgerSvc,
 		walletSvc: walletRepo,
 	}
@@ -443,7 +443,7 @@ func TestNonOwningRaw_DeferredAfterPreviousSync_WarnsAboutStall(t *testing.T) {
 
 	var logs bytes.Buffer
 	log := logger.New("test", &logs)
-	builder := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, nil)
+	builder := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, nil, nil)
 
 	inTx := idemTx("0xinternal", idemSourceAddr, idemDestAddr, sync.DirectionIn)
 	raw := idemRaw(dstWallet.ID, inTx)

@@ -238,7 +238,8 @@ func TestReconciler_OneChainErrors_OthersReconcile(t *testing.T) {
 		}).Return(nil)
 
 	r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
-	count, err := r.Reconcile(ctx, w)
+	res, err := r.Reconcile(ctx, w)
+	count := res.Flagged
 
 	require.NoError(t, err, "one chain's position failure must not abort the whole reconcile")
 

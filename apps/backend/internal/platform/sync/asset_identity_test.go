@@ -80,7 +80,7 @@ func newRegistryTestBuilder(t *testing.T, registry sync.AssetRegistry) (*sync.Tx
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	return sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, registry), ledgerSvc
+	return sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, registry, nil), ledgerSvc
 }
 
 // =============================================================================

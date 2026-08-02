@@ -28,15 +28,20 @@ type Reconciler struct {
 	posProvider PositionDataProvider
 	walletRepo  WalletRepository
 	assetRepo   SyncAssetRepository
+	knownFilter *KnownAssetFilter
 	logger      *logger.Logger
 }
 
-// NewReconciler creates a new Reconciler
+// NewReconciler creates a new Reconciler.
+//
+// knownFilter may be nil, in which case every position is reconciled — the same
+// fail-open convention the transaction path uses.
 func NewReconciler(
 	rawTxRepo RawTransactionRepository,
 	posProvider PositionDataProvider,
 	walletRepo WalletRepository,
 	assetRepo SyncAssetRepository,
+	knownFilter *KnownAssetFilter,
 	log *logger.Logger,
 ) *Reconciler {
 	return &Reconciler{
@@ -44,8 +49,52 @@ func NewReconciler(
 		posProvider: posProvider,
 		walletRepo:  walletRepo,
 		assetRepo:   assetRepo,
+		knownFilter: knownFilter,
 		logger:      log.WithField("component", "reconciler"),
 	}
+}
+
+// ReconcileResult is what a reconciliation pass produces.
+//
+// It is a struct rather than a bare count because the known-asset filter (#58)
+// makes "how many positions were skipped, and were they convicted or merely
+// unchecked" part of the answer, not a detail. The reconciliation report (#61)
+// is built on exactly this distinction: a position skipped because its asset is
+// PROVEN unknown is spam handled correctly, while a position skipped because
+// nobody has managed to check it yet is a queue that may be hiding a migration
+// bug. Collapsing the two would destroy the only information that tells them
+// apart.
+type ReconcileResult struct {
+	// Flagged is the number of positions whose delta or decimals disagreed.
+	Flagged int
+
+	// PositionsChecked is the number of positions actually compared.
+	PositionsChecked int
+
+	// SkippedUnknown is the number of positions excluded because their asset is
+	// terminally resolved as unknown — checked, and the answer was no.
+	SkippedUnknown int
+
+	// SkippedPending is the number excluded because their asset has no verdict
+	// yet — not spam, just unchecked.
+	SkippedPending int
+
+	// Excluded lists every excluded position, so the report can show them
+	// rather than merely count them. "Filter silently" was rejected in the
+	// decision precisely because a count with no detail cannot be investigated.
+	Excluded []ExcludedPosition
+}
+
+// ExcludedPosition is one on-chain position kept out of reconciliation by the
+// known-asset filter, carried far enough to be reported.
+type ExcludedPosition struct {
+	ChainID     string
+	AssetSymbol string
+	Contract    string
+	Quantity    *big.Int
+	Status      KnownnessStatus
+	// Checked distinguishes "checked: unknown" from "could not check yet".
+	Checked bool
 }
 
 // Reconcile compares calculated flows from raw transactions with on-chain
@@ -58,22 +107,25 @@ func NewReconciler(
 // was removed because it destroyed the very signal it was computed from, and it
 // did so with a cost basis of zero that no backfill would ever revisit.
 //
-// Returns the number of positions whose delta was flagged.
-func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, error) {
+// Returns the reconciliation result: what was flagged, and what was excluded by
+// the known-asset filter and why.
+func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (ReconcileResult, error) {
+	var result ReconcileResult
+
 	if err := r.walletRepo.SetSyncPhase(ctx, w.ID, string(SyncPhaseReconciling)); err != nil {
-		return 0, fmt.Errorf("failed to set sync phase: %w", err)
+		return result, fmt.Errorf("failed to set sync phase: %w", err)
 	}
 
 	// Load all raw transactions
 	raws, err := r.rawTxRepo.GetAllByWallet(ctx, w.ID)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get raw transactions: %w", err)
+		return result, fmt.Errorf("failed to get raw transactions: %w", err)
 	}
 
 	// Calculate net flows from raw transactions
 	flows, err := calculateNetFlows(raws)
 	if err != nil {
-		return 0, fmt.Errorf("failed to calculate net flows: %w", err)
+		return result, fmt.Errorf("failed to calculate net flows: %w", err)
 	}
 
 	r.logger.Info("calculated net flows",
@@ -89,7 +141,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, erro
 	// compared for it — and it is already flagged by the fetch failure itself.
 	chainRows, err := r.walletRepo.GetChainSyncRows(ctx, w.ID)
 	if err != nil {
-		return 0, fmt.Errorf("failed to load wallet chain set: %w", err)
+		return result, fmt.Errorf("failed to load wallet chain set: %w", err)
 	}
 
 	var positions []OnChainPosition
@@ -124,6 +176,31 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, erro
 		if pos.Quantity == nil || pos.Quantity.Sign() <= 0 {
 			continue
 		}
+
+		// APPLICATION POINT 2 OF TWO (issue #58). Positions in unknown assets
+		// take part in NEITHER the decimals check NOR the delta — but they are
+		// COUNTED AND CARRIED, never dropped in silence.
+		//
+		// Both halves matter. Letting them through would put spam back into the
+		// chain of consequences the transaction-stream filter just took it out
+		// of: a spam position has no matching flow (its legs never entered the
+		// ledger), so it reads as a full-size unexplained delta and flags the
+		// chain, and every real discrepancy on that chain is then buried under
+		// noise. Dropping them silently is equally wrong: the reconciliation
+		// report (#61) distinguishes spam from a migration bug by exactly this
+		// information, and a filter that erases it makes "the balance is
+		// correct" unverifiable.
+		if excluded, ok := r.excludePosition(ctx, pos); ok {
+			result.Excluded = append(result.Excluded, excluded)
+			if excluded.Checked {
+				result.SkippedUnknown++
+			} else {
+				result.SkippedPending++
+			}
+			continue
+		}
+
+		result.PositionsChecked++
 
 		flowKey := pos.ChainID + ":" + pos.AssetSymbol
 		flow, exists := flows[flowKey]
@@ -185,12 +262,57 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (int, erro
 		flaggedCount++
 	}
 
+	result.Flagged = flaggedCount
+
 	r.logger.Info("reconciliation complete",
 		"wallet_id", w.ID,
 		"flagged", flaggedCount,
-		"positions_checked", len(positions))
+		"positions_checked", result.PositionsChecked,
+		"skipped_unknown", result.SkippedUnknown,
+		"skipped_pending", result.SkippedPending)
 
-	return flaggedCount, nil
+	return result, nil
+}
+
+// excludePosition asks the known-asset filter whether a position takes part in
+// reconciliation, returning the excluded record when it does not.
+//
+// On a filter error the position is INCLUDED: an unreadable registry must not
+// quietly shrink what reconciliation covers, because the resulting silence looks
+// exactly like a clean reconciliation.
+func (r *Reconciler) excludePosition(ctx context.Context, pos OnChainPosition) (ExcludedPosition, bool) {
+	if r.knownFilter == nil {
+		return ExcludedPosition{}, false
+	}
+
+	key := NewAssetKey(pos.ChainID, pos.ContractAddress)
+	verdict, err := r.knownFilter.Resolve(ctx, key, pos.AssetSymbol)
+	if err != nil {
+		r.logger.Warn("known-asset filter failed, reconciling position anyway",
+			"chain_id", pos.ChainID,
+			"asset", pos.AssetSymbol,
+			"error", err)
+		return ExcludedPosition{}, false
+	}
+	if verdict.Known {
+		return ExcludedPosition{}, false
+	}
+
+	r.logger.Info("position excluded from reconciliation: asset not known",
+		"chain_id", pos.ChainID,
+		"asset", pos.AssetSymbol,
+		"contract", key.Contract,
+		"knownness_status", string(verdict.Status),
+		"checked", verdict.Checked())
+
+	return ExcludedPosition{
+		ChainID:     pos.ChainID,
+		AssetSymbol: pos.AssetSymbol,
+		Contract:    key.Contract,
+		Quantity:    pos.Quantity,
+		Status:      verdict.Status,
+		Checked:     verdict.Checked(),
+	}, true
 }
 
 // flagChain records a reconciliation discrepancy on ONE chain (so it becomes

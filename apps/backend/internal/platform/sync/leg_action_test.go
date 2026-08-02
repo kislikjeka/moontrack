@@ -89,7 +89,7 @@ func newLegActionEnv(t *testing.T) (*sync.TxBuilder, *MockLedgerService, *bytes.
 	ledgerSvc.On("RecordTransaction", mock.Anything, mock.Anything, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil).Maybe()
 
-	builder := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, nil)
+	builder := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, nil, nil)
 	w := newTestWallet(uuid.New(), "0x1111111111111111111111111111111111111111")
 
 	return builder, ledgerSvc, &logs, w

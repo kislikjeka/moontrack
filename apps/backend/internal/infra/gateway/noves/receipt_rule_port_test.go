@@ -152,7 +152,7 @@ func runLendingSupplyFixture(t *testing.T) (ledger.TransactionType, []*ledger.En
 	repo := &stubWalletRepo{w: w}
 	cap := &captureLedger{t: t, handler: lending.NewLendingSupplyHandler(repo, log)}
 
-	builder := sync.NewTxBuilder(repo, cap, nil, nil, log, nil, nil, nil)
+	builder := sync.NewTxBuilder(repo, cap, nil, nil, log, nil, nil, nil, nil)
 
 	// The REAL adapter converts the REAL fixture: nothing about the receipt is
 	// simulated by the test.

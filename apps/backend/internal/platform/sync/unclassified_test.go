@@ -49,7 +49,7 @@ func newUnclassifiedEnv(t *testing.T) (*sync.TxBuilder, *MockLedgerService, *byt
 	var logs bytes.Buffer
 	log := logger.New("test", &logs)
 
-	builder := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, nil)
+	builder := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, nil, nil)
 	w := newTestWallet(uuid.New(), unclassifiedWalletAddr)
 
 	return builder, ledgerSvc, &logs, w

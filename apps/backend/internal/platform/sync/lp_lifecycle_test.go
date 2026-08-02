@@ -142,7 +142,7 @@ func TestSync_LP_FullLifecycle(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil, nil)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil, nil, nil)
 	w := newTestWallet(userID, walletAddr)
 
 	// ─── Step 1: LP Deposit ───────────────────────────────────────────────
@@ -343,7 +343,7 @@ func TestSync_LP_UniV3Mint_ClassifiesAsDeposit(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil, nil)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil, nil, nil)
 	w := newTestWallet(userID, walletAddr)
 
 	// Mint operation on Uniswap V3 should classify as lp_deposit
@@ -390,7 +390,7 @@ func TestSync_LP_AaveDeposit_IsLendingSupply(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil, nil)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil, nil, nil)
 	w := newTestWallet(userID, walletAddr)
 
 	// Aave deposit should be classified as lending_supply, not defi_deposit or lp_deposit

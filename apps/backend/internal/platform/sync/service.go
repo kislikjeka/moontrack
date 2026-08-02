@@ -47,6 +47,7 @@ func NewService(
 	assetUpsert AssetUpserter,
 	jobEnqueuer JobEnqueuer,
 	assetRegistry AssetRegistry,
+	knownFilter *KnownAssetFilter,
 ) *Service {
 	if config == nil {
 		config = DefaultConfig()
@@ -55,7 +56,7 @@ func NewService(
 
 	var txBuilder *TxBuilder
 	if txProvider != nil {
-		txBuilder = NewTxBuilder(walletRepo, ledgerSvc, lpPositionSvc, lendingPositionSvc, logger, assetUpsert, jobEnqueuer, assetRegistry)
+		txBuilder = NewTxBuilder(walletRepo, ledgerSvc, lpPositionSvc, lendingPositionSvc, logger, assetUpsert, jobEnqueuer, assetRegistry, knownFilter)
 	}
 
 	svc := &Service{
@@ -76,7 +77,7 @@ func NewService(
 		svc.processor = NewProcessor(rawTxRepo, walletRepo, txBuilder, logger)
 	}
 	if posProvider != nil && rawTxRepo != nil {
-		svc.reconciler = NewReconciler(rawTxRepo, posProvider, walletRepo, assetRepo, logger)
+		svc.reconciler = NewReconciler(rawTxRepo, posProvider, walletRepo, assetRepo, knownFilter, logger)
 	}
 
 	return svc
@@ -236,13 +237,40 @@ func (s *Service) syncWallet(ctx context.Context, w *wallet.Wallet) error {
 		// ledger — it flags the chains whose positions the collected history does
 		// not explain (issue #53).
 		if s.reconciler != nil {
-			flaggedCount, err := s.reconciler.Reconcile(ctx, w)
+			res, err := s.reconciler.Reconcile(ctx, w)
 			if err != nil {
 				errMsg := fmt.Sprintf("reconcile phase failed: %v", err)
 				_ = s.walletRepo.SetSyncError(ctx, w.ID, errMsg)
 				return fmt.Errorf("reconcile phase failed: %w", err)
 			}
-			s.logger.Info("reconcile phase complete", "wallet_id", w.ID, "flagged", flaggedCount)
+			// The excluded counts go out alongside the flagged count, so a clean
+			// reconciliation over a wallet full of spam is visibly clean BECAUSE
+			// the spam was excluded, not mysteriously clean (#58, #61).
+			s.logger.Info("reconcile phase complete",
+				"wallet_id", w.ID,
+				"flagged", res.Flagged,
+				"positions_checked", res.PositionsChecked,
+				"skipped_unknown", res.SkippedUnknown,
+				"skipped_pending", res.SkippedPending)
+
+			// Each excluded position is surfaced INDIVIDUALLY, not just counted.
+			// A count alone cannot be investigated: it says a position was left
+			// out but not which, how large, or whether it was convicted or
+			// merely unchecked — and that is exactly the difference by which the
+			// reconciliation report (#61) separates spam from a migration bug.
+			// #61 will give this a durable home; until then it must at least
+			// leave the process, because a number nobody can decompose is the
+			// silent filtering the decision rejected.
+			for _, ex := range res.Excluded {
+				s.logger.Info("reconciliation excluded an unknown position",
+					"wallet_id", w.ID,
+					"chain_id", ex.ChainID,
+					"asset", ex.AssetSymbol,
+					"contract", ex.Contract,
+					"quantity", ex.Quantity.String(),
+					"knownness_status", string(ex.Status),
+					"checked", ex.Checked)
+			}
 		}
 
 		// Phase 3: Process all in chronological order

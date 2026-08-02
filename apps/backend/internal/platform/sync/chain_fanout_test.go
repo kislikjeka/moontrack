@@ -130,7 +130,8 @@ func TestReconciler_FansOutOverEnabledChains(t *testing.T) {
 		}).Return(nil)
 
 	r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
-	count, err := r.Reconcile(ctx, w)
+	res, err := r.Reconcile(ctx, w)
+	count := res.Flagged
 
 	require.NoError(t, err)
 	assert.Equal(t, 3, count, "one discrepancy flagged per enabled chain")

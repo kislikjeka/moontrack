@@ -32,6 +32,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/platform/lpposition"
 	"github.com/kislikjeka/moontrack/internal/platform/price"
 	"github.com/kislikjeka/moontrack/internal/platform/sync"
+	"github.com/kislikjeka/moontrack/internal/platform/sync/assetlist"
 	"github.com/kislikjeka/moontrack/internal/platform/taxlot"
 	"github.com/kislikjeka/moontrack/internal/platform/user"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
@@ -257,10 +258,59 @@ func main() {
 		// still addresses assets by symbol.
 		assetRegistryRepo := postgres.NewAssetRegistryRepository(db.Pool)
 
-		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, novesAdapter, novesAdapter, rawTxRepo, syncAssetRepo, lpPositionSvc, lendingPositionSvc, assetSvc, priceBackfillJobRepo, assetRegistryRepo)
+		// The known-asset filter (issue #58): an asset that is not known does
+		// not enter the ledger at all. Three levels, in order — the compiled-in
+		// major-coin list (plus natives by construction), quotability at the
+		// price provider, and a manual override.
+		//
+		// The filter reads ONLY the local asset_knownness table. The network
+		// half lives in the background worker below, so the sync hot path never
+		// makes a provider call: a provider outage may delay a verdict, but it
+		// can neither stop sync nor convict a real token.
+		knownnessRepo := postgres.NewAssetKnownnessRepository(db.Pool)
+		knownFilter := sync.NewKnownAssetFilter(knownnessRepo)
+
+		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, novesAdapter, novesAdapter, rawTxRepo, syncAssetRepo, lpPositionSvc, lendingPositionSvc, assetSvc, priceBackfillJobRepo, assetRegistryRepo, knownFilter)
 		log.Info("Sync service initialized",
 			"poll_interval", cfg.SyncPollInterval,
-			"provider", "noves")
+			"provider", "noves",
+			"builtin_asset_list_size", assetlist.Size())
+
+		// The knownness probe worker: level 2 of the filter. It drains the queue
+		// the sync path fills, asking the price provider whether an identity is
+		// quotable by (chain, contract).
+		//
+		// The "unknown" verdict is reached ONLY by exhausting the retry ladder
+		// (price.BackoffDelay / price.IsTerminalAttempt, ~7 days). Rate limits
+		// and transient errors do not spend an attempt, so an outage costs time
+		// and nothing else.
+		knownnessProbe := sync.NewQuotabilityProbeAdapter(
+			price.NewQuotabilityProbe(defillama.NewClient(defillama.Config{
+				BaseURL:       knownnessLlamaBaseURL(),
+				MinConfidence: knownnessLlamaMinConfidence(),
+			})),
+		)
+		knownnessWorker := sync.NewKnownnessWorker(sync.KnownnessWorkerDeps{
+			Queue:  knownnessRepo,
+			Probe:  knownnessProbe,
+			Logger: log,
+		})
+		go knownnessWorker.Run(ctx, knownnessProbeInterval)
+		go func() {
+			tick := time.NewTicker(5 * time.Minute)
+			defer tick.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+					// Release rows whose lock outlived the worker that took it,
+					// so a crash mid-probe cannot park an identity forever.
+					_, _ = knownnessRepo.ReapStale(ctx, 10*time.Minute)
+				}
+			}
+		}()
+		log.Info("Knownness probe worker started", "interval", knownnessProbeInterval)
 	} else {
 		log.Warn("NOVES_API_KEY not set, sync disabled")
 	}
@@ -463,4 +513,34 @@ func main() {
 	}
 
 	log.Info("Server stopped gracefully")
+}
+
+// knownnessProbeInterval is how often the knownness worker probes one identity.
+//
+// Deliberately slower than the price backfill worker's default (1s): the queue
+// is bounded by the number of DISTINCT assets a wallet has ever touched, not by
+// the number of transactions, so it drains in minutes even on a large history,
+// and a verdict is never urgent — an asset waiting for one is simply not in the
+// ledger yet.
+const knownnessProbeInterval = 2 * time.Second
+
+// knownnessLlamaBaseURL reads the DefiLlama endpoint, sharing the price
+// pipeline's environment variable so one deployment cannot end up pointing the
+// two halves at different providers.
+func knownnessLlamaBaseURL() string {
+	if v := os.Getenv("DEFILLAMA_BASE_URL"); v != "" {
+		return v
+	}
+	return "https://coins.llama.fi"
+}
+
+// knownnessLlamaMinConfidence reads the confidence gate, again shared with the
+// price pipeline. The client clamps anything below its own floor.
+func knownnessLlamaMinConfidence() float64 {
+	if v := os.Getenv("DEFILLAMA_MIN_CONFIDENCE"); v != "" {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			return parsed
+		}
+	}
+	return 0.9
 }

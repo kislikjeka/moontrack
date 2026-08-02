@@ -24,7 +24,7 @@ func newTestReconciler(
 	assetRepo pkgsync.SyncAssetRepository,
 ) *pkgsync.Reconciler {
 	log := logger.New("test", os.Stdout)
-	return pkgsync.NewReconciler(rawTxRepo, posProvider, walletRepo, assetRepo, log)
+	return pkgsync.NewReconciler(rawTxRepo, posProvider, walletRepo, assetRepo, nil, log)
 }
 
 // buildSendRaw creates a raw transaction with a single outbound transfer of the
@@ -114,7 +114,8 @@ func TestReconcile_DeltaBeyondDust_FlagsChainAndWritesNothing(t *testing.T) {
 	}, nil)
 
 	r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
-	count, err := r.Reconcile(ctx, w)
+	res, err := r.Reconcile(ctx, w)
+	count := res.Flagged
 
 	require.NoError(t, err, "a per-chain discrepancy is isolated, not a wallet-wide abort")
 	require.Equal(t, 1, count, "the discrepancy is counted as flagged, not as repaired")
@@ -163,7 +164,8 @@ func TestReconcile_DeltaSignSymmetry_SameHandling(t *testing.T) {
 		}, nil)
 
 		r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
-		count, err := r.Reconcile(ctx, w)
+		res, err := r.Reconcile(ctx, w)
+		count = res.Flagged
 		require.NoError(t, err)
 
 		// Neither sign may write anything.
@@ -241,7 +243,8 @@ func TestReconcile_DeltaWithinDust_NoFlag(t *testing.T) {
 			}, nil)
 
 			r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
-			count, err := r.Reconcile(ctx, w)
+			res, err := r.Reconcile(ctx, w)
+			count := res.Flagged
 
 			require.NoError(t, err)
 			require.Equal(t, 0, count, "dust is rounding noise, not a discrepancy")
@@ -283,7 +286,8 @@ func TestReconcile_FlaggedChainDoesNotStopOtherChains(t *testing.T) {
 	}, nil)
 
 	r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
-	count, err := r.Reconcile(ctx, w)
+	res, err := r.Reconcile(ctx, w)
+	count := res.Flagged
 
 	require.NoError(t, err)
 	require.Equal(t, 2, count, "both chains are examined; a flag on one does not stop the other")
@@ -323,7 +327,8 @@ func TestReconcile_DecimalsMismatch_MarksDegraded(t *testing.T) {
 	}, nil)
 
 	r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
-	count, err := r.Reconcile(ctx, w)
+	res, err := r.Reconcile(ctx, w)
+	count := res.Flagged
 
 	require.NoError(t, err, "a per-chain discrepancy is isolated, not a wallet-wide abort")
 	require.Equal(t, 1, count, "an uncomparable position is itself a flagged discrepancy")
