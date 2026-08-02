@@ -16,14 +16,21 @@ import (
 )
 
 // GenesisBalanceTransaction represents the data for an auto-created genesis balance.
+//
+// AssetID is a registry UUID, not a ticker (#59). It reaches both the ledger
+// entry and the two account codes below, so it is pure identity; the ticker that
+// used to sit here now travels as AssetSymbol for display only. uuid.UUID's
+// UnmarshalJSON rejects a malformed string outright, and ValidateData rejects an
+// absent one, so a genesis balance can never be booked against uuid.Nil.
 type GenesisBalanceTransaction struct {
-	WalletID   uuid.UUID     `json:"wallet_id"`
-	AssetID    string        `json:"asset_id"`
-	ChainID    string        `json:"chain_id"`
-	Amount     *money.BigInt `json:"amount"`
-	Decimals   int           `json:"decimals"`
-	USDRate    *money.BigInt `json:"usd_rate"`
-	OccurredAt time.Time     `json:"occurred_at"`
+	WalletID    uuid.UUID     `json:"wallet_id"`
+	AssetID     uuid.UUID     `json:"asset_id"`
+	AssetSymbol string        `json:"asset_symbol"`
+	ChainID     string        `json:"chain_id"`
+	Amount      *money.BigInt `json:"amount"`
+	Decimals    int           `json:"decimals"`
+	USDRate     *money.BigInt `json:"usd_rate"`
+	OccurredAt  time.Time     `json:"occurred_at"`
 }
 
 // Handler handles genesis_balance transactions.
@@ -75,7 +82,7 @@ func (h *Handler) ValidateData(_ context.Context, data map[string]interface{}) e
 	if txn.WalletID == uuid.Nil {
 		return fmt.Errorf("wallet_id is required")
 	}
-	if txn.AssetID == "" {
+	if txn.AssetID == uuid.Nil {
 		return fmt.Errorf("asset_id is required")
 	}
 	if txn.ChainID == "" {
@@ -108,8 +115,12 @@ func (h *Handler) generateEntries(txn *GenesisBalanceTransaction) ([]*ledger.Ent
 	}
 
 	now := time.Now().UTC()
-	walletCode := accountcode.WalletCode(txn.WalletID, txn.ChainID, txn.AssetID)
-	incomeCode := accountcode.IncomeGenesisCode(txn.ChainID, txn.AssetID)
+	// The asset segment of an account code is the registry UUID's string form
+	// (#59) — same identity as Entry.AssetID, so the account a code names and
+	// the asset an entry carries can no longer drift apart.
+	assetSeg := txn.AssetID.String()
+	walletCode := accountcode.WalletCode(txn.WalletID, txn.ChainID, assetSeg)
+	incomeCode := accountcode.IncomeGenesisCode(txn.ChainID, assetSeg)
 
 	entries := []*ledger.Entry{
 		{
@@ -147,7 +158,8 @@ func (h *Handler) generateEntries(txn *GenesisBalanceTransaction) ([]*ledger.Ent
 
 	h.logger.Debug("genesis balance entries generated",
 		"wallet_id", txn.WalletID.String(),
-		"asset", txn.AssetID,
+		"asset_id", assetSeg,
+		"asset_symbol", txn.AssetSymbol,
 		"chain", txn.ChainID,
 		"amount", amount.String())
 

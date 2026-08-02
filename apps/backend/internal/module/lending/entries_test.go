@@ -11,6 +11,7 @@ import (
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/pkg/money"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 )
 
 func assertEntriesBalanced(t *testing.T, entries []*ledger.Entry) {
@@ -41,7 +42,7 @@ func baseTxn() *LendingTransaction {
 // baseItem is 1 ETH at $2000 (price scaled 10^8).
 func baseItem() *LendingTransferItem {
 	return &LendingTransferItem{
-		AssetID:         "ETH",
+		AssetID:         testasset.ETH,
 		Decimals:        18,
 		Amount:          money.NewBigInt(big.NewInt(1_000_000_000_000_000_000)),
 		USDRate:         money.NewBigInt(big.NewInt(200_000_000_000)),
@@ -58,7 +59,7 @@ func TestGenerateSupplyItemEntries(t *testing.T) {
 	// First entry: DEBIT collateral_increase
 	assert.Equal(t, ledger.Debit, entries[0].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeCollateralIncrease, entries[0].EntryType)
-	assert.Equal(t, "ETH", entries[0].AssetID)
+	assert.Equal(t, testasset.ETH, entries[0].AssetID)
 	assert.Contains(t, entries[0].Metadata["account_code"], "collateral.")
 	assert.Equal(t, "COLLATERAL", entries[0].Metadata["account_type"])
 
@@ -88,7 +89,7 @@ func TestGenerateWithdrawItemEntries(t *testing.T) {
 
 func TestGenerateBorrowItemEntries(t *testing.T) {
 	item := baseItem()
-	item.AssetID = "USDC"
+	item.AssetID = testasset.USDC
 	item.Decimals = 6
 
 	entries := generateBorrowItemEntries(baseTxn(), item)
@@ -100,7 +101,7 @@ func TestGenerateBorrowItemEntries(t *testing.T) {
 	assert.Equal(t, ledger.Debit, entries[0].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeAssetIncrease, entries[0].EntryType)
 	assert.Contains(t, entries[0].Metadata["account_code"], "wallet.")
-	assert.Equal(t, "USDC", entries[0].AssetID)
+	assert.Equal(t, testasset.USDC, entries[0].AssetID)
 
 	// Second entry: CREDIT liability_increase
 	assert.Equal(t, ledger.Credit, entries[1].DebitCredit)
@@ -111,7 +112,7 @@ func TestGenerateBorrowItemEntries(t *testing.T) {
 
 func TestGenerateRepayItemEntries(t *testing.T) {
 	item := baseItem()
-	item.AssetID = "USDC"
+	item.AssetID = testasset.USDC
 	item.Decimals = 6
 
 	entries := generateRepayItemEntries(baseTxn(), item)
@@ -133,7 +134,7 @@ func TestGenerateRepayItemEntries(t *testing.T) {
 
 func TestGenerateClaimItemEntries(t *testing.T) {
 	item := baseItem()
-	item.AssetID = "AAVE"
+	item.AssetID = testasset.AAVE
 
 	entries := generateClaimItemEntries(baseTxn(), item)
 
@@ -144,7 +145,7 @@ func TestGenerateClaimItemEntries(t *testing.T) {
 	assert.Equal(t, ledger.Debit, entries[0].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeAssetIncrease, entries[0].EntryType)
 	assert.Contains(t, entries[0].Metadata["account_code"], "wallet.")
-	assert.Equal(t, "AAVE", entries[0].AssetID)
+	assert.Equal(t, testasset.AAVE, entries[0].AssetID)
 
 	// Second entry: CREDIT income
 	assert.Equal(t, ledger.Credit, entries[1].DebitCredit)
@@ -183,7 +184,7 @@ func TestSupplyItemEntries_NoClearingNamespace(t *testing.T) {
 
 func TestGenerateGasFeeEntries(t *testing.T) {
 	txn := baseTxn()
-	txn.FeeAsset = "ETH"
+	txn.FeeAsset = testasset.ETH
 	txn.FeeAmount = money.NewBigInt(big.NewInt(500_000_000_000_000)) // 0.0005 ETH
 	txn.FeeDecimals = 18
 	txn.FeeUSDPrice = money.NewBigInt(big.NewInt(200_000_000_000)) // $2000

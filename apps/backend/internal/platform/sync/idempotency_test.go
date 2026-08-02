@@ -87,6 +87,7 @@ type idemEnv struct {
 	builder   *sync.TxBuilder
 	ledgerSvc *MockLedgerService
 	walletSvc *MockWalletRepository
+	registry  *fakeAssetRegistry
 }
 
 func newIdemEnv(t *testing.T, userID uuid.UUID, owned map[string]*wallet.Wallet) *idemEnv {
@@ -104,10 +105,16 @@ func newIdemEnv(t *testing.T, userID uuid.UUID, owned map[string]*wallet.Wallet)
 	ledgerSvc := new(MockLedgerService)
 	log := logger.New("test", os.Stdout)
 
+	// A registry is wired because the raw data these tests produce is fed to
+	// real ledger handlers, which reject uuid.Nil as an asset id (#59). Without
+	// one every leg would resolve to Nil and the handler would refuse it.
+	registry := newFakeAssetRegistry()
+
 	return &idemEnv{
-		builder:   sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, nil, nil),
+		builder:   sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, registry, nil),
 		ledgerSvc: ledgerSvc,
 		walletSvc: walletRepo,
+		registry:  registry,
 	}
 }
 
@@ -443,7 +450,7 @@ func TestNonOwningRaw_DeferredAfterPreviousSync_WarnsAboutStall(t *testing.T) {
 
 	var logs bytes.Buffer
 	log := logger.New("test", &logs)
-	builder := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, nil, nil)
+	builder := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, nil)
 
 	inTx := idemTx("0xinternal", idemSourceAddr, idemDestAddr, sync.DirectionIn)
 	raw := idemRaw(dstWallet.ID, inTx)

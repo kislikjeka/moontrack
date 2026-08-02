@@ -10,8 +10,13 @@ import (
 
 // TransferInData represents parsed data from a transfer_in transaction's raw_data
 type TransferInData struct {
-	WalletID        uuid.UUID
-	AssetID         string
+	WalletID uuid.UUID
+	// AssetID is the registry UUID (#59); AssetSymbol is the ticker beside it in
+	// raw_data. This package feeds the transaction list and detail views only —
+	// nothing parsed here reaches a ledger entry — so the symbol is what gets
+	// rendered and the UUID is the stable key the API returns alongside it.
+	AssetID         uuid.UUID
+	AssetSymbol     string
 	Decimals        int
 	Amount          *money.BigInt
 	USDRate         *money.BigInt
@@ -53,9 +58,20 @@ func ParseTransferInFromRawData(raw map[string]interface{}) (*TransferInData, er
 		data.WalletID = walletID
 	}
 
-	// Parse asset_id
-	if assetID, ok := raw["asset_id"].(string); ok {
+	// Parse asset_id. A present-but-malformed id is an error: this is a read
+	// path, but returning uuid.Nil would put a bogus id in the API response
+	// where the caller cannot tell it apart from a real one (#59).
+	if assetIDStr, ok := raw["asset_id"].(string); ok {
+		assetID, err := uuid.Parse(assetIDStr)
+		if err != nil {
+			return nil, ErrInvalidAssetID
+		}
 		data.AssetID = assetID
+	}
+
+	// asset_symbol is display data — absent is fine, it renders blank.
+	if symbol, ok := raw["asset_symbol"].(string); ok {
+		data.AssetSymbol = symbol
 	}
 
 	// Parse amount
@@ -130,8 +146,13 @@ func ParseTransferInFromRawData(raw map[string]interface{}) (*TransferInData, er
 
 // TransferOutData represents parsed data from a transfer_out transaction's raw_data
 type TransferOutData struct {
-	WalletID        uuid.UUID
-	AssetID         string
+	WalletID uuid.UUID
+	// AssetID is the registry UUID (#59); AssetSymbol is the ticker beside it in
+	// raw_data. This package feeds the transaction list and detail views only —
+	// nothing parsed here reaches a ledger entry — so the symbol is what gets
+	// rendered and the UUID is the stable key the API returns alongside it.
+	AssetID         uuid.UUID
+	AssetSymbol     string
 	Decimals        int
 	Amount          *money.BigInt
 	USDRate         *money.BigInt
@@ -175,9 +196,20 @@ func ParseTransferOutFromRawData(raw map[string]interface{}) (*TransferOutData, 
 		data.WalletID = walletID
 	}
 
-	// Parse asset_id
-	if assetID, ok := raw["asset_id"].(string); ok {
+	// Parse asset_id. A present-but-malformed id is an error: this is a read
+	// path, but returning uuid.Nil would put a bogus id in the API response
+	// where the caller cannot tell it apart from a real one (#59).
+	if assetIDStr, ok := raw["asset_id"].(string); ok {
+		assetID, err := uuid.Parse(assetIDStr)
+		if err != nil {
+			return nil, ErrInvalidAssetID
+		}
 		data.AssetID = assetID
+	}
+
+	// asset_symbol is display data — absent is fine, it renders blank.
+	if symbol, ok := raw["asset_symbol"].(string); ok {
+		data.AssetSymbol = symbol
 	}
 
 	// Parse amount
@@ -252,9 +284,14 @@ func ParseTransferOutFromRawData(raw map[string]interface{}) (*TransferOutData, 
 
 // InternalTransferData represents parsed data from an internal_transfer transaction's raw_data
 type InternalTransferData struct {
-	SourceWalletID  uuid.UUID
-	DestWalletID    uuid.UUID
-	AssetID         string
+	SourceWalletID uuid.UUID
+	DestWalletID   uuid.UUID
+	// AssetID is the registry UUID (#59); AssetSymbol is the ticker beside it in
+	// raw_data. This package feeds the transaction list and detail views only —
+	// nothing parsed here reaches a ledger entry — so the symbol is what gets
+	// rendered and the UUID is the stable key the API returns alongside it.
+	AssetID         uuid.UUID
+	AssetSymbol     string
 	Decimals        int
 	Amount          *money.BigInt
 	USDRate         *money.BigInt
@@ -306,9 +343,20 @@ func ParseInternalTransferFromRawData(raw map[string]interface{}) (*InternalTran
 		data.DestWalletID = walletID
 	}
 
-	// Parse asset_id
-	if assetID, ok := raw["asset_id"].(string); ok {
+	// Parse asset_id. A present-but-malformed id is an error: this is a read
+	// path, but returning uuid.Nil would put a bogus id in the API response
+	// where the caller cannot tell it apart from a real one (#59).
+	if assetIDStr, ok := raw["asset_id"].(string); ok {
+		assetID, err := uuid.Parse(assetIDStr)
+		if err != nil {
+			return nil, ErrInvalidAssetID
+		}
 		data.AssetID = assetID
+	}
+
+	// asset_symbol is display data — absent is fine, it renders blank.
+	if symbol, ok := raw["asset_symbol"].(string); ok {
+		data.AssetSymbol = symbol
 	}
 
 	// Parse amount

@@ -16,6 +16,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/kislikjeka/moontrack/pkg/money"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 )
 
 // MockWalletRepository is a mock implementation of WalletRepository
@@ -59,13 +60,14 @@ func TestSwapHandler_SimpleSwap_Balance(t *testing.T) {
 	handler := swap.NewSwapHandler(walletRepo, logger.NewDefault("test"))
 
 	data := map[string]interface{}{
-		"wallet_id": walletID.String(),
-		"tx_hash":   "0xswap123",
-		"chain_id":  "ethereum",
+		"wallet_id":   walletID.String(),
+		"tx_hash":     "0xswap123",
+		"chain_id":    "ethereum",
 		"occurred_at": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
-		"protocol":  "uniswap_v3",
+		"protocol":    "uniswap_v3",
 		"transfers_out": []map[string]interface{}{
 			{
+				"asset_id":         testasset.ETH.String(),
 				"asset_symbol":     "ETH",
 				"amount":           money.NewBigIntFromInt64(1000000000000000000).String(), // 1 ETH
 				"decimals":         18,
@@ -77,6 +79,7 @@ func TestSwapHandler_SimpleSwap_Balance(t *testing.T) {
 		},
 		"transfers_in": []map[string]interface{}{
 			{
+				"asset_id":         testasset.USDC.String(),
 				"asset_symbol":     "USDC",
 				"amount":           money.NewBigIntFromInt64(2000000000).String(), // 2000 USDC
 				"decimals":         6,
@@ -137,16 +140,17 @@ func TestSwapHandler_WithGasFee_Balance(t *testing.T) {
 	handler := swap.NewSwapHandler(walletRepo, logger.NewDefault("test"))
 
 	data := map[string]interface{}{
-		"wallet_id": walletID.String(),
-		"tx_hash":   "0xswap456",
-		"chain_id":  "ethereum",
-		"occurred_at": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
-		"fee_asset":     "ETH",
+		"wallet_id":     walletID.String(),
+		"tx_hash":       "0xswap456",
+		"chain_id":      "ethereum",
+		"occurred_at":   time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
+		"fee_asset":     testasset.ETH.String(),
 		"fee_amount":    money.NewBigIntFromInt64(21000000000000).String(), // 0.000021 ETH
 		"fee_decimals":  18,
 		"fee_usd_price": "200000000000", // $2000
 		"transfers_out": []map[string]interface{}{
 			{
+				"asset_id":         testasset.ETH.String(),
 				"asset_symbol":     "ETH",
 				"amount":           money.NewBigIntFromInt64(500000000000000000).String(), // 0.5 ETH
 				"decimals":         18,
@@ -158,6 +162,7 @@ func TestSwapHandler_WithGasFee_Balance(t *testing.T) {
 		},
 		"transfers_in": []map[string]interface{}{
 			{
+				"asset_id":         testasset.USDC.String(),
 				"asset_symbol":     "USDC",
 				"amount":           money.NewBigIntFromInt64(1000000000).String(), // 1000 USDC
 				"decimals":         6,
@@ -211,12 +216,13 @@ func TestSwapHandler_MultiAsset(t *testing.T) {
 
 	// Multi-hop swap: ETH + WBTC out -> USDC + DAI in
 	data := map[string]interface{}{
-		"wallet_id": walletID.String(),
-		"tx_hash":   "0xmultiswap",
-		"chain_id":  "ethereum",
+		"wallet_id":   walletID.String(),
+		"tx_hash":     "0xmultiswap",
+		"chain_id":    "ethereum",
 		"occurred_at": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
 		"transfers_out": []map[string]interface{}{
 			{
+				"asset_id":         testasset.ETH.String(),
 				"asset_symbol":     "ETH",
 				"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
 				"decimals":         18,
@@ -226,6 +232,7 @@ func TestSwapHandler_MultiAsset(t *testing.T) {
 				"recipient":        "0xdex",
 			},
 			{
+				"asset_id":         testasset.WBTC.String(),
 				"asset_symbol":     "WBTC",
 				"amount":           money.NewBigIntFromInt64(10000000).String(), // 0.1 WBTC (8 decimals)
 				"decimals":         8,
@@ -237,6 +244,7 @@ func TestSwapHandler_MultiAsset(t *testing.T) {
 		},
 		"transfers_in": []map[string]interface{}{
 			{
+				"asset_id":         testasset.USDC.String(),
 				"asset_symbol":     "USDC",
 				"amount":           money.NewBigIntFromInt64(5000000000).String(), // 5000 USDC
 				"decimals":         6,
@@ -246,6 +254,7 @@ func TestSwapHandler_MultiAsset(t *testing.T) {
 				"recipient":        "0x1234",
 			},
 			{
+				"asset_id":         testasset.DAI.String(),
 				"asset_symbol":     "DAI",
 				"amount":           money.NewBigIntFromInt64(2000000000000000000).String(), // 2000 DAI
 				"decimals":         18,
@@ -325,6 +334,7 @@ func TestSwapHandler_Validate_MissingFields(t *testing.T) {
 			modifyData: func(data map[string]interface{}) {
 				data["transfers_out"] = []map[string]interface{}{
 					{
+						"asset_id":     testasset.ETH.String(),
 						"asset_symbol": "ETH",
 						"amount":       "-1",
 						"decimals":     18,
@@ -339,6 +349,7 @@ func TestSwapHandler_Validate_MissingFields(t *testing.T) {
 			modifyData: func(data map[string]interface{}) {
 				data["transfers_in"] = []map[string]interface{}{
 					{
+						"asset_id":     uuid.Nil.String(),
 						"asset_symbol": "",
 						"amount":       "100",
 						"decimals":     6,
@@ -454,12 +465,13 @@ func TestSwapHandler_EntryMetadata(t *testing.T) {
 
 func validSwapData(walletID uuid.UUID) map[string]interface{} {
 	return map[string]interface{}{
-		"wallet_id": walletID.String(),
-		"tx_hash":   "0xswap123",
-		"chain_id":  "ethereum",
+		"wallet_id":   walletID.String(),
+		"tx_hash":     "0xswap123",
+		"chain_id":    "ethereum",
 		"occurred_at": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
 		"transfers_out": []map[string]interface{}{
 			{
+				"asset_id":         testasset.ETH.String(),
 				"asset_symbol":     "ETH",
 				"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
 				"decimals":         18,
@@ -471,6 +483,7 @@ func validSwapData(walletID uuid.UUID) map[string]interface{} {
 		},
 		"transfers_in": []map[string]interface{}{
 			{
+				"asset_id":         testasset.USDC.String(),
 				"asset_symbol":     "USDC",
 				"amount":           money.NewBigIntFromInt64(2000000000).String(),
 				"decimals":         6,

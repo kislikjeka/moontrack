@@ -24,10 +24,10 @@ const (
 	TxTypeAssetAdjustment TransactionType = "asset_adjustment" // Manual balance corrections
 
 	// DeFi transaction types
-	TxTypeSwap        TransactionType = "swap"         // Token swap (DEX)
-	TxTypeDefiDeposit TransactionType = "defi_deposit"  // Deposit into DeFi protocol
+	TxTypeSwap         TransactionType = "swap"          // Token swap (DEX)
+	TxTypeDefiDeposit  TransactionType = "defi_deposit"  // Deposit into DeFi protocol
 	TxTypeDefiWithdraw TransactionType = "defi_withdraw" // Withdraw from DeFi protocol
-	TxTypeDefiClaim   TransactionType = "defi_claim"    // Claim DeFi rewards
+	TxTypeDefiClaim    TransactionType = "defi_claim"    // Claim DeFi rewards
 
 	// Synthetic transaction types
 	TxTypeGenesisBalance TransactionType = "genesis_balance" // Auto-created to cover missing prior history
@@ -283,12 +283,15 @@ type Entry struct {
 	DebitCredit   DebitCredit
 	EntryType     EntryType
 	Amount        *big.Int // Amount in base units (wei, satoshi, lamports)
-	AssetID       string
-	USDRate       *big.Int  // USD rate scaled by 10^8
-	USDValue      *big.Int  // (amount * usd_rate) / 10^decimals — USD value scaled by 10^8
-	OccurredAt    time.Time // Matches transaction occurred_at
-	CreatedAt     time.Time
-	Metadata      map[string]interface{} // Extensible metadata (stored as JSONB)
+	// AssetID is the asset registry UUID (issue #59, decision #35). It used to
+	// be a ticker, which made two different contracts sharing a symbol one
+	// asset. Identity now lives in the registry, keyed on (chain, contract).
+	AssetID    uuid.UUID
+	USDRate    *big.Int  // USD rate scaled by 10^8
+	USDValue   *big.Int  // (amount * usd_rate) / 10^decimals — USD value scaled by 10^8
+	OccurredAt time.Time // Matches transaction occurred_at
+	CreatedAt  time.Time
+	Metadata   map[string]interface{} // Extensible metadata (stored as JSONB)
 }
 
 // Validate validates the entry
@@ -311,8 +314,10 @@ func (e *Entry) Validate() error {
 		return ErrNegativeUSDValue
 	}
 
-	// Validate asset ID
-	if e.AssetID == "" {
+	// Validate asset ID. uuid.Nil is the unresolved identity: sync fails a
+	// transaction outright rather than emitting a leg without one (#59), so a
+	// Nil here means something bypassed that path.
+	if e.AssetID == uuid.Nil {
 		return ErrInvalidAssetID
 	}
 
@@ -354,10 +359,11 @@ const (
 
 // Account represents a ledger account for tracking balances
 type Account struct {
-	ID        uuid.UUID
-	Code      string // Human-readable code (e.g., "wallet.{wallet_id}.{asset_id}")
-	Type      AccountType
-	AssetID   string     // BTC, ETH, USDC, etc.
+	ID   uuid.UUID
+	Code string // Human-readable code (e.g., "wallet.{wallet_id}.{chain}.{asset_id}")
+	Type AccountType
+	// AssetID is the asset registry UUID — see Entry.AssetID.
+	AssetID   uuid.UUID
 	WalletID  *uuid.UUID // Optional: NULL for INCOME/EXPENSE/GAS_FEE accounts
 	ChainID   *string    // Optional: inherited from wallet or standalone
 	CreatedAt time.Time
@@ -400,7 +406,7 @@ func (a *Account) Validate() error {
 		return ErrInvalidAccountCode
 	}
 
-	if a.AssetID == "" {
+	if a.AssetID == uuid.Nil {
 		return ErrInvalidAssetID
 	}
 
@@ -425,8 +431,9 @@ func (a *Account) Validate() error {
 // AccountBalance represents the denormalized current balance for an account/asset
 // This is maintained for performance and is reconcilable from ledger entries
 type AccountBalance struct {
-	AccountID   uuid.UUID
-	AssetID     string
+	AccountID uuid.UUID
+	// AssetID is the asset registry UUID — see Entry.AssetID.
+	AssetID     uuid.UUID
 	Balance     *big.Int // Current balance in base units
 	USDValue    *big.Int // At current price, updated periodically
 	LastUpdated time.Time
@@ -434,7 +441,7 @@ type AccountBalance struct {
 
 // Validate validates the account balance
 func (b *AccountBalance) Validate() error {
-	if b.AssetID == "" {
+	if b.AssetID == uuid.Nil {
 		return ErrInvalidAssetID
 	}
 

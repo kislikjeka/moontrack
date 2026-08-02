@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 )
 
 // mockTaxLotRepo is a simple in-memory mock of TaxLotRepository for FIFO tests.
@@ -20,8 +21,13 @@ type mockTaxLotRepo struct {
 	lots      []*TaxLot
 	disposals []*LotDisposal
 
-	// lotAssetIDs optionally associates a lot with a concrete asset UUID.
-	// Used by PriceResolvedHook tests that exercise the UUID-keyed variant.
+	// lotAssetIDs associates a disposal's lot with the asset UUID that owns it.
+	//
+	// Lots no longer need this — TaxLot.Asset is itself the registry UUID (#59),
+	// so ListPendingLotsByAssetAndTime matches on the lot directly. Disposals
+	// still do: LotDisposal carries no asset of its own, and in production the
+	// scoping comes from a JOIN back to the lot, which this in-memory mock has
+	// to stand in for.
 	lotAssetIDs map[uuid.UUID]uuid.UUID
 
 	// failResolveOn lets tests inject a deterministic error on the Nth
@@ -61,7 +67,7 @@ func (m *mockTaxLotRepo) GetTaxLotForUpdate(_ context.Context, id uuid.UUID) (*T
 	return nil, ErrLotNotFound
 }
 
-func (m *mockTaxLotRepo) GetOpenLotsFIFO(_ context.Context, accountID uuid.UUID, asset string) ([]*TaxLot, error) {
+func (m *mockTaxLotRepo) GetOpenLotsFIFO(_ context.Context, accountID uuid.UUID, asset uuid.UUID) ([]*TaxLot, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var open []*TaxLot
@@ -88,7 +94,7 @@ func (m *mockTaxLotRepo) UpdateLotRemaining(_ context.Context, lotID uuid.UUID, 
 	return ErrLotNotFound
 }
 
-func (m *mockTaxLotRepo) GetLotsByAccount(_ context.Context, _ uuid.UUID, _ string) ([]*TaxLot, error) {
+func (m *mockTaxLotRepo) GetLotsByAccount(_ context.Context, _ uuid.UUID, _ uuid.UUID) ([]*TaxLot, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return nil, nil
@@ -161,39 +167,21 @@ func (m *mockTaxLotRepo) GetWAC(_ context.Context, _ []uuid.UUID) ([]*PositionWA
 	return nil, nil
 }
 
-func (m *mockTaxLotRepo) ListPendingLotsByAssetAndTime(_ context.Context, asset string, at time.Time) ([]*TaxLot, error) {
+// ListPendingLotsByAssetAndTime is the single survivor of what used to be a
+// pair (#59): a symbol-keyed variant and a UUID-keyed one. The UUID-keyed mock
+// needed a side map (lotAssetIDs) plus a permissive "no mapping registered ⇒
+// match everything in the bucket" fallback, because a lot's own Asset field was
+// a bare ticker and could not answer which asset the lot belonged to.
+//
+// TaxLot.Asset is now the registry UUID, so the match is direct and exact. The
+// fallback is gone with it — a lot in the right minute bucket but the wrong
+// asset is no longer returned, which is the whole point of the ticket.
+func (m *mockTaxLotRepo) ListPendingLotsByAssetAndTime(_ context.Context, assetID uuid.UUID, at time.Time) ([]*TaxLot, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result []*TaxLot
 	for _, l := range m.lots {
-		if l.Asset == asset && l.PriceStatus == PriceStatusPending &&
-			l.AcquiredAt.Truncate(time.Minute).Equal(at.Truncate(time.Minute)) {
-			result = append(result, l)
-		}
-	}
-	return result, nil
-}
-
-// mockAssetID is set on lots that the mock wants disambiguated by UUID;
-// when lot.AccountID's first byte matches a mock marker, treat this as the
-// owning asset UUID. Tests drive the mapping directly via lotAssetIDs.
-func (m *mockTaxLotRepo) ListPendingLotsByAssetIDAndTime(_ context.Context, assetID uuid.UUID, at time.Time) ([]*TaxLot, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	var result []*TaxLot
-	for _, l := range m.lots {
-		owner, ok := m.lotAssetIDs[l.ID]
-		// If the test did not register a UUID for this lot, fall back to
-		// matching on all pending lots in the bucket (symbol not considered)
-		// so existing tests that don't care about UUID still pass.
-		if !ok {
-			if l.PriceStatus == PriceStatusPending &&
-				l.AcquiredAt.Truncate(time.Minute).Equal(at.Truncate(time.Minute)) {
-				result = append(result, l)
-			}
-			continue
-		}
-		if owner == assetID && l.PriceStatus == PriceStatusPending &&
+		if l.Asset == assetID && l.PriceStatus == PriceStatusPending &&
 			l.AcquiredAt.Truncate(time.Minute).Equal(at.Truncate(time.Minute)) {
 			result = append(result, l)
 		}
@@ -286,7 +274,7 @@ func (m *mockTaxLotRepo) CountLotsByPriceStatus(_ context.Context, _ uuid.UUID) 
 
 // helpers
 
-func makeLot(accountID uuid.UUID, asset string, qty int64, acquiredAt time.Time) *TaxLot {
+func makeLot(accountID uuid.UUID, asset uuid.UUID, qty int64, acquiredAt time.Time) *TaxLot {
 	return &TaxLot{
 		ID:                   uuid.New(),
 		TransactionID:        uuid.New(),
@@ -311,7 +299,7 @@ func TestDisposeFIFO_SingleLotExact(t *testing.T) {
 	accountID := uuid.New()
 	txID := uuid.New()
 	now := time.Now()
-	asset := "ETH"
+	asset := testasset.ETH
 
 	lot := makeLot(accountID, asset, 100, now.Add(-time.Hour))
 	repo := &mockTaxLotRepo{lots: []*TaxLot{lot}}
@@ -340,7 +328,7 @@ func TestDisposeFIFO_SingleLotPartial(t *testing.T) {
 	accountID := uuid.New()
 	txID := uuid.New()
 	now := time.Now()
-	asset := "ETH"
+	asset := testasset.ETH
 
 	lot := makeLot(accountID, asset, 100, now.Add(-time.Hour))
 	repo := &mockTaxLotRepo{lots: []*TaxLot{lot}}
@@ -369,7 +357,7 @@ func TestDisposeFIFO_MultiLotFIFOOrdering(t *testing.T) {
 	accountID := uuid.New()
 	txID := uuid.New()
 	now := time.Now()
-	asset := "ETH"
+	asset := testasset.ETH
 
 	jan := time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC)
 	feb := time.Date(2025, 2, 15, 0, 0, 0, 0, time.UTC)
@@ -420,7 +408,7 @@ func TestDisposeFIFO_MultiLotFullConsumption(t *testing.T) {
 	accountID := uuid.New()
 	txID := uuid.New()
 	now := time.Now()
-	asset := "ETH"
+	asset := testasset.ETH
 
 	lotA := makeLot(accountID, asset, 50, now.Add(-2*time.Hour))
 	lotB := makeLot(accountID, asset, 80, now.Add(-time.Hour))
@@ -450,7 +438,7 @@ func TestDisposeFIFO_InsufficientLots(t *testing.T) {
 	accountID := uuid.New()
 	txID := uuid.New()
 	now := time.Now()
-	asset := "ETH"
+	asset := testasset.ETH
 
 	lotA := makeLot(accountID, asset, 50, now.Add(-time.Hour))
 	repo := &mockTaxLotRepo{lots: []*TaxLot{lotA}}
@@ -480,7 +468,7 @@ func TestDisposeFIFO_ZeroLotsAvailable(t *testing.T) {
 	accountID := uuid.New()
 	txID := uuid.New()
 	now := time.Now()
-	asset := "ETH"
+	asset := testasset.ETH
 
 	repo := &mockTaxLotRepo{}
 
@@ -502,7 +490,7 @@ func TestDisposeFIFO_ZeroQuantity(t *testing.T) {
 	accountID := uuid.New()
 	txID := uuid.New()
 	now := time.Now()
-	asset := "ETH"
+	asset := testasset.ETH
 
 	lot := makeLot(accountID, asset, 100, now.Add(-time.Hour))
 	repo := &mockTaxLotRepo{lots: []*TaxLot{lot}}

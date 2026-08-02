@@ -18,7 +18,14 @@ import (
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/kislikjeka/moontrack/pkg/money"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 )
+
+// debtTokenAsset stands for a protocol debt receipt (variableDebtBasUSDC). It
+// is a registry id of its own, not testasset.USDC: the whole point of #59 is
+// that a receipt and the principal it tracks are two assets even when their
+// tickers look related.
+var debtTokenAsset = uuid.MustParse("d0000000-0000-4000-8000-000000000001")
 
 func testWallet(walletID, userID uuid.UUID) *wallet.Wallet {
 	return &wallet.Wallet{
@@ -64,7 +71,7 @@ func buildTestData(walletID uuid.UUID) map[string]interface{} {
 		"protocol":    "Aave V3",
 		"transfers": []map[string]interface{}{
 			{
-				"asset_id":         "ETH",
+				"asset_id":         testasset.ETH.String(),
 				"decimals":         18,
 				"amount":           "1000000000000000000",
 				"usd_rate":         "200000000000",
@@ -74,10 +81,11 @@ func buildTestData(walletID uuid.UUID) map[string]interface{} {
 	}
 }
 
-// setTestAsset rewrites the single transfer's asset and decimals.
-func setTestAsset(data map[string]interface{}, assetID string, decimals int) {
+// setTestAsset rewrites the single transfer's asset and decimals. The asset is
+// a registry UUID (#59), written as the string raw_data carries.
+func setTestAsset(data map[string]interface{}, assetID uuid.UUID, decimals int) {
 	transfers := data["transfers"].([]map[string]interface{})
-	transfers[0]["asset_id"] = assetID
+	transfers[0]["asset_id"] = assetID.String()
 	transfers[0]["decimals"] = decimals
 }
 
@@ -116,7 +124,7 @@ func TestLendingSupplyHandler_WithGasFee(t *testing.T) {
 
 	handler := lending.NewLendingSupplyHandler(mockRepo, log)
 	data := buildTestData(walletID)
-	data["fee_asset"] = "ETH"
+	data["fee_asset"] = testasset.ETH.String()
 	data["fee_amount"] = "500000000000000"
 	data["fee_decimals"] = float64(18)
 	data["fee_usd_price"] = "200000000000"
@@ -133,7 +141,10 @@ func TestLendingSupplyHandler_ValidateData_MissingAsset(t *testing.T) {
 
 	handler := lending.NewLendingSupplyHandler(mockRepo, log)
 	data := buildTestData(walletID)
-	setTestAsset(data, "", 18)
+	// uuid.Nil is the "no asset" case now (#59): raw_data carries the nil UUID's
+	// string form, and validation must reject it rather than book a pair against
+	// an asset that does not exist.
+	setTestAsset(data, uuid.Nil, 18)
 
 	err := handler.ValidateData(ctx, data)
 	assert.Error(t, err)
@@ -188,7 +199,7 @@ func TestLendingSupplyHandler_SingleCollateralLeg(t *testing.T) {
 		"protocol":    "Aave V3",
 		"transfers": []map[string]interface{}{
 			{
-				"asset_id":         "ETH",
+				"asset_id":         testasset.ETH.String(),
 				"decimals":         18,
 				"amount":           principal,
 				"usd_rate":         "200000000000",
@@ -213,7 +224,7 @@ func TestLendingSupplyHandler_SingleCollateralLeg(t *testing.T) {
 	}
 
 	require.Len(t, collateralLegs, 1, "one supply must book exactly one collateral leg")
-	assert.Equal(t, "ETH", collateralLegs[0].AssetID, "collateral must hold the principal, not the receipt")
+	assert.Equal(t, testasset.ETH, collateralLegs[0].AssetID, "collateral must hold the principal, not the receipt")
 
 	want, _ := new(big.Int).SetString(principal, 10)
 	assert.Equal(t, 0, collateralLegs[0].Amount.Cmp(want),
@@ -245,7 +256,7 @@ func TestLendingBorrowHandler_Handle(t *testing.T) {
 	assert.Equal(t, ledger.TxTypeLendingBorrow, handler.Type())
 
 	data := buildTestData(walletID)
-	setTestAsset(data, "USDC", 6)
+	setTestAsset(data, testasset.USDC, 6)
 
 	entries, err := handler.Handle(ctx, data)
 
@@ -273,7 +284,7 @@ func TestLendingBorrowHandler_MultiAsset(t *testing.T) {
 		"transfers": []map[string]interface{}{
 			{
 				// Liquid borrowed asset
-				"asset_id":         "USDC",
+				"asset_id":         testasset.USDC.String(),
 				"decimals":         6,
 				"amount":           "400000000",
 				"usd_rate":         "100000000",
@@ -282,7 +293,7 @@ func TestLendingBorrowHandler_MultiAsset(t *testing.T) {
 			},
 			{
 				// Debt receipt token
-				"asset_id":         "variableDebtBasUSDC",
+				"asset_id":         debtTokenAsset.String(),
 				"decimals":         6,
 				"amount":           "400000000",
 				"usd_rate":         "0",
@@ -296,16 +307,19 @@ func TestLendingBorrowHandler_MultiAsset(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, entries, 4, "expected 2 entries per asset × 2 assets")
 
-	// Locate per-asset entries by AssetID.
-	perAsset := map[string][]*ledger.Entry{
-		"USDC":                {},
-		"variableDebtBasUSDC": {},
+	// Locate per-asset entries by AssetID, which is a registry UUID now (#59).
+	// The debt receipt gets its own id — under the old ticker key the receipt
+	// "variableDebtBasUSDC" and the principal "USDC" were only distinguishable
+	// because their tickers differed by spelling.
+	perAsset := map[uuid.UUID][]*ledger.Entry{
+		testasset.USDC: {},
+		debtTokenAsset: {},
 	}
 	for _, e := range entries {
 		perAsset[e.AssetID] = append(perAsset[e.AssetID], e)
 	}
-	require.Len(t, perAsset["USDC"], 2, "USDC should have one debit+credit pair")
-	require.Len(t, perAsset["variableDebtBasUSDC"], 2, "debt token should have one debit+credit pair")
+	require.Len(t, perAsset[testasset.USDC], 2, "USDC should have one debit+credit pair")
+	require.Len(t, perAsset[debtTokenAsset], 2, "debt token should have one debit+credit pair")
 
 	// Per-asset balance and account routing.
 	for asset, es := range perAsset {
@@ -323,7 +337,7 @@ func TestLendingBorrowHandler_MultiAsset(t *testing.T) {
 	}
 
 	// USDC (liquid) debit must be the user's wallet account; credit is liability.
-	for _, e := range perAsset["USDC"] {
+	for _, e := range perAsset[testasset.USDC] {
 		code, _ := e.Metadata["account_code"].(string)
 		if e.DebitCredit == ledger.Debit {
 			assert.Contains(t, code, "wallet.", "USDC debit should land on wallet account, got %s", code)
@@ -338,7 +352,7 @@ func TestLendingBorrowHandler_MultiAsset(t *testing.T) {
 	// no longer special-case receipts, and no leg routes through clearing
 	// (#44). Dropping the receipt leg outright is #57's job, at the provider
 	// adapter, not this handler's.
-	for _, e := range perAsset["variableDebtBasUSDC"] {
+	for _, e := range perAsset[debtTokenAsset] {
 		code, _ := e.Metadata["account_code"].(string)
 		assert.NotContains(t, code, "clearing.",
 			"no lending leg may route through clearing, got %s", code)
@@ -361,7 +375,7 @@ func TestLendingRepayHandler_Handle(t *testing.T) {
 	assert.Equal(t, ledger.TxTypeLendingRepay, handler.Type())
 
 	data := buildTestData(walletID)
-	setTestAsset(data, "USDC", 6)
+	setTestAsset(data, testasset.USDC, 6)
 
 	entries, err := handler.Handle(ctx, data)
 
@@ -379,7 +393,7 @@ func TestLendingClaimHandler_Handle(t *testing.T) {
 	assert.Equal(t, ledger.TxTypeLendingClaim, handler.Type())
 
 	data := buildTestData(walletID)
-	setTestAsset(data, "AAVE", 18)
+	setTestAsset(data, testasset.AAVE, 18)
 
 	entries, err := handler.Handle(ctx, data)
 
@@ -401,7 +415,7 @@ func TestLendingTransaction_Validate(t *testing.T) {
 		{"missing tx_hash", func(txn *lending.LendingTransaction) { txn.TxHash = "" }, true},
 		{"missing chain_id", func(txn *lending.LendingTransaction) { txn.ChainID = "" }, true},
 		{"no transfers", func(txn *lending.LendingTransaction) { txn.Transfers = nil }, true},
-		{"missing asset", func(txn *lending.LendingTransaction) { txn.Transfers[0].AssetID = "" }, true},
+		{"missing asset", func(txn *lending.LendingTransaction) { txn.Transfers[0].AssetID = uuid.Nil }, true},
 		{"nil amount", func(txn *lending.LendingTransaction) { txn.Transfers[0].Amount = nil }, true},
 		{"zero amount", func(txn *lending.LendingTransaction) {
 			txn.Transfers[0].Amount = money.NewBigInt(big.NewInt(0))
@@ -416,7 +430,7 @@ func TestLendingTransaction_Validate(t *testing.T) {
 				ChainID:  "ethereum",
 				Transfers: []lending.LendingTransferItem{
 					{
-						AssetID:  "ETH",
+						AssetID:  testasset.ETH,
 						Amount:   money.NewBigInt(big.NewInt(1000)),
 						Decimals: 18,
 					},

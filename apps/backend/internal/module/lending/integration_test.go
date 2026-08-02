@@ -20,6 +20,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/module/transfer"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/kislikjeka/moontrack/pkg/money"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 	"github.com/kislikjeka/moontrack/testutil/testdb"
 )
 
@@ -45,6 +46,7 @@ func TestMain(m *testing.M) {
 func setupLendingTest(t *testing.T) (*ledger.Service, *postgres.LedgerRepository, context.Context) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx)
 
 	repo := postgres.NewLedgerRepository(testDB.Pool)
 	walletRepo := postgres.NewWalletRepository(testDB.Pool)
@@ -107,7 +109,7 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 	_, err := svc.RecordTransaction(ctx, ledger.TxTypeTransferIn, "blockchain", stringPtr("seed-eth"),
 		time.Now().Add(-5*time.Hour), map[string]interface{}{
 			"wallet_id":        walletID.String(),
-			"asset_id":         "ETH",
+			"asset_id":         testasset.ETH.String(),
 			"decimals":         18,
 			"amount":           money.NewBigIntFromInt64(5000000000000000000).String(), // 5 ETH
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),        // $2000
@@ -125,7 +127,7 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 	_, err = svc.RecordTransaction(ctx, ledger.TxTypeTransferIn, "blockchain", stringPtr("seed-usdc"),
 		time.Now().Add(-5*time.Hour), map[string]interface{}{
 			"wallet_id":        walletID.String(),
-			"asset_id":         "USDC",
+			"asset_id":         testasset.USDC.String(),
 			"decimals":         6,
 			"amount":           money.NewBigIntFromInt64(2000000000).String(), // 2000 USDC
 			"usd_rate":         money.NewBigIntFromInt64(100000000).String(),  // $1
@@ -147,7 +149,7 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 			"wallet_id": walletID.String(),
 			"transfers": []map[string]interface{}{
 				{
-					"asset_id": "ETH",
+					"asset_id": testasset.ETH.String(),
 					"amount":   money.NewBigIntFromInt64(2000000000000000000).String(),
 					"decimals": 18,
 					"usd_rate": money.NewBigIntFromInt64(200000000000).String(),
@@ -171,17 +173,17 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 	assert.Equal(t, ledger.EntryTypeAssetDecrease, supplyTx.Entries[1].EntryType)
 
 	// Verify wallet ETH balance: 5 - 2 = 3 ETH
-	walletETHAccount, err := repo.GetAccountByCode(ctx, "wallet."+walletID.String()+"."+chain+".ETH")
+	walletETHAccount, err := repo.GetAccountByCode(ctx, "wallet."+walletID.String()+"."+chain+"."+testasset.ETH.String())
 	require.NoError(t, err)
-	walletETHBalance, err := svc.GetAccountBalance(ctx, walletETHAccount.ID, "ETH")
+	walletETHBalance, err := svc.GetAccountBalance(ctx, walletETHAccount.ID, testasset.ETH)
 	require.NoError(t, err)
 	assert.Equal(t, 0, walletETHBalance.Balance.Cmp(big.NewInt(3000000000000000000)), "wallet ETH should be 3 after supply")
 
 	// Verify collateral balance: 2 ETH
-	collateralCode := "collateral." + protocol + "." + walletID.String() + "." + chain + ".ETH"
+	collateralCode := "collateral." + protocol + "." + walletID.String() + "." + chain + "." + testasset.ETH.String()
 	collateralAccount, err := repo.GetAccountByCode(ctx, collateralCode)
 	require.NoError(t, err)
-	collateralBalance, err := svc.GetAccountBalance(ctx, collateralAccount.ID, "ETH")
+	collateralBalance, err := svc.GetAccountBalance(ctx, collateralAccount.ID, testasset.ETH)
 	require.NoError(t, err)
 	assert.Equal(t, 0, collateralBalance.Balance.Cmp(big.NewInt(2000000000000000000)), "collateral should be 2 ETH")
 
@@ -193,7 +195,7 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 			"wallet_id": walletID.String(),
 			"transfers": []map[string]interface{}{
 				{
-					"asset_id": "USDC",
+					"asset_id": testasset.USDC.String(),
 					"amount":   money.NewBigIntFromInt64(1000000000).String(),
 					"decimals": 6,
 					"usd_rate": money.NewBigIntFromInt64(100000000).String(),
@@ -217,17 +219,17 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 	assert.Equal(t, ledger.EntryTypeLiabilityIncrease, borrowTx.Entries[1].EntryType)
 
 	// Verify wallet USDC balance: 2000 + 1000 = 3000 USDC
-	walletUSDCAccount, err := repo.GetAccountByCode(ctx, "wallet."+walletID.String()+"."+chain+".USDC")
+	walletUSDCAccount, err := repo.GetAccountByCode(ctx, "wallet."+walletID.String()+"."+chain+"."+testasset.USDC.String())
 	require.NoError(t, err)
-	walletUSDCBalance, err := svc.GetAccountBalance(ctx, walletUSDCAccount.ID, "USDC")
+	walletUSDCBalance, err := svc.GetAccountBalance(ctx, walletUSDCAccount.ID, testasset.USDC)
 	require.NoError(t, err)
 	assert.Equal(t, 0, walletUSDCBalance.Balance.Cmp(big.NewInt(3000000000)), "wallet USDC should be 3000 after borrow")
 
 	// Verify liability balance: 1000 USDC
-	liabilityCode := "liability." + protocol + "." + walletID.String() + "." + chain + ".USDC"
+	liabilityCode := "liability." + protocol + "." + walletID.String() + "." + chain + "." + testasset.USDC.String()
 	liabilityAccount, err := repo.GetAccountByCode(ctx, liabilityCode)
 	require.NoError(t, err)
-	liabilityBalance, err := svc.GetAccountBalance(ctx, liabilityAccount.ID, "USDC")
+	liabilityBalance, err := svc.GetAccountBalance(ctx, liabilityAccount.ID, testasset.USDC)
 	require.NoError(t, err)
 	assert.Equal(t, 0, liabilityBalance.Balance.Cmp(big.NewInt(1000000000)), "liability should be 1000 USDC")
 
@@ -239,7 +241,7 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 			"wallet_id": walletID.String(),
 			"transfers": []map[string]interface{}{
 				{
-					"asset_id": "USDC",
+					"asset_id": testasset.USDC.String(),
 					"amount":   money.NewBigIntFromInt64(500000000).String(),
 					"decimals": 6,
 					"usd_rate": money.NewBigIntFromInt64(100000000).String(),
@@ -263,12 +265,12 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 	assert.Equal(t, ledger.EntryTypeAssetDecrease, repayTx.Entries[1].EntryType)
 
 	// Verify wallet USDC balance: 3000 - 500 = 2500 USDC
-	walletUSDCBalance, err = svc.GetAccountBalance(ctx, walletUSDCAccount.ID, "USDC")
+	walletUSDCBalance, err = svc.GetAccountBalance(ctx, walletUSDCAccount.ID, testasset.USDC)
 	require.NoError(t, err)
 	assert.Equal(t, 0, walletUSDCBalance.Balance.Cmp(big.NewInt(2500000000)), "wallet USDC should be 2500 after repay")
 
 	// Verify liability balance: 1000 - 500 = 500 USDC
-	liabilityBalance, err = svc.GetAccountBalance(ctx, liabilityAccount.ID, "USDC")
+	liabilityBalance, err = svc.GetAccountBalance(ctx, liabilityAccount.ID, testasset.USDC)
 	require.NoError(t, err)
 	assert.Equal(t, 0, liabilityBalance.Balance.Cmp(big.NewInt(500000000)), "liability should be 500 USDC after repay")
 
@@ -280,7 +282,7 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 			"wallet_id": walletID.String(),
 			"transfers": []map[string]interface{}{
 				{
-					"asset_id": "ETH",
+					"asset_id": testasset.ETH.String(),
 					"amount":   money.NewBigIntFromInt64(1000000000000000000).String(),
 					"decimals": 18,
 					"usd_rate": money.NewBigIntFromInt64(200000000000).String(),
@@ -304,12 +306,12 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 	assert.Equal(t, ledger.EntryTypeCollateralDecrease, withdrawTx.Entries[1].EntryType)
 
 	// Verify wallet ETH balance: 3 + 1 = 4 ETH
-	walletETHBalance, err = svc.GetAccountBalance(ctx, walletETHAccount.ID, "ETH")
+	walletETHBalance, err = svc.GetAccountBalance(ctx, walletETHAccount.ID, testasset.ETH)
 	require.NoError(t, err)
 	assert.Equal(t, 0, walletETHBalance.Balance.Cmp(big.NewInt(4000000000000000000)), "wallet ETH should be 4 after withdraw")
 
 	// Verify collateral balance: 2 - 1 = 1 ETH
-	collateralBalance, err = svc.GetAccountBalance(ctx, collateralAccount.ID, "ETH")
+	collateralBalance, err = svc.GetAccountBalance(ctx, collateralAccount.ID, testasset.ETH)
 	require.NoError(t, err)
 	assert.Equal(t, 0, collateralBalance.Balance.Cmp(big.NewInt(1000000000000000000)), "collateral should be 1 ETH after withdraw")
 
@@ -321,7 +323,7 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 			"wallet_id": walletID.String(),
 			"transfers": []map[string]interface{}{
 				{
-					"asset_id": "AAVE",
+					"asset_id": testasset.AAVE.String(),
 					"amount":   money.NewBigIntFromInt64(500000000000000000).String(),
 					"decimals": 18,
 					"usd_rate": money.NewBigIntFromInt64(10000000000).String(),
@@ -345,14 +347,14 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 	assert.Equal(t, ledger.EntryTypeIncome, claimTx.Entries[1].EntryType)
 
 	// Verify wallet AAVE balance: 0.5 AAVE
-	walletAAVEAccount, err := repo.GetAccountByCode(ctx, "wallet."+walletID.String()+"."+chain+".AAVE")
+	walletAAVEAccount, err := repo.GetAccountByCode(ctx, "wallet."+walletID.String()+"."+chain+"."+testasset.AAVE.String())
 	require.NoError(t, err)
-	walletAAVEBalance, err := svc.GetAccountBalance(ctx, walletAAVEAccount.ID, "AAVE")
+	walletAAVEBalance, err := svc.GetAccountBalance(ctx, walletAAVEAccount.ID, testasset.AAVE)
 	require.NoError(t, err)
 	assert.Equal(t, 0, walletAAVEBalance.Balance.Cmp(big.NewInt(500000000000000000)), "wallet AAVE should be 0.5 after claim")
 
 	// Verify income account credited
-	incomeAccount, err := repo.GetAccountByCode(ctx, "income.lending."+chain+".AAVE")
+	incomeAccount, err := repo.GetAccountByCode(ctx, "income.lending."+chain+"."+testasset.AAVE.String())
 	require.NoError(t, err)
 	require.NotNil(t, incomeAccount, "income account should exist")
 
@@ -367,16 +369,16 @@ func TestIntegration_FullLendingCycle(t *testing.T) {
 	// =========================================================================
 
 	// Reconcile all accounts to verify consistency
-	err = svc.ReconcileBalance(ctx, walletETHAccount.ID, "ETH")
+	err = svc.ReconcileBalance(ctx, walletETHAccount.ID, testasset.ETH)
 	assert.NoError(t, err, "ETH wallet reconciliation should pass")
 
-	err = svc.ReconcileBalance(ctx, walletUSDCAccount.ID, "USDC")
+	err = svc.ReconcileBalance(ctx, walletUSDCAccount.ID, testasset.USDC)
 	assert.NoError(t, err, "USDC wallet reconciliation should pass")
 
-	err = svc.ReconcileBalance(ctx, collateralAccount.ID, "ETH")
+	err = svc.ReconcileBalance(ctx, collateralAccount.ID, testasset.ETH)
 	assert.NoError(t, err, "collateral reconciliation should pass")
 
-	err = svc.ReconcileBalance(ctx, liabilityAccount.ID, "USDC")
+	err = svc.ReconcileBalance(ctx, liabilityAccount.ID, testasset.USDC)
 	assert.NoError(t, err, "liability reconciliation should pass")
 }
 
@@ -391,7 +393,7 @@ func TestIntegration_SupplyEntries(t *testing.T) {
 	_, err := svc.RecordTransaction(ctx, ledger.TxTypeTransferIn, "blockchain", stringPtr("seed-supply-test"),
 		time.Now().Add(-2*time.Hour), map[string]interface{}{
 			"wallet_id":        walletID.String(),
-			"asset_id":         "ETH",
+			"asset_id":         testasset.ETH.String(),
 			"decimals":         18,
 			"amount":           "10000000000000000000", // 10 ETH — exceeds int64
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
@@ -411,7 +413,7 @@ func TestIntegration_SupplyEntries(t *testing.T) {
 			"wallet_id": walletID.String(),
 			"transfers": []map[string]interface{}{
 				{
-					"asset_id": "ETH",
+					"asset_id": testasset.ETH.String(),
 					"amount":   money.NewBigIntFromInt64(1000000000000000000).String(),
 					"decimals": 18,
 					"usd_rate": money.NewBigIntFromInt64(200000000000).String(),
@@ -429,16 +431,35 @@ func TestIntegration_SupplyEntries(t *testing.T) {
 	assert.NoError(t, tx.VerifyBalance())
 
 	// Wallet decreased
-	walletAccount, err := repo.GetAccountByCode(ctx, "wallet."+walletID.String()+".ethereum.ETH")
+	walletAccount, err := repo.GetAccountByCode(ctx, "wallet."+walletID.String()+".ethereum."+testasset.ETH.String())
 	require.NoError(t, err)
-	bal, err := svc.GetAccountBalance(ctx, walletAccount.ID, "ETH")
+	bal, err := svc.GetAccountBalance(ctx, walletAccount.ID, testasset.ETH)
 	require.NoError(t, err)
 	assert.Equal(t, 0, bal.Balance.Cmp(big.NewInt(9000000000000000000)), "wallet should have 9 ETH")
 
 	// Collateral increased
-	collAccount, err := repo.GetAccountByCode(ctx, "collateral.Aave V3."+walletID.String()+".ethereum.ETH")
+	collAccount, err := repo.GetAccountByCode(ctx, "collateral.Aave V3."+walletID.String()+".ethereum."+testasset.ETH.String())
 	require.NoError(t, err)
-	collBal, err := svc.GetAccountBalance(ctx, collAccount.ID, "ETH")
+	collBal, err := svc.GetAccountBalance(ctx, collAccount.ID, testasset.ETH)
 	require.NoError(t, err)
 	assert.Equal(t, 0, collBal.Balance.Cmp(big.NewInt(1000000000000000000)), "collateral should be 1 ETH")
+}
+
+// seedTestAssets inserts the pkg/testasset ids into asset_registry.
+//
+// accounts, entries, account_balances and tax_lots all carry an FK into
+// asset_registry since #59, so a test booking an entry against testasset.ETH
+// needs a registry row with THAT id. Resolve mints ids server-side and cannot be
+// told to use a specific one, so these go in directly. Idempotent, and called
+// after every Reset because Reset truncates the registry along with the rest.
+func seedTestAssets(t *testing.T, ctx context.Context) {
+	t.Helper()
+	for _, a := range testasset.All() {
+		_, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO asset_registry (id, chain, contract, symbol, name, decimals)
+			VALUES ($1, 'ethereum', $2, $3, $3, 18)
+			ON CONFLICT DO NOTHING
+		`, a.ID, "0xtest"+a.Symbol, a.Symbol)
+		require.NoError(t, err)
+	}
 }

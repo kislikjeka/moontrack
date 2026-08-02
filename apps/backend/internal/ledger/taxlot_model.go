@@ -37,20 +37,24 @@ type DisposalType string
 const (
 	DisposalTypeSale             DisposalType = "sale"
 	DisposalTypeInternalTransfer DisposalType = "internal_transfer"
-	DisposalTypeGasFee            DisposalType = "gas_fee"
-	DisposalTypeLendingTransfer   DisposalType = "lending_transfer"
+	DisposalTypeGasFee           DisposalType = "gas_fee"
+	DisposalTypeLendingTransfer  DisposalType = "lending_transfer"
 )
 
 // TaxLot represents a batch of asset acquired in a single transaction.
 // Each acquisition on a CRYPTO_WALLET account creates one tax lot.
 type TaxLot struct {
-	ID                       uuid.UUID
-	TransactionID            uuid.UUID
-	AccountID                uuid.UUID
-	Asset                    string
-	QuantityAcquired         *big.Int
-	QuantityRemaining        *big.Int
-	AcquiredAt               time.Time
+	ID            uuid.UUID
+	TransactionID uuid.UUID
+	AccountID     uuid.UUID
+	// Asset is the asset registry UUID (issue #59). It used to be a bare ticker
+	// with NO chain, so the chain could only be recovered by joining through
+	// accounts — which is why the pending-lot and disposal queries had to join
+	// at all. The UUID carries (chain, contract) by construction.
+	Asset             uuid.UUID
+	QuantityAcquired  *big.Int
+	QuantityRemaining *big.Int
+	AcquiredAt        time.Time
 	// AutoCostBasisPerUnit is the USD rate scaled 10^8. It may be nil for
 	// lots in PriceStatusPending state where the price has not been resolved yet.
 	AutoCostBasisPerUnit     *big.Int
@@ -60,7 +64,7 @@ type TaxLot struct {
 	OverrideAt               *time.Time // nullable
 	LinkedSourceLotID        *uuid.UUID // nullable — for internal transfers
 	CreatedAt                time.Time
-	ChainID                  string     // not persisted — populated at runtime by service layer
+	ChainID                  string // not persisted — populated at runtime by service layer
 
 	// Price resolution state — backed by price_status, price_resolution_attempts,
 	// and price_next_retry_at columns added in migration 000025.
@@ -117,17 +121,17 @@ type LotDisposal struct {
 // PositionWAC represents the weighted average cost for an (account, asset) position.
 type PositionWAC struct {
 	AccountID       uuid.UUID
-	Asset           string
+	Asset           uuid.UUID
 	TotalQuantity   *big.Int
 	WeightedAvgCost *big.Int // USD scaled 10^8
 }
 
 // LotOverrideHistory records changes to a lot's cost basis override.
 type LotOverrideHistory struct {
-	ID               uuid.UUID
-	LotID            uuid.UUID
+	ID                uuid.UUID
+	LotID             uuid.UUID
 	PreviousCostBasis *big.Int // nullable (nil if first override)
-	NewCostBasis     *big.Int
-	Reason           string
-	ChangedAt        time.Time
+	NewCostBasis      *big.Int
+	Reason            string
+	ChangedAt         time.Time
 }

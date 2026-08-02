@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -69,36 +68,34 @@ func (r *LendingPositionRepo) Update(ctx context.Context, pos *lendingposition.L
 }
 
 func (r *LendingPositionRepo) UpsertAsset(ctx context.Context, asset *lendingposition.LendingPositionAsset) error {
-	contract := sql.NullString{String: asset.Contract, Valid: asset.Contract != ""}
-
+	// The conflict target is (position_id, side, asset) with asset as a registry
+	// UUID, so two same-ticker tokens no longer collide onto one row.
 	query := `
 		INSERT INTO lending_position_assets (
 			id, position_id, side, asset,
-			amount, decimals, contract,
+			amount,
 			total_in, total_out,
 			total_in_usd, total_out_usd,
 			created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4,
-			$5, $6, $7,
+			$5,
+			$6, $7,
 			$8, $9,
-			$10, $11,
-			$12, $13
+			$10, $11
 		)
 		ON CONFLICT (position_id, side, asset) DO UPDATE SET
 			amount = $5,
-			decimals = $6,
-			contract = $7,
-			total_in = $8,
-			total_out = $9,
-			total_in_usd = $10,
-			total_out_usd = $11,
-			updated_at = $13
+			total_in = $6,
+			total_out = $7,
+			total_in_usd = $8,
+			total_out_usd = $9,
+			updated_at = $11
 	`
 
 	_, err := r.pool.Exec(ctx, query,
 		asset.ID, asset.PositionID, asset.Side, asset.Asset,
-		asset.Amount.String(), asset.Decimals, contract,
+		asset.Amount.String(),
 		asset.TotalIn.String(), asset.TotalOut.String(),
 		asset.TotalInUSD.String(), asset.TotalOutUSD.String(),
 		asset.CreatedAt, asset.UpdatedAt,
@@ -118,7 +115,7 @@ const lendingSelectColumns = `
 
 const lendingAssetSelectColumns = `
 	id, position_id, side, asset,
-	amount, decimals, contract,
+	amount,
 	total_in, total_out,
 	total_in_usd, total_out_usd,
 	created_at, updated_at
@@ -223,6 +220,10 @@ func (r *LendingPositionRepo) loadAssetsForPositions(ctx context.Context, posIDs
 		return nil, nil
 	}
 
+	// ORDER BY asset now sorts by registry UUID, not by ticker. That ordering is
+	// arbitrary to a reader but stable across calls, which is all this needs:
+	// it exists so a position's assets come back in the same order every time,
+	// and any presentational ordering belongs to whoever renders the symbols.
 	query := `SELECT ` + lendingAssetSelectColumns + `
 		FROM lending_position_assets
 		WHERE position_id = ANY($1)
@@ -272,22 +273,17 @@ func (r *LendingPositionRepo) scanOnePosition(row pgx.Row) (*lendingposition.Len
 
 func (r *LendingPositionRepo) scanOneAsset(row pgx.Row) (*lendingposition.LendingPositionAsset, error) {
 	var a lendingposition.LendingPositionAsset
-	var contract sql.NullString
 	var amount, totalIn, totalOut, totalInUSD, totalOutUSD string
 
 	err := row.Scan(
 		&a.ID, &a.PositionID, &a.Side, &a.Asset,
-		&amount, &a.Decimals, &contract,
+		&amount,
 		&totalIn, &totalOut,
 		&totalInUSD, &totalOutUSD,
 		&a.CreatedAt, &a.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
-	}
-
-	if contract.Valid {
-		a.Contract = contract.String
 	}
 
 	a.Amount = parseBigInt(amount)

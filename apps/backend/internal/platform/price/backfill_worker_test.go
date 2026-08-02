@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kislikjeka/moontrack/internal/ledger"
-	"github.com/kislikjeka/moontrack/internal/platform/asset"
 	"github.com/kislikjeka/moontrack/internal/platform/price"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/stretchr/testify/require"
@@ -90,10 +89,10 @@ func (m *memJobRepo) get(id uuid.UUID) price.BackfillJob {
 
 type memAssetLookup struct {
 	mu sync.Mutex
-	a  asset.Asset
+	a  price.Asset
 }
 
-func (m *memAssetLookup) GetAsset(ctx context.Context, id uuid.UUID) (*asset.Asset, error) {
+func (m *memAssetLookup) GetAsset(ctx context.Context, id uuid.UUID) (*price.Asset, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	a := m.a
@@ -102,15 +101,15 @@ func (m *memAssetLookup) GetAsset(ctx context.Context, id uuid.UUID) (*asset.Ass
 
 type memPriceRecorder struct {
 	mu       sync.Mutex
-	recorded []asset.PricePoint
+	recorded []price.PricePoint
 
-	// failErr, when non-nil, is returned from RecordPrice instead of
+	// failErr, when non-nil, is returned from RecordPricePoint instead of
 	// appending to `recorded`. Use this to exercise the worker's
 	// "recorder failed" error path.
 	failErr error
 }
 
-func (m *memPriceRecorder) RecordPrice(ctx context.Context, p *asset.PricePoint) error {
+func (m *memPriceRecorder) RecordPricePoint(ctx context.Context, p *price.PricePoint) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.failErr != nil {
@@ -133,17 +132,17 @@ type stubProv struct {
 }
 
 func (s *stubProv) Name() price.Source { return price.SourceDefiLlama }
-func (s *stubProv) GetPrice(ctx context.Context, a asset.Asset) (*big.Int, error) {
+func (s *stubProv) GetPrice(ctx context.Context, a price.Asset) (*big.Int, error) {
 	return nil, price.ErrNotFound
 }
-func (s *stubProv) GetHistoricalPrice(ctx context.Context, a asset.Asset, t time.Time) (*price.HistoricalPrice, error) {
+func (s *stubProv) GetHistoricalPrice(ctx context.Context, a price.Asset, t time.Time) (*price.HistoricalPrice, error) {
 	return s.hp, s.err
 }
 
 func TestWorker_ResolvesJob_WritesPriceHistory_FiresHook(t *testing.T) {
 	ctx := context.Background()
 	jr := newMemJobRepo()
-	aLookup := &memAssetLookup{a: asset.Asset{ID: uuid.New(), Symbol: "XTKN"}}
+	aLookup := &memAssetLookup{a: price.Asset{ID: uuid.New(), CoinGeckoID: "xtkn"}}
 	pr := &memPriceRecorder{}
 	hk := &memResolvedHook{}
 	resolver := price.NewResolver([]price.Provider{
@@ -169,7 +168,7 @@ func TestWorker_ResolvesJob_WritesPriceHistory_FiresHook(t *testing.T) {
 func TestWorker_NotFound_IncrementsAttempts(t *testing.T) {
 	ctx := context.Background()
 	jr := newMemJobRepo()
-	aLookup := &memAssetLookup{a: asset.Asset{ID: uuid.New(), Symbol: "XTKN"}}
+	aLookup := &memAssetLookup{a: price.Asset{ID: uuid.New(), CoinGeckoID: "xtkn"}}
 	pr := &memPriceRecorder{}
 	hk := &memResolvedHook{}
 	resolver := price.NewResolver([]price.Provider{
@@ -193,7 +192,7 @@ func TestWorker_NotFound_IncrementsAttempts(t *testing.T) {
 func TestWorker_RateLimited_DoesNotCountAttempt(t *testing.T) {
 	ctx := context.Background()
 	jr := newMemJobRepo()
-	aLookup := &memAssetLookup{a: asset.Asset{ID: uuid.New()}}
+	aLookup := &memAssetLookup{a: price.Asset{ID: uuid.New()}}
 	resolver := price.NewResolver([]price.Provider{
 		&stubProv{err: price.ErrRateLimited},
 	}, nil, logger.NewNoop())
@@ -217,7 +216,7 @@ func TestWorker_RateLimited_DoesNotCountAttempt(t *testing.T) {
 func TestWorker_TerminalAttempt_MarksFailed(t *testing.T) {
 	ctx := context.Background()
 	jr := newMemJobRepo()
-	aLookup := &memAssetLookup{a: asset.Asset{ID: uuid.New()}}
+	aLookup := &memAssetLookup{a: price.Asset{ID: uuid.New()}}
 	resolver := price.NewResolver([]price.Provider{
 		&stubProv{err: price.ErrNotFound},
 	}, nil, logger.NewNoop())
@@ -241,7 +240,7 @@ func TestWorker_TerminalAttempt_MarksFailed(t *testing.T) {
 func TestWorker_ProcessOne_RecordPriceFails_UnlocksWithoutCounting(t *testing.T) {
 	ctx := context.Background()
 	jr := newMemJobRepo()
-	aLookup := &memAssetLookup{a: asset.Asset{ID: uuid.New(), Symbol: "XTKN"}}
+	aLookup := &memAssetLookup{a: price.Asset{ID: uuid.New(), CoinGeckoID: "xtkn"}}
 	pr := &memPriceRecorder{failErr: errors.New("db write failure")}
 	hk := &memResolvedHook{}
 	resolver := price.NewResolver([]price.Provider{
@@ -271,7 +270,7 @@ func TestWorker_ProcessOne_RecordPriceFails_UnlocksWithoutCounting(t *testing.T)
 func TestWorker_ProcessOne_HookFails_UnlocksWithoutCounting(t *testing.T) {
 	ctx := context.Background()
 	jr := newMemJobRepo()
-	aLookup := &memAssetLookup{a: asset.Asset{ID: uuid.New(), Symbol: "XTKN"}}
+	aLookup := &memAssetLookup{a: price.Asset{ID: uuid.New(), CoinGeckoID: "xtkn"}}
 	pr := &memPriceRecorder{}
 
 	resolver := price.NewResolver([]price.Provider{
@@ -310,7 +309,7 @@ func TestWorker_ProcessOne_HookFails_UnlocksWithoutCounting(t *testing.T) {
 func TestWorker_TransientFailureDoesNotBurnAnAttempt(t *testing.T) {
 	ctx := context.Background()
 	jr := newMemJobRepo()
-	aLookup := &memAssetLookup{a: asset.Asset{ID: uuid.New(), Symbol: "XTKN"}}
+	aLookup := &memAssetLookup{a: price.Asset{ID: uuid.New(), CoinGeckoID: "xtkn"}}
 	pr := &memPriceRecorder{}
 	hk := &memResolvedHook{}
 	resolver := price.NewResolver([]price.Provider{

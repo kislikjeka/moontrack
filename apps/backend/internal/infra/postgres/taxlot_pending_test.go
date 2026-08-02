@@ -38,7 +38,7 @@ func seedUserAndWallet(t *testing.T, ctx context.Context) (userID, walletID uuid
 }
 
 // seedAccountForPendingTest creates a minimal crypto_wallet account.
-func seedAccountForPendingTest(t *testing.T, ctx context.Context, walletID uuid.UUID, asset string) uuid.UUID {
+func seedAccountForPendingTest(t *testing.T, ctx context.Context, walletID uuid.UUID, asset uuid.UUID) uuid.UUID {
 	t.Helper()
 	accountID := uuid.New()
 	code := fmt.Sprintf("wallet.%s.%s", walletID.String(), asset)
@@ -65,7 +65,7 @@ func seedTransactionForPendingTest(t *testing.T, ctx context.Context, walletID u
 }
 
 // seedPendingLot seeds a tax lot with PriceStatusPending and nil AutoCostBasisPerUnit.
-func seedPendingLot(t *testing.T, ctx context.Context, repo *TaxLotRepository, walletID uuid.UUID, asset string, at time.Time) *ledger.TaxLot {
+func seedPendingLot(t *testing.T, ctx context.Context, repo *TaxLotRepository, walletID uuid.UUID, asset uuid.UUID, at time.Time) *ledger.TaxLot {
 	t.Helper()
 	accountID := seedAccountForPendingTest(t, ctx, walletID, asset)
 	txID := seedTransactionForPendingTest(t, ctx, walletID)
@@ -95,14 +95,16 @@ func TestTaxLotRepo_ListPendingLots(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetETH := seedAssetTicker(t, "ETH")
+
 	repo := NewTaxLotRepository(testDB.Pool)
 	_, walletID := seedUserAndWallet(t, ctx)
 
 	at := time.Now().UTC().Truncate(time.Minute)
-	lot := seedPendingLot(t, ctx, repo, walletID, "ETH", at)
+	lot := seedPendingLot(t, ctx, repo, walletID, assetETH, at)
 
 	// Must find the lot within the minute bucket
-	lots, err := repo.ListPendingLotsByAssetAndTime(ctx, "ETH", at)
+	lots, err := repo.ListPendingLotsByAssetAndTime(ctx, assetETH, at)
 	require.NoError(t, err)
 	require.Len(t, lots, 1)
 	require.Equal(t, lot.ID, lots[0].ID)
@@ -119,7 +121,7 @@ func TestTaxLotRepo_ListPendingLots(t *testing.T) {
 	require.Equal(t, "100000000", resolved.EffectiveCostBasisPerUnit().String())
 
 	// After resolution, listing pending lots for the same minute should return 0
-	afterResolve, err := repo.ListPendingLotsByAssetAndTime(ctx, "ETH", at)
+	afterResolve, err := repo.ListPendingLotsByAssetAndTime(ctx, assetETH, at)
 	require.NoError(t, err)
 	require.Len(t, afterResolve, 0)
 }
@@ -131,10 +133,12 @@ func TestTaxLotRepo_MarkUnpriceable(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetXTKN := seedAssetTicker(t, "XTKN")
+
 	repo := NewTaxLotRepository(testDB.Pool)
 	_, walletID := seedUserAndWallet(t, ctx)
 
-	lot := seedPendingLot(t, ctx, repo, walletID, "XTKN", time.Now().UTC())
+	lot := seedPendingLot(t, ctx, repo, walletID, assetXTKN, time.Now().UTC())
 
 	require.NoError(t, repo.MarkUnpriceable(ctx, lot.ID))
 
@@ -154,10 +158,12 @@ func TestTaxLotRepo_IncrementAttempt(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetYTKN := seedAssetTicker(t, "YTKN")
+
 	repo := NewTaxLotRepository(testDB.Pool)
 	_, walletID := seedUserAndWallet(t, ctx)
 
-	lot := seedPendingLot(t, ctx, repo, walletID, "YTKN", time.Now().UTC())
+	lot := seedPendingLot(t, ctx, repo, walletID, assetYTKN, time.Now().UTC())
 
 	nextRetry := time.Now().UTC().Add(15 * time.Minute).Truncate(time.Second)
 	require.NoError(t, repo.IncrementAttempt(ctx, lot.ID, 1, nextRetry))
@@ -181,6 +187,8 @@ func TestTaxLotRepo_ResolvePendingDisposals(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetTKN := seedAssetTicker(t, "TKN")
+
 	repo := NewTaxLotRepository(testDB.Pool)
 	_, walletID := seedUserAndWallet(t, ctx)
 
@@ -194,14 +202,14 @@ func TestTaxLotRepo_ResolvePendingDisposals(t *testing.T) {
 	require.NoError(t, err)
 
 	// Seed a lot the disposal can reference.
-	accountID := seedAccountForPendingTest(t, ctx, walletID, "TKN")
+	accountID := seedAccountForPendingTest(t, ctx, walletID, assetTKN)
 	txID := seedTransactionForPendingTest(t, ctx, walletID)
 
 	lot := &ledger.TaxLot{
 		ID:                   uuid.New(),
 		TransactionID:        txID,
 		AccountID:            accountID,
-		Asset:                "TKN",
+		Asset:                assetTKN,
 		QuantityAcquired:     big.NewInt(1_000),
 		QuantityRemaining:    big.NewInt(500),
 		AcquiredAt:           time.Now().UTC().Add(-time.Hour),
@@ -266,6 +274,8 @@ func TestTaxLotRepo_ResolvePendingDisposalsForUser(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetSHR := seedAssetTicker(t, "SHR")
+
 	repo := NewTaxLotRepository(testDB.Pool)
 
 	// Shared asset row.
@@ -278,7 +288,7 @@ func TestTaxLotRepo_ResolvePendingDisposalsForUser(t *testing.T) {
 
 	// Seed user A + wallet + account + lot + pending disposal.
 	userA, walletA := seedUserAndWallet(t, ctx)
-	accountA := seedAccountForPendingTest(t, ctx, walletA, "SHR")
+	accountA := seedAccountForPendingTest(t, ctx, walletA, assetSHR)
 	txA := seedTransactionForPendingTest(t, ctx, walletA)
 
 	disposedAt := time.Now().UTC().Truncate(time.Minute)
@@ -287,7 +297,7 @@ func TestTaxLotRepo_ResolvePendingDisposalsForUser(t *testing.T) {
 		ID:                   uuid.New(),
 		TransactionID:        txA,
 		AccountID:            accountA,
-		Asset:                "SHR",
+		Asset:                assetSHR,
 		QuantityAcquired:     big.NewInt(1_000),
 		QuantityRemaining:    big.NewInt(500),
 		AcquiredAt:           disposedAt.Add(-time.Hour),
@@ -313,14 +323,14 @@ func TestTaxLotRepo_ResolvePendingDisposalsForUser(t *testing.T) {
 
 	// Seed user B with the same asset + minute bucket — but different user.
 	_, walletB := seedUserAndWallet(t, ctx)
-	accountB := seedAccountForPendingTest(t, ctx, walletB, "SHR")
+	accountB := seedAccountForPendingTest(t, ctx, walletB, assetSHR)
 	txB := seedTransactionForPendingTest(t, ctx, walletB)
 
 	lotB := &ledger.TaxLot{
 		ID:                   uuid.New(),
 		TransactionID:        txB,
 		AccountID:            accountB,
-		Asset:                "SHR",
+		Asset:                assetSHR,
 		QuantityAcquired:     big.NewInt(2_000),
 		QuantityRemaining:    big.NewInt(1_000),
 		AcquiredAt:           disposedAt.Add(-time.Hour),
@@ -376,11 +386,13 @@ func TestTaxLotRepo_ClearOverride_RefusesWhenAutoIsNull(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetWWW := seedAssetTicker(t, "WWW")
+
 	repo := NewTaxLotRepository(testDB.Pool)
 	_, walletID := seedUserAndWallet(t, ctx)
 
 	// Seed a pending lot (auto NULL), then apply an override and flip to resolved.
-	lot := seedPendingLot(t, ctx, repo, walletID, "WWW", time.Now().UTC())
+	lot := seedPendingLot(t, ctx, repo, walletID, assetWWW, time.Now().UTC())
 	require.NoError(t, repo.UpdateOverride(ctx, lot.ID, big.NewInt(123_000_000), "manual price"))
 	// Move status off 'pending' to simulate the landmine: override present, auto NULL,
 	// but status is no longer pending.
@@ -404,17 +416,19 @@ func TestTaxLotRepo_ClearOverride_AllowedWhenAutoResolved(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetQQQ := seedAssetTicker(t, "QQQ")
+
 	repo := NewTaxLotRepository(testDB.Pool)
 	_, walletID := seedUserAndWallet(t, ctx)
 
-	accountID := seedAccountForPendingTest(t, ctx, walletID, "QQQ")
+	accountID := seedAccountForPendingTest(t, ctx, walletID, assetQQQ)
 	txID := seedTransactionForPendingTest(t, ctx, walletID)
 
 	lot := &ledger.TaxLot{
 		ID:                   uuid.New(),
 		TransactionID:        txID,
 		AccountID:            accountID,
-		Asset:                "QQQ",
+		Asset:                assetQQQ,
 		QuantityAcquired:     big.NewInt(1_000),
 		QuantityRemaining:    big.NewInt(1_000),
 		AcquiredAt:           time.Now().UTC(),
@@ -444,18 +458,20 @@ func TestTaxLotRepo_GetWAC_MixedPendingAndResolved(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetETH := seedAssetTicker(t, "ETH")
+
 	repo := NewTaxLotRepository(testDB.Pool)
 	_, walletID := seedUserAndWallet(t, ctx)
 
 	// Seed one resolved + one pending lot for the same (account, asset).
-	accountID := seedAccountForPendingTest(t, ctx, walletID, "ETH")
+	accountID := seedAccountForPendingTest(t, ctx, walletID, assetETH)
 	txID := seedTransactionForPendingTest(t, ctx, walletID)
 
 	resolvedLot := &ledger.TaxLot{
 		ID:                   uuid.New(),
 		TransactionID:        txID,
 		AccountID:            accountID,
-		Asset:                "ETH",
+		Asset:                assetETH,
 		QuantityAcquired:     big.NewInt(1_000),
 		QuantityRemaining:    big.NewInt(1_000),
 		AcquiredAt:           time.Now().UTC().Add(-time.Hour),
@@ -471,7 +487,7 @@ func TestTaxLotRepo_GetWAC_MixedPendingAndResolved(t *testing.T) {
 		ID:                      uuid.New(),
 		TransactionID:           pendingTxID,
 		AccountID:               accountID,
-		Asset:                   "ETH",
+		Asset:                   assetETH,
 		QuantityAcquired:        big.NewInt(500),
 		QuantityRemaining:       big.NewInt(500),
 		AcquiredAt:              time.Now().UTC().Truncate(time.Minute),
@@ -492,7 +508,7 @@ func TestTaxLotRepo_GetWAC_MixedPendingAndResolved(t *testing.T) {
 
 	p := positions[0]
 	require.Equal(t, accountID, p.AccountID)
-	require.Equal(t, "ETH", p.Asset)
+	require.Equal(t, assetETH, p.Asset)
 	require.NotNil(t, p.TotalQuantity, "TotalQuantity must always be populated")
 	// Either WAC is resolved from the non-pending lots, or nil — both are
 	// acceptable. What must NOT happen is a scan failure or a panic.
@@ -515,10 +531,12 @@ func TestTaxLotRepo_GetWAC_MixedPending_ExcludesPendingFromDenominator(t *testin
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetMIX := seedAssetTicker(t, "MIX")
+
 	repo := NewTaxLotRepository(testDB.Pool)
 	_, walletID := seedUserAndWallet(t, ctx)
 
-	accountID := seedAccountForPendingTest(t, ctx, walletID, "MIX")
+	accountID := seedAccountForPendingTest(t, ctx, walletID, assetMIX)
 
 	// Resolved lot: qty=100, cost per unit = 10 * 10^8
 	resolvedTxID := seedTransactionForPendingTest(t, ctx, walletID)
@@ -526,7 +544,7 @@ func TestTaxLotRepo_GetWAC_MixedPending_ExcludesPendingFromDenominator(t *testin
 		ID:                   uuid.New(),
 		TransactionID:        resolvedTxID,
 		AccountID:            accountID,
-		Asset:                "MIX",
+		Asset:                assetMIX,
 		QuantityAcquired:     big.NewInt(100),
 		QuantityRemaining:    big.NewInt(100),
 		AcquiredAt:           time.Now().UTC().Add(-time.Hour),
@@ -543,7 +561,7 @@ func TestTaxLotRepo_GetWAC_MixedPending_ExcludesPendingFromDenominator(t *testin
 		ID:                      uuid.New(),
 		TransactionID:           pendingTxID,
 		AccountID:               accountID,
-		Asset:                   "MIX",
+		Asset:                   assetMIX,
 		QuantityAcquired:        big.NewInt(100),
 		QuantityRemaining:       big.NewInt(100),
 		AcquiredAt:              time.Now().UTC().Truncate(time.Minute),
@@ -563,7 +581,7 @@ func TestTaxLotRepo_GetWAC_MixedPending_ExcludesPendingFromDenominator(t *testin
 
 	p := positions[0]
 	require.Equal(t, accountID, p.AccountID)
-	require.Equal(t, "MIX", p.Asset)
+	require.Equal(t, assetMIX, p.Asset)
 
 	// Total quantity spans every open lot (pending + resolved) since the
 	// pending quantity is still part of the user's holdings.
@@ -588,18 +606,20 @@ func TestTaxLotRepo_ResolvePendingPrice_AlreadyResolved(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetRSV := seedAssetTicker(t, "RSV")
+
 	repo := NewTaxLotRepository(testDB.Pool)
 	_, walletID := seedUserAndWallet(t, ctx)
 
 	// Seed a lot that is already in 'resolved' state (default for tax_lots).
-	accountID := seedAccountForPendingTest(t, ctx, walletID, "RSV")
+	accountID := seedAccountForPendingTest(t, ctx, walletID, assetRSV)
 	txID := seedTransactionForPendingTest(t, ctx, walletID)
 
 	lot := &ledger.TaxLot{
 		ID:                   uuid.New(),
 		TransactionID:        txID,
 		AccountID:            accountID,
-		Asset:                "RSV",
+		Asset:                assetRSV,
 		QuantityAcquired:     big.NewInt(1_000),
 		QuantityRemaining:    big.NewInt(1_000),
 		AcquiredAt:           time.Now().UTC(),
@@ -633,16 +653,18 @@ func TestTaxLotRepo_MarkResolved_AlreadyResolved(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetMRR := seedAssetTicker(t, "MRR")
+
 	repo := NewTaxLotRepository(testDB.Pool)
 	_, walletID := seedUserAndWallet(t, ctx)
 
-	accountID := seedAccountForPendingTest(t, ctx, walletID, "MRR")
+	accountID := seedAccountForPendingTest(t, ctx, walletID, assetMRR)
 	txID := seedTransactionForPendingTest(t, ctx, walletID)
 	lot := &ledger.TaxLot{
 		ID:                   uuid.New(),
 		TransactionID:        txID,
 		AccountID:            accountID,
-		Asset:                "MRR",
+		Asset:                assetMRR,
 		QuantityAcquired:     big.NewInt(1_000),
 		QuantityRemaining:    big.NewInt(1_000),
 		AcquiredAt:           time.Now().UTC(),
@@ -666,10 +688,12 @@ func TestTaxLotRepo_IncrementAttempt_OnNonPending(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetIAT := seedAssetTicker(t, "IAT")
+
 	repo := NewTaxLotRepository(testDB.Pool)
 	_, walletID := seedUserAndWallet(t, ctx)
 
-	lot := seedPendingLot(t, ctx, repo, walletID, "IAT", time.Now().UTC())
+	lot := seedPendingLot(t, ctx, repo, walletID, assetIAT, time.Now().UTC())
 	require.NoError(t, repo.MarkUnpriceable(ctx, lot.ID))
 
 	err := repo.IncrementAttempt(ctx, lot.ID, 5, time.Now().UTC().Add(time.Hour))
@@ -686,10 +710,12 @@ func TestTaxLotRepo_GetWAC_AllPending_NilWAC(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetZZZ := seedAssetTicker(t, "ZZZ")
+
 	repo := NewTaxLotRepository(testDB.Pool)
 	_, walletID := seedUserAndWallet(t, ctx)
 
-	lot := seedPendingLot(t, ctx, repo, walletID, "ZZZ", time.Now().UTC())
+	lot := seedPendingLot(t, ctx, repo, walletID, assetZZZ, time.Now().UTC())
 	require.NoError(t, repo.RefreshWAC(ctx))
 
 	positions, err := repo.GetWAC(ctx, []uuid.UUID{lot.AccountID})
@@ -707,9 +733,11 @@ func TestTaxLotRepo_CreateTaxLot_DefaultsToResolved(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetBTC := seedAssetTicker(t, "BTC")
+
 	repo := NewTaxLotRepository(testDB.Pool)
 	_, walletID := seedUserAndWallet(t, ctx)
-	accountID := seedAccountForPendingTest(t, ctx, walletID, "BTC")
+	accountID := seedAccountForPendingTest(t, ctx, walletID, assetBTC)
 	txID := seedTransactionForPendingTest(t, ctx, walletID)
 
 	// Simulate a caller that does NOT set PriceStatus (zero value "")
@@ -717,7 +745,7 @@ func TestTaxLotRepo_CreateTaxLot_DefaultsToResolved(t *testing.T) {
 		ID:                   uuid.New(),
 		TransactionID:        txID,
 		AccountID:            accountID,
-		Asset:                "BTC",
+		Asset:                assetBTC,
 		QuantityAcquired:     big.NewInt(1_000_000),
 		QuantityRemaining:    big.NewInt(1_000_000),
 		AcquiredAt:           time.Now().UTC(),

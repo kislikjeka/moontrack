@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 )
 
 // =============================================================================
@@ -35,11 +36,11 @@ import (
 // chainWalletAccount is a wallet account on a specific chain. Cross-chain legs
 // differ only in the chain segment of the code and the ChainID field — they are
 // two distinct accounts holding the same asset.
-func chainWalletAccount(id uuid.UUID, chain, asset string) *Account {
+func chainWalletAccount(id uuid.UUID, chain string, asset uuid.UUID) *Account {
 	wid := uuid.New()
 	return &Account{
 		ID:       id,
-		Code:     "wallet.test." + chain + "." + asset,
+		Code:     "wallet.test." + chain + "." + asset.String(),
 		Type:     AccountTypeCryptoWallet,
 		AssetID:  asset,
 		WalletID: &wid,
@@ -54,10 +55,10 @@ func crossChainTransferTx(srcAcctID, dstAcctID uuid.UUID, amount int64) *Transac
 		ID:   uuid.New(),
 		Type: TxTypeInternalTransfer,
 		Entries: []*Entry{
-			makeEntry(dstAcctID, Debit, EntryTypeAssetIncrease, amount, "ETH", map[string]interface{}{
+			makeEntry(dstAcctID, Debit, EntryTypeAssetIncrease, amount, testasset.ETH, map[string]interface{}{
 				"chain_id": "arbitrum",
 			}),
-			makeEntry(srcAcctID, Credit, EntryTypeAssetDecrease, amount, "ETH", map[string]interface{}{
+			makeEntry(srcAcctID, Credit, EntryTypeAssetDecrease, amount, testasset.ETH, map[string]interface{}{
 				"chain_id": "base",
 			}),
 		},
@@ -80,7 +81,7 @@ func TestTaxLotHook_CrossChainInternalTransfer_CarriesBasisNoPnL(t *testing.T) {
 		ID:                   uuid.New(),
 		TransactionID:        uuid.New(),
 		AccountID:            baseAcctID,
-		Asset:                "ETH",
+		Asset:                testasset.ETH,
 		QuantityAcquired:     big.NewInt(1000),
 		QuantityRemaining:    big.NewInt(1000),
 		AcquiredAt:           time.Now().Add(-24 * time.Hour),
@@ -92,8 +93,8 @@ func TestTaxLotHook_CrossChainInternalTransfer_CarriesBasisNoPnL(t *testing.T) {
 
 	taxLotRepo := &mockTaxLotRepo{lots: []*TaxLot{sourceLot}}
 	ledgerRepo := &mockLedgerRepo{accounts: map[uuid.UUID]*Account{
-		baseAcctID: chainWalletAccount(baseAcctID, "base", "ETH"),
-		arbAcctID:  chainWalletAccount(arbAcctID, "arbitrum", "ETH"),
+		baseAcctID: chainWalletAccount(baseAcctID, "base", testasset.ETH),
+		arbAcctID:  chainWalletAccount(arbAcctID, "arbitrum", testasset.ETH),
 	}}
 
 	hook := NewTaxLotHook(taxLotRepo, ledgerRepo, newTestLogger())
@@ -160,7 +161,7 @@ func TestTaxLotHook_CrossChainInternalTransfer_WeightedAverageAcrossLots(t *test
 		ID:                   uuid.New(),
 		TransactionID:        uuid.New(),
 		AccountID:            baseAcctID,
-		Asset:                "ETH",
+		Asset:                testasset.ETH,
 		QuantityAcquired:     big.NewInt(600),
 		QuantityRemaining:    big.NewInt(600),
 		AcquiredAt:           time.Now().Add(-48 * time.Hour),
@@ -173,7 +174,7 @@ func TestTaxLotHook_CrossChainInternalTransfer_WeightedAverageAcrossLots(t *test
 		ID:                   uuid.New(),
 		TransactionID:        uuid.New(),
 		AccountID:            baseAcctID,
-		Asset:                "ETH",
+		Asset:                testasset.ETH,
 		QuantityAcquired:     big.NewInt(400),
 		QuantityRemaining:    big.NewInt(400),
 		AcquiredAt:           time.Now().Add(-24 * time.Hour),
@@ -185,8 +186,8 @@ func TestTaxLotHook_CrossChainInternalTransfer_WeightedAverageAcrossLots(t *test
 
 	taxLotRepo := &mockTaxLotRepo{lots: []*TaxLot{older, newer}}
 	ledgerRepo := &mockLedgerRepo{accounts: map[uuid.UUID]*Account{
-		baseAcctID: chainWalletAccount(baseAcctID, "base", "ETH"),
-		arbAcctID:  chainWalletAccount(arbAcctID, "arbitrum", "ETH"),
+		baseAcctID: chainWalletAccount(baseAcctID, "base", testasset.ETH),
+		arbAcctID:  chainWalletAccount(arbAcctID, "arbitrum", testasset.ETH),
 	}}
 
 	hook := NewTaxLotHook(taxLotRepo, ledgerRepo, newTestLogger())
@@ -230,7 +231,7 @@ func TestTaxLotHook_SameChainInternalTransfer_Unchanged(t *testing.T) {
 		ID:                   uuid.New(),
 		TransactionID:        uuid.New(),
 		AccountID:            srcAcctID,
-		Asset:                "ETH",
+		Asset:                testasset.ETH,
 		QuantityAcquired:     big.NewInt(1000),
 		QuantityRemaining:    big.NewInt(1000),
 		AcquiredAt:           time.Now().Add(-24 * time.Hour),
@@ -242,8 +243,8 @@ func TestTaxLotHook_SameChainInternalTransfer_Unchanged(t *testing.T) {
 
 	taxLotRepo := &mockTaxLotRepo{lots: []*TaxLot{sourceLot}}
 	ledgerRepo := &mockLedgerRepo{accounts: map[uuid.UUID]*Account{
-		srcAcctID: chainWalletAccount(srcAcctID, "base", "ETH"),
-		dstAcctID: chainWalletAccount(dstAcctID, "base", "ETH"),
+		srcAcctID: chainWalletAccount(srcAcctID, "base", testasset.ETH),
+		dstAcctID: chainWalletAccount(dstAcctID, "base", testasset.ETH),
 	}}
 
 	hook := NewTaxLotHook(taxLotRepo, ledgerRepo, newTestLogger())
@@ -252,8 +253,8 @@ func TestTaxLotHook_SameChainInternalTransfer_Unchanged(t *testing.T) {
 		ID:   uuid.New(),
 		Type: TxTypeInternalTransfer,
 		Entries: []*Entry{
-			makeEntry(dstAcctID, Debit, EntryTypeAssetIncrease, 1000, "ETH", map[string]interface{}{"chain_id": "base"}),
-			makeEntry(srcAcctID, Credit, EntryTypeAssetDecrease, 1000, "ETH", map[string]interface{}{"chain_id": "base"}),
+			makeEntry(dstAcctID, Debit, EntryTypeAssetIncrease, 1000, testasset.ETH, map[string]interface{}{"chain_id": "base"}),
+			makeEntry(srcAcctID, Credit, EntryTypeAssetDecrease, 1000, testasset.ETH, map[string]interface{}{"chain_id": "base"}),
 		},
 	}
 

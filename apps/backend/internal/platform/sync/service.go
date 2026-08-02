@@ -36,15 +36,12 @@ func NewService(
 	config *Config,
 	walletRepo WalletRepository,
 	ledgerSvc LedgerService,
-	assetSvc AssetService,
 	logger *logger.Logger,
 	txProvider TransactionDataProvider,
 	posProvider PositionDataProvider,
 	rawTxRepo RawTransactionRepository,
-	assetRepo SyncAssetRepository,
 	lpPositionSvc LPPositionService,
 	lendingPositionSvc LendingPositionService,
-	assetUpsert AssetUpserter,
 	jobEnqueuer JobEnqueuer,
 	assetRegistry AssetRegistry,
 	knownFilter *KnownAssetFilter,
@@ -56,7 +53,7 @@ func NewService(
 
 	var txBuilder *TxBuilder
 	if txProvider != nil {
-		txBuilder = NewTxBuilder(walletRepo, ledgerSvc, lpPositionSvc, lendingPositionSvc, logger, assetUpsert, jobEnqueuer, assetRegistry, knownFilter)
+		txBuilder = NewTxBuilder(walletRepo, ledgerSvc, lpPositionSvc, lendingPositionSvc, logger, jobEnqueuer, assetRegistry, knownFilter)
 	}
 
 	svc := &Service{
@@ -73,11 +70,11 @@ func NewService(
 
 	// Create sub-services for the 3-phase sync pipeline
 	if txProvider != nil && rawTxRepo != nil {
-		svc.collector = NewCollector(txProvider, rawTxRepo, walletRepo, assetRepo, config, logger)
+		svc.collector = NewCollector(txProvider, rawTxRepo, walletRepo, config, logger)
 		svc.processor = NewProcessor(rawTxRepo, walletRepo, txBuilder, logger)
 	}
 	if posProvider != nil && rawTxRepo != nil {
-		svc.reconciler = NewReconciler(rawTxRepo, posProvider, walletRepo, assetRepo, knownFilter, logger)
+		svc.reconciler = NewReconciler(rawTxRepo, posProvider, walletRepo, knownFilter, logger)
 	}
 
 	return svc

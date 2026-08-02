@@ -1,6 +1,7 @@
 package adjustment
 
 import (
+	"fmt"
 	"math/big"
 	"time"
 
@@ -10,11 +11,16 @@ import (
 
 // AssetAdjustmentTransaction represents a manual asset balance adjustment
 type AssetAdjustmentTransaction struct {
-	WalletID    uuid.UUID     `json:"wallet_id"`
-	AssetID     string        `json:"asset_id"`
-	Decimals    int           `json:"decimals"`           // Asset decimals for USD value calculation
-	NewBalance  *money.BigInt `json:"new_balance"`        // Target balance in base units
-	USDRate     *money.BigInt `json:"usd_rate,omitempty"` // Optional: USD rate scaled by 10^8
+	WalletID uuid.UUID `json:"wallet_id"`
+	// AssetID is a registry UUID (#59). An adjustment reads the current balance
+	// for this asset and books the difference, so a wrong id would move the
+	// wrong position by exactly the amount needed to make another one look
+	// right — the failure mode this ticket exists to remove.
+	AssetID     uuid.UUID     `json:"asset_id"`
+	AssetSymbol string        `json:"asset_symbol,omitempty"` // display only
+	Decimals    int           `json:"decimals"`               // Asset decimals for USD value calculation
+	NewBalance  *money.BigInt `json:"new_balance"`            // Target balance in base units
+	USDRate     *money.BigInt `json:"usd_rate,omitempty"`     // Optional: USD rate scaled by 10^8
 	OccurredAt  time.Time     `json:"occurred_at"`
 	Notes       string        `json:"notes,omitempty"`        // Reason for adjustment
 	PriceSource string        `json:"price_source,omitempty"` // "manual" or "coingecko"
@@ -26,7 +32,7 @@ func (t *AssetAdjustmentTransaction) Validate() error {
 		return ErrInvalidWalletID
 	}
 
-	if t.AssetID == "" {
+	if t.AssetID == uuid.Nil {
 		return ErrMissingAssetID
 	}
 
@@ -72,9 +78,22 @@ func ParseAdjustmentFromRawData(raw map[string]interface{}) (*AssetAdjustmentTra
 		tx.WalletID = walletID
 	}
 
-	// Parse asset_id
-	if assetID, ok := raw["asset_id"].(string); ok {
+	// Parse asset_id. A present-but-unparseable id is an error rather than a
+	// fallback to uuid.Nil: silently booking an adjustment against the nil
+	// asset is precisely the wrong-asset write #59 removes. An absent key
+	// leaves uuid.Nil, which Validate rejects.
+	if assetIDStr, ok := raw["asset_id"].(string); ok {
+		assetID, err := uuid.Parse(assetIDStr)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %q is not a registry asset id", ErrMissingAssetID, assetIDStr)
+		}
 		tx.AssetID = assetID
+	}
+
+	// asset_symbol is display data only — it never reaches an entry or an
+	// account code, so an absent or odd value cannot misroute anything.
+	if symbol, ok := raw["asset_symbol"].(string); ok {
+		tx.AssetSymbol = symbol
 	}
 
 	// Parse new_balance

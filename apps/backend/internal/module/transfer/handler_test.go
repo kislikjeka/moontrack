@@ -17,6 +17,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/kislikjeka/moontrack/pkg/money"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 )
 
 // MockWalletRepository is a mock implementation of WalletRepository
@@ -81,7 +82,7 @@ func TestTransferInHandler_GenerateEntries_Balance(t *testing.T) {
 
 			data := map[string]interface{}{
 				"wallet_id":        walletID.String(),
-				"asset_id":         "ETH",
+				"asset_id":         testasset.ETH.String(),
 				"decimals":         tc.decimals,
 				"amount":           money.NewBigIntFromInt64(tc.amount).String(),
 				"usd_rate":         money.NewBigIntFromInt64(tc.usdRate).String(),
@@ -147,7 +148,9 @@ func TestTransferInHandler_ValidateData(t *testing.T) {
 		{
 			name: "missing asset ID",
 			modifyData: func(data map[string]interface{}) {
-				data["asset_id"] = ""
+				// The nil UUID is the "no asset" spelling now (#59) — validation
+				// must reject it rather than emitting an entry against it.
+				data["asset_id"] = uuid.Nil.String()
 			},
 			expectedErr: transfer.ErrInvalidAssetID,
 		},
@@ -212,7 +215,7 @@ func TestTransferInHandler_ValidateData(t *testing.T) {
 
 			data := map[string]interface{}{
 				"wallet_id":        walletID.String(),
-				"asset_id":         "ETH",
+				"asset_id":         testasset.ETH.String(),
 				"decimals":         18,
 				"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
 				"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
@@ -265,7 +268,7 @@ func TestTransferInHandler_MultiAsset(t *testing.T) {
 		"unique_id":    "unique123",
 		"transfers": []map[string]interface{}{
 			{
-				"asset_id":         "ETH",
+				"asset_id":         testasset.ETH.String(),
 				"decimals":         18,
 				"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
 				"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
@@ -274,7 +277,7 @@ func TestTransferInHandler_MultiAsset(t *testing.T) {
 				"direction":        "in",
 			},
 			{
-				"asset_id":         "USDC",
+				"asset_id":         testasset.USDC.String(),
 				"decimals":         6,
 				"amount":           money.NewBigIntFromInt64(400000000).String(),
 				"usd_rate":         money.NewBigIntFromInt64(100000000).String(),
@@ -290,11 +293,11 @@ func TestTransferInHandler_MultiAsset(t *testing.T) {
 	require.Len(t, entries, 4, "expected 2 entries per asset x 2 assets = 4 entries")
 
 	// Each asset must contribute a balanced debit/credit pair.
-	perAsset := map[string]struct {
+	perAsset := map[uuid.UUID]struct {
 		debitSum, creditSum *big.Int
 	}{
-		"ETH":  {big.NewInt(0), big.NewInt(0)},
-		"USDC": {big.NewInt(0), big.NewInt(0)},
+		testasset.ETH:  {big.NewInt(0), big.NewInt(0)},
+		testasset.USDC: {big.NewInt(0), big.NewInt(0)},
 	}
 	for _, e := range entries {
 		bucket, ok := perAsset[e.AssetID]
@@ -336,7 +339,7 @@ func TestTransferInHandler_CrossUserWallet_ReturnsUnauthorized(t *testing.T) {
 
 	data := map[string]interface{}{
 		"wallet_id":        walletID.String(),
-		"asset_id":         "ETH",
+		"asset_id":         testasset.ETH.String(),
 		"decimals":         18,
 		"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
 		"chain_id":         "ethereum",
@@ -364,7 +367,7 @@ func TestTransferInHandler_WalletNotFound(t *testing.T) {
 
 	data := map[string]interface{}{
 		"wallet_id":        walletID.String(),
-		"asset_id":         "ETH",
+		"asset_id":         testasset.ETH.String(),
 		"decimals":         18,
 		"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
 		"chain_id":         "ethereum",
@@ -423,7 +426,7 @@ func TestTransferOutHandler_GenerateEntries_Balance(t *testing.T) {
 
 			data := map[string]interface{}{
 				"wallet_id":        walletID.String(),
-				"asset_id":         "ETH",
+				"asset_id":         testasset.ETH.String(),
 				"decimals":         tc.decimals,
 				"amount":           money.NewBigIntFromInt64(tc.amount).String(),
 				"usd_rate":         money.NewBigIntFromInt64(tc.usdRate).String(),
@@ -481,13 +484,17 @@ func TestTransferOutHandler_WithGas_GenerateEntries_Balance(t *testing.T) {
 	handler := transfer.NewTransferOutHandler(walletRepo, logger.NewDefault("test"))
 
 	data := map[string]interface{}{
-		"wallet_id":        walletID.String(),
-		"asset_id":         "ETH",
-		"decimals":         18,
-		"amount":           money.NewBigIntFromInt64(1000000000000000000).String(), // 1 ETH
-		"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),        // $2000
-		"gas_amount":       money.NewBigIntFromInt64(21000000000000000).String(),   // 0.021 ETH gas
-		"gas_usd_rate":     money.NewBigIntFromInt64(200000000000).String(),        // $2000
+		"wallet_id":    walletID.String(),
+		"asset_id":     testasset.ETH.String(),
+		"decimals":     18,
+		"amount":       money.NewBigIntFromInt64(1000000000000000000).String(), // 1 ETH
+		"usd_rate":     money.NewBigIntFromInt64(200000000000).String(),        // $2000
+		"gas_amount":   money.NewBigIntFromInt64(21000000000000000).String(),   // 0.021 ETH gas
+		"gas_usd_rate": money.NewBigIntFromInt64(200000000000).String(),        // $2000
+		// native_asset_id is required to book gas now (#59): it used to be
+		// optional and defaulted to ETH, which happened to be right on Ethereum
+		// and wrong on every other chain.
+		"native_asset_id":  testasset.ETH.String(),
 		"chain_id":         "ethereum",
 		"tx_hash":          "0xabc123",
 		"block_number":     int64(12345678),
@@ -520,9 +527,51 @@ func TestTransferOutHandler_WithGas_GenerateEntries_Balance(t *testing.T) {
 	assert.Equal(t, ledger.EntryTypeGasFee, entries[2].EntryType)
 	assert.Equal(t, ledger.EntryTypeAssetDecrease, entries[3].EntryType)
 
-	// Without native_asset_id the gas asset must fall back to ETH (legacy behavior).
-	assert.Equal(t, "ETH", entries[2].AssetID, "gas debit should fall back to ETH")
-	assert.Equal(t, "ETH", entries[3].AssetID, "gas credit should fall back to ETH")
+	// The gas legs must carry the native asset that raw_data named, not a
+	// default. See TestTransferOutHandler_GasWithoutNativeAsset_Errors for the
+	// case where it is absent — the old "fall back to ETH" behaviour is gone
+	// (#59), because on a non-Ethereum chain it charged gas to the wrong asset.
+	assert.Equal(t, testasset.ETH, entries[2].AssetID, "gas debit carries the named native asset")
+	assert.Equal(t, testasset.ETH, entries[3].AssetID, "gas credit carries the named native asset")
+}
+
+// TestTransferOutHandler_GasWithoutNativeAsset_Errors pins the replacement for
+// the removed "fall back to ETH" default (#59). A gas fee with no native asset
+// resolved is unbookable: any guess would decrement a balance in an asset the
+// wallet never spent, and would still balance, so it could not be caught later.
+func TestTransferOutHandler_GasWithoutNativeAsset_Errors(t *testing.T) {
+	userID := uuid.New()
+	walletID := uuid.New()
+	ctx := context.WithValue(context.Background(), middleware.UserIDKey, userID)
+
+	walletRepo := new(MockWalletRepository)
+	walletRepo.On("GetByID", mock.Anything, walletID).Return(&wallet.Wallet{
+		ID:      walletID,
+		UserID:  userID,
+		Address: "0x1234567890123456789012345678901234567890",
+	}, nil)
+
+	handler := transfer.NewTransferOutHandler(walletRepo, logger.NewDefault("test"))
+
+	data := map[string]interface{}{
+		"wallet_id":        walletID.String(),
+		"asset_id":         testasset.USDC.String(),
+		"decimals":         6,
+		"amount":           money.NewBigIntFromInt64(1000000).String(),
+		"usd_rate":         money.NewBigIntFromInt64(100000000).String(),
+		"gas_amount":       money.NewBigIntFromInt64(21000000000000000).String(),
+		"gas_usd_rate":     money.NewBigIntFromInt64(200000000000).String(),
+		"chain_id":         "polygon",
+		"tx_hash":          "0xnonative",
+		"block_number":     int64(12345678),
+		"to_address":       "0xreceiver",
+		"contract_address": "0xusdc",
+		"occurred_at":      time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
+		"unique_id":        "unique-no-native",
+	}
+
+	_, err := handler.Handle(ctx, data)
+	assert.ErrorIs(t, err, transfer.ErrMissingNativeAsset)
 }
 
 // TestTransferOutHandler_WithNativeAsset_GenerateEntries verifies that a
@@ -544,13 +593,13 @@ func TestTransferOutHandler_WithNativeAsset_GenerateEntries(t *testing.T) {
 
 	data := map[string]interface{}{
 		"wallet_id":        walletID.String(),
-		"asset_id":         "USDT",
+		"asset_id":         testasset.USDT.String(),
 		"decimals":         18,
 		"amount":           money.NewBigIntFromInt64(1000000000000000000).String(), // 1 USDT
 		"usd_rate":         money.NewBigIntFromInt64(100000000).String(),           // $1
 		"gas_amount":       money.NewBigIntFromInt64(5000000000000000).String(),    // 0.005 BNB gas
 		"gas_usd_rate":     money.NewBigIntFromInt64(30000000000).String(),         // $300
-		"native_asset_id":  "BNB",
+		"native_asset_id":  testasset.BNB.String(),
 		"chain_id":         "binance-smart-chain",
 		"tx_hash":          "0xbnb123",
 		"block_number":     int64(87654321),
@@ -569,14 +618,14 @@ func TestTransferOutHandler_WithNativeAsset_GenerateEntries(t *testing.T) {
 	gasCredit := entries[3]
 	assert.Equal(t, ledger.EntryTypeGasFee, gasDebit.EntryType)
 	assert.Equal(t, ledger.EntryTypeAssetDecrease, gasCredit.EntryType)
-	assert.Equal(t, "BNB", gasDebit.AssetID, "gas debit asset must be BNB")
-	assert.Equal(t, "BNB", gasCredit.AssetID, "gas credit asset must be BNB")
+	assert.Equal(t, testasset.BNB, gasDebit.AssetID, "gas debit asset must be BNB")
+	assert.Equal(t, testasset.BNB, gasCredit.AssetID, "gas credit asset must be BNB")
 
 	// Account codes must reference the chain-native BNB asset.
-	assert.Equal(t, "gas.binance-smart-chain.BNB", gasDebit.Metadata["account_code"],
+	assert.Equal(t, "gas.binance-smart-chain."+testasset.BNB.String(), gasDebit.Metadata["account_code"],
 		"gas account code must use native fee asset")
 	assert.Equal(t,
-		"wallet."+walletID.String()+".binance-smart-chain.BNB",
+		"wallet."+walletID.String()+".binance-smart-chain."+testasset.BNB.String(),
 		gasCredit.Metadata["account_code"],
 		"wallet native account code must use native fee asset")
 }
@@ -633,7 +682,7 @@ func TestTransferOutHandler_ValidateData(t *testing.T) {
 
 			data := map[string]interface{}{
 				"wallet_id":        walletID.String(),
-				"asset_id":         "ETH",
+				"asset_id":         testasset.ETH.String(),
 				"decimals":         18,
 				"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
 				"chain_id":         "ethereum",
@@ -684,7 +733,7 @@ func TestInternalTransferHandler_GenerateEntries_Balance(t *testing.T) {
 	data := map[string]interface{}{
 		"source_wallet_id": sourceWalletID.String(),
 		"dest_wallet_id":   destWalletID.String(),
-		"asset_id":         "ETH",
+		"asset_id":         testasset.ETH.String(),
 		"decimals":         18,
 		"amount":           money.NewBigIntFromInt64(1000000000000000000).String(), // 1 ETH
 		"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),        // $2000
@@ -787,7 +836,7 @@ func TestInternalTransferHandler_ValidateData(t *testing.T) {
 			data := map[string]interface{}{
 				"source_wallet_id": sourceWalletID.String(),
 				"dest_wallet_id":   destWalletID.String(),
-				"asset_id":         "ETH",
+				"asset_id":         testasset.ETH.String(),
 				"decimals":         18,
 				"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
 				"chain_id":         "ethereum",
@@ -837,7 +886,7 @@ func TestInternalTransferHandler_CrossUserWallet_ReturnsUnauthorized(t *testing.
 	data := map[string]interface{}{
 		"source_wallet_id": sourceWalletID.String(),
 		"dest_wallet_id":   destWalletID.String(),
-		"asset_id":         "ETH",
+		"asset_id":         testasset.ETH.String(),
 		"decimals":         18,
 		"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
 		"chain_id":         "ethereum",

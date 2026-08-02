@@ -7,7 +7,7 @@ import (
 )
 
 // AssetDecimalSource provides decimal information for assets.
-// Implementations query a specific data source (e.g., assets table, chain_assets table).
+// Implementations query a specific data source (today: asset_registry).
 type AssetDecimalSource interface {
 	// GetDecimalsBySymbol returns the decimal count for an asset.
 	// chainID may be empty for a chain-agnostic lookup.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/pkg/money"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 )
 
 func newTestLPTxn(transfers []LPTransfer) *LPTransaction {
@@ -46,8 +47,8 @@ func sumCredits(entries []*ledger.Entry) *big.Int {
 
 func TestDepositEntries_Balanced(t *testing.T) {
 	txn := newTestLPTxn([]LPTransfer{
-		{AssetSymbol: "ETH", Amount: money.NewBigIntFromInt64(1000000000000000000), Decimals: 18, Direction: "out", USDPrice: money.NewBigIntFromInt64(250000000000)},
-		{AssetSymbol: "USDC", Amount: money.NewBigIntFromInt64(2500000000), Decimals: 6, Direction: "out", USDPrice: money.NewBigIntFromInt64(100000000)},
+		{AssetID: testasset.ETH, AssetSymbol: "ETH", Amount: money.NewBigIntFromInt64(1000000000000000000), Decimals: 18, Direction: "out", USDPrice: money.NewBigIntFromInt64(250000000000)},
+		{AssetID: testasset.USDC, AssetSymbol: "USDC", Amount: money.NewBigIntFromInt64(2500000000), Decimals: 6, Direction: "out", USDPrice: money.NewBigIntFromInt64(100000000)},
 	})
 
 	entries := generateSwapLikeEntries(txn)
@@ -58,7 +59,7 @@ func TestDepositEntries_Balanced(t *testing.T) {
 
 func TestDepositEntries_AssetDecrease(t *testing.T) {
 	txn := newTestLPTxn([]LPTransfer{
-		{AssetSymbol: "ETH", Amount: money.NewBigIntFromInt64(1e18), Decimals: 18, Direction: "out", USDPrice: money.NewBigIntFromInt64(250000000000)},
+		{AssetID: testasset.ETH, AssetSymbol: "ETH", Amount: money.NewBigIntFromInt64(1e18), Decimals: 18, Direction: "out", USDPrice: money.NewBigIntFromInt64(250000000000)},
 	})
 
 	entries := generateSwapLikeEntries(txn)
@@ -67,7 +68,7 @@ func TestDepositEntries_AssetDecrease(t *testing.T) {
 	// First entry: CREDIT asset_decrease (wallet)
 	assert.Equal(t, ledger.Credit, entries[0].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeAssetDecrease, entries[0].EntryType)
-	assert.Equal(t, "ETH", entries[0].AssetID)
+	assert.Equal(t, testasset.ETH, entries[0].AssetID)
 
 	// Second entry: DEBIT clearing
 	assert.Equal(t, ledger.Debit, entries[1].DebitCredit)
@@ -83,15 +84,19 @@ func TestEntries_AccountCodeIncludesChainID(t *testing.T) {
 		OccurredAt: time.Now().UTC(),
 		Protocol:   "Uniswap V3",
 		Transfers: []LPTransfer{
-			{AssetSymbol: "ETH", Amount: money.NewBigIntFromInt64(1e18), Decimals: 18, Direction: "in", USDPrice: money.NewBigIntFromInt64(250000000000)},
+			{AssetID: testasset.ETH, AssetSymbol: "ETH", Amount: money.NewBigIntFromInt64(1e18), Decimals: 18, Direction: "in", USDPrice: money.NewBigIntFromInt64(250000000000)},
 		},
-		FeeAsset:    "ETH",
+		FeeAsset:    testasset.ETH,
 		FeeAmount:   money.NewBigIntFromInt64(21000000000000),
 		FeeDecimals: 18,
 		FeeUSDPrice: money.NewBigIntFromInt64(250000000000),
 	}
 
-	expectedWalletCode := "wallet." + walletID.String() + ".base.ETH"
+	// The asset segment is the registry UUID's string form now (#59), not the
+	// ticker. Building the expectation from testasset.ETH rather than pasting
+	// the literal keeps this test honest about WHERE the segment comes from: if
+	// the entry and the code ever stop naming the same asset, this fails.
+	expectedWalletCode := "wallet." + walletID.String() + ".base." + testasset.ETH.String()
 
 	// Check swap-like entries
 	swapEntries := generateSwapLikeEntries(txn)
@@ -111,8 +116,8 @@ func TestEntries_AccountCodeIncludesChainID(t *testing.T) {
 
 func TestWithdrawEntries_AssetIncrease(t *testing.T) {
 	txn := newTestLPTxn([]LPTransfer{
-		{AssetSymbol: "ETH", Amount: money.NewBigIntFromInt64(1e18), Decimals: 18, Direction: "in", USDPrice: money.NewBigIntFromInt64(250000000000)},
-		{AssetSymbol: "USDC", Amount: money.NewBigIntFromInt64(2500000000), Decimals: 6, Direction: "in", USDPrice: money.NewBigIntFromInt64(100000000)},
+		{AssetID: testasset.ETH, AssetSymbol: "ETH", Amount: money.NewBigIntFromInt64(1e18), Decimals: 18, Direction: "in", USDPrice: money.NewBigIntFromInt64(250000000000)},
+		{AssetID: testasset.USDC, AssetSymbol: "USDC", Amount: money.NewBigIntFromInt64(2500000000), Decimals: 6, Direction: "in", USDPrice: money.NewBigIntFromInt64(100000000)},
 	})
 
 	entries := generateSwapLikeEntries(txn)
@@ -127,8 +132,8 @@ func TestWithdrawEntries_AssetIncrease(t *testing.T) {
 
 func TestClaimEntries_IncomeBooked(t *testing.T) {
 	txn := newTestLPTxn([]LPTransfer{
-		{AssetSymbol: "ETH", Amount: money.NewBigIntFromInt64(50000000000000000), Decimals: 18, Direction: "in", USDPrice: money.NewBigIntFromInt64(250000000000)},
-		{AssetSymbol: "USDC", Amount: money.NewBigIntFromInt64(125000000), Decimals: 6, Direction: "in", USDPrice: money.NewBigIntFromInt64(100000000)},
+		{AssetID: testasset.ETH, AssetSymbol: "ETH", Amount: money.NewBigIntFromInt64(50000000000000000), Decimals: 18, Direction: "in", USDPrice: money.NewBigIntFromInt64(250000000000)},
+		{AssetID: testasset.USDC, AssetSymbol: "USDC", Amount: money.NewBigIntFromInt64(125000000), Decimals: 6, Direction: "in", USDPrice: money.NewBigIntFromInt64(100000000)},
 	})
 
 	entries := generateLPClaimEntries(txn)
@@ -147,8 +152,8 @@ func TestClaimEntries_IncomeBooked(t *testing.T) {
 
 func TestClaimEntries_IgnoresOutTransfers(t *testing.T) {
 	txn := newTestLPTxn([]LPTransfer{
-		{AssetSymbol: "ETH", Amount: money.NewBigIntFromInt64(50000000000000000), Decimals: 18, Direction: "in", USDPrice: money.NewBigIntFromInt64(250000000000)},
-		{AssetSymbol: "UNI", Amount: money.NewBigIntFromInt64(1000000000000000000), Decimals: 18, Direction: "out", USDPrice: money.NewBigIntFromInt64(500000000)},
+		{AssetID: testasset.ETH, AssetSymbol: "ETH", Amount: money.NewBigIntFromInt64(50000000000000000), Decimals: 18, Direction: "in", USDPrice: money.NewBigIntFromInt64(250000000000)},
+		{AssetID: testasset.UNI, AssetSymbol: "UNI", Amount: money.NewBigIntFromInt64(1000000000000000000), Decimals: 18, Direction: "out", USDPrice: money.NewBigIntFromInt64(500000000)},
 	})
 
 	entries := generateLPClaimEntries(txn)
@@ -157,9 +162,9 @@ func TestClaimEntries_IgnoresOutTransfers(t *testing.T) {
 
 func TestGasFeeEntries(t *testing.T) {
 	txn := newTestLPTxn([]LPTransfer{
-		{AssetSymbol: "ETH", Amount: money.NewBigIntFromInt64(1e18), Decimals: 18, Direction: "out", USDPrice: money.NewBigIntFromInt64(250000000000)},
+		{AssetID: testasset.ETH, AssetSymbol: "ETH", Amount: money.NewBigIntFromInt64(1e18), Decimals: 18, Direction: "out", USDPrice: money.NewBigIntFromInt64(250000000000)},
 	})
-	txn.FeeAsset = "ETH"
+	txn.FeeAsset = testasset.ETH
 	txn.FeeAmount = money.NewBigIntFromInt64(21000000000000)
 	txn.FeeDecimals = 18
 	txn.FeeUSDPrice = money.NewBigIntFromInt64(250000000000)
@@ -180,7 +185,7 @@ func TestGasFeeEntries(t *testing.T) {
 
 func TestGasFeeEntries_NoFee(t *testing.T) {
 	txn := newTestLPTxn([]LPTransfer{
-		{AssetSymbol: "ETH", Amount: money.NewBigIntFromInt64(1e18), Decimals: 18, Direction: "out", USDPrice: money.NewBigIntFromInt64(250000000000)},
+		{AssetID: testasset.ETH, AssetSymbol: "ETH", Amount: money.NewBigIntFromInt64(1e18), Decimals: 18, Direction: "out", USDPrice: money.NewBigIntFromInt64(250000000000)},
 	})
 
 	entries := generateGasFeeEntries(txn)

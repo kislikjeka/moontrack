@@ -194,7 +194,7 @@ func (s *Service) FindBySourceExternalID(ctx context.Context, source, externalID
 }
 
 // GetAccountBalance retrieves the current balance for an account/asset
-func (s *Service) GetAccountBalance(ctx context.Context, accountID uuid.UUID, assetID string) (*AccountBalance, error) {
+func (s *Service) GetAccountBalance(ctx context.Context, accountID uuid.UUID, assetID uuid.UUID) (*AccountBalance, error) {
 	return s.repo.GetAccountBalance(ctx, accountID, assetID)
 }
 
@@ -205,7 +205,7 @@ func (s *Service) GetAccountBalances(ctx context.Context, accountID uuid.UUID) (
 
 // GetBalance retrieves the balance for a specific wallet and asset
 // This is used by handlers that need to check balance before processing
-func (s *Service) GetBalance(ctx context.Context, walletID uuid.UUID, chain string, assetID string) (*big.Int, error) {
+func (s *Service) GetBalance(ctx context.Context, walletID uuid.UUID, chain string, assetID uuid.UUID) (*big.Int, error) {
 	// Build account code for wallet asset.
 	//
 	// This is the only reader among the account-code sites: the code is built to
@@ -214,7 +214,7 @@ func (s *Service) GetBalance(ctx context.Context, walletID uuid.UUID, chain stri
 	// — visible in the database. This reader creates nothing; drifting here
 	// returns zero where a balance exists, silently. It must stay on the
 	// constructor.
-	accountCode := accountcode.WalletCode(walletID, chain, assetID)
+	accountCode := accountcode.WalletCode(walletID, chain, assetID.String())
 
 	// Find the account by code
 	account, err := s.repo.GetAccountByCode(ctx, accountCode)
@@ -235,7 +235,7 @@ func (s *Service) GetBalance(ctx context.Context, walletID uuid.UUID, chain stri
 
 // ReconcileBalance verifies that the account balance matches the ledger entries
 // This is a constitution-required check per Principle V
-func (s *Service) ReconcileBalance(ctx context.Context, accountID uuid.UUID, assetID string) error {
+func (s *Service) ReconcileBalance(ctx context.Context, accountID uuid.UUID, assetID uuid.UUID) error {
 	// Get current balance from account_balances table
 	currentBalance, err := s.repo.GetAccountBalance(ctx, accountID, assetID)
 	if err != nil {
@@ -479,7 +479,7 @@ func (v *transactionValidator) validateBalance(tx *Transaction) error {
 func (v *transactionValidator) validateAccountBalances(ctx context.Context, tx *Transaction) error {
 	type balanceInfo struct {
 		change  *big.Int
-		assetID string
+		assetID uuid.UUID
 	}
 	balanceChanges := make(map[uuid.UUID]*balanceInfo)
 
@@ -510,7 +510,7 @@ func (v *transactionValidator) validateAccountBalances(ctx context.Context, tx *
 		if newBalance.Sign() < 0 {
 			v.logger.Error("negative balance would result",
 				"account_id", accountID.String(),
-				"asset_id", info.assetID,
+				"asset_id", info.assetID.String(),
 				"current", currentBalance.Balance.String(),
 				"change", info.change.String(),
 				"new", newBalance.String())
@@ -610,7 +610,7 @@ func entryBalanceChange(entry *Entry) *big.Int {
 
 type balanceChange struct {
 	accountID uuid.UUID
-	assetID   string
+	assetID   uuid.UUID
 	change    *big.Int
 }
 
@@ -623,7 +623,7 @@ func (c *transactionCommitter) updateBalances(ctx context.Context, tx *Transacti
 			continue
 		}
 
-		key := fmt.Sprintf("%s:%s", entry.AccountID.String(), entry.AssetID)
+		key := fmt.Sprintf("%s:%s", entry.AccountID.String(), entry.AssetID.String())
 
 		if _, exists := balanceChanges[key]; !exists {
 			balanceChanges[key] = &balanceChange{
@@ -669,7 +669,7 @@ func (c *transactionCommitter) applyBalanceChange(ctx context.Context, bc *balan
 
 	c.logger.Debug("applying balance change",
 		"account_id", bc.accountID.String(),
-		"asset_id", bc.assetID,
+		"asset_id", bc.assetID.String(),
 		"current", currentBalance.Balance.String(),
 		"change", bc.change.String(),
 		"new", newBalance.String())

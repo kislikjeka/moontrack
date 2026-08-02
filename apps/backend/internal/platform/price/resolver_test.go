@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kislikjeka/moontrack/internal/platform/asset"
 	"github.com/kislikjeka/moontrack/internal/platform/price"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/stretchr/testify/require"
@@ -21,13 +20,13 @@ type stubProvider struct {
 }
 
 func (s *stubProvider) Name() price.Source { return s.name }
-func (s *stubProvider) GetPrice(ctx context.Context, a asset.Asset) (*big.Int, error) {
+func (s *stubProvider) GetPrice(ctx context.Context, a price.Asset) (*big.Int, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
 	return s.hist.PriceUSD, nil
 }
-func (s *stubProvider) GetHistoricalPrice(ctx context.Context, a asset.Asset, t time.Time) (*price.HistoricalPrice, error) {
+func (s *stubProvider) GetHistoricalPrice(ctx context.Context, a price.Asset, t time.Time) (*price.HistoricalPrice, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -44,7 +43,7 @@ func TestResolver_FirstProviderWins(t *testing.T) {
 		&stubProvider{name: price.SourceDefiLlama, hist: newHP(200)},
 	}, nil, logger.NewNoop())
 
-	hp, src, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	hp, src, err := r.ResolveHistorical(context.Background(), price.Asset{}, time.Now())
 	require.NoError(t, err)
 	require.Equal(t, int64(100), hp.PriceUSD.Int64())
 	require.Equal(t, price.SourceCoinGecko, src)
@@ -56,7 +55,7 @@ func TestResolver_FallsThroughOnNotFound(t *testing.T) {
 		&stubProvider{name: price.SourceDefiLlama, hist: newHP(222)},
 	}, nil, logger.NewNoop())
 
-	hp, src, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	hp, src, err := r.ResolveHistorical(context.Background(), price.Asset{}, time.Now())
 	require.NoError(t, err)
 	require.Equal(t, int64(222), hp.PriceUSD.Int64())
 	require.Equal(t, price.SourceDefiLlama, src)
@@ -68,7 +67,7 @@ func TestResolver_ReturnsNotFoundWhenAllMiss(t *testing.T) {
 		&stubProvider{name: price.SourceDefiLlama, err: price.ErrNotFound},
 	}, nil, logger.NewNoop())
 
-	_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	_, _, err := r.ResolveHistorical(context.Background(), price.Asset{}, time.Now())
 	require.ErrorIs(t, err, price.ErrNotFound)
 }
 
@@ -85,7 +84,7 @@ func TestResolver_TransientStaysTransientWithoutADeadProvider(t *testing.T) {
 		&stubProvider{name: price.SourceDefiLlama, err: price.ErrTransient},
 	}, nil, logger.NewNoop())
 
-	_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	_, _, err := r.ResolveHistorical(context.Background(), price.Asset{}, time.Now())
 	require.ErrorIs(t, err, price.ErrTransient)
 	require.False(t, errors.Is(err, price.ErrNotFound),
 		"no provider positively answered 'no data' — the verdict must stay transient")
@@ -101,7 +100,7 @@ func TestResolver_AlwaysNotFoundProviderWouldPoisonTransientVerdict(t *testing.T
 		deadStub,
 	}, nil, logger.NewNoop())
 
-	_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	_, _, err := r.ResolveHistorical(context.Background(), price.Asset{}, time.Now())
 	require.ErrorIs(t, err, price.ErrNotFound,
 		"this is why the dead provider must not be wired: it overrides the transient verdict")
 }
@@ -113,7 +112,7 @@ func TestResolver_PreservesRateLimitedError(t *testing.T) {
 		&stubProvider{name: price.SourceCoinGecko, err: price.ErrRateLimited},
 	}, nil, logger.NewNoop())
 
-	_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	_, _, err := r.ResolveHistorical(context.Background(), price.Asset{}, time.Now())
 	require.ErrorIs(t, err, price.ErrRateLimited)
 }
 
@@ -125,7 +124,7 @@ func TestResolver_PreservesRateLimitedErrorWithRetryAfter(t *testing.T) {
 		&stubProvider{name: price.SourceCoinGecko, err: rle},
 	}, nil, logger.NewNoop())
 
-	_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	_, _, err := r.ResolveHistorical(context.Background(), price.Asset{}, time.Now())
 	require.ErrorIs(t, err, price.ErrRateLimited)
 
 	var got *price.RateLimitedError
@@ -142,7 +141,7 @@ func TestResolver_NotFoundBeatsRateLimited(t *testing.T) {
 		&stubProvider{name: price.SourceDefiLlama, err: price.ErrNotFound},
 	}, nil, logger.NewNoop())
 
-	_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	_, _, err := r.ResolveHistorical(context.Background(), price.Asset{}, time.Now())
 	require.ErrorIs(t, err, price.ErrNotFound)
 	// Must NOT be rate-limited.
 	require.False(t, errors.Is(err, price.ErrRateLimited),
@@ -157,7 +156,7 @@ func TestResolver_TransientBeatsRateLimited(t *testing.T) {
 		&stubProvider{name: price.SourceDefiLlama, err: price.ErrTransient},
 	}, nil, logger.NewNoop())
 
-	_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	_, _, err := r.ResolveHistorical(context.Background(), price.Asset{}, time.Now())
 	require.ErrorIs(t, err, price.ErrTransient)
 }
 
@@ -167,7 +166,7 @@ func TestResolver_NotFoundBeatsRateLimited_Current(t *testing.T) {
 		&stubProvider{name: price.SourceDefiLlama, err: price.ErrNotFound},
 	}, nil, logger.NewNoop())
 
-	_, _, err := r.ResolveCurrent(context.Background(), asset.Asset{})
+	_, _, err := r.ResolveCurrent(context.Background(), price.Asset{})
 	require.ErrorIs(t, err, price.ErrNotFound)
 	require.False(t, errors.Is(err, price.ErrRateLimited))
 }
@@ -182,14 +181,14 @@ type countingProvider struct {
 }
 
 func (c *countingProvider) Name() price.Source { return c.name }
-func (c *countingProvider) GetPrice(ctx context.Context, a asset.Asset) (*big.Int, error) {
+func (c *countingProvider) GetPrice(ctx context.Context, a price.Asset) (*big.Int, error) {
 	c.calls++
 	if c.err != nil {
 		return nil, c.err
 	}
 	return c.hist.PriceUSD, nil
 }
-func (c *countingProvider) GetHistoricalPrice(ctx context.Context, a asset.Asset, t time.Time) (*price.HistoricalPrice, error) {
+func (c *countingProvider) GetHistoricalPrice(ctx context.Context, a price.Asset, t time.Time) (*price.HistoricalPrice, error) {
 	c.calls++
 	if c.err != nil {
 		return nil, c.err
@@ -205,14 +204,14 @@ func TestResolver_CooldownSkipsProviderAfterThreeTransient(t *testing.T) {
 	r := price.NewResolver([]price.Provider{a, b}, nil, logger.NewNoop())
 
 	for i := 0; i < 3; i++ {
-		_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+		_, _, err := r.ResolveHistorical(context.Background(), price.Asset{}, time.Now())
 		// With A transient + B NotFound, NotFound wins (BUG C semantics).
 		require.ErrorIs(t, err, price.ErrNotFound, "iter %d", i)
 	}
 	require.Equal(t, 3, a.calls, "A should be called three times before cooldown")
 
 	// 4th call: A is now in cooldown; only B is consulted.
-	_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	_, _, err := r.ResolveHistorical(context.Background(), price.Asset{}, time.Now())
 	require.ErrorIs(t, err, price.ErrNotFound)
 	require.Equal(t, 3, a.calls, "A must be skipped during cooldown")
 	require.Equal(t, 4, b.calls, "B still receives every call")
@@ -228,7 +227,7 @@ func TestResolver_CooldownResetsOnSuccess(t *testing.T) {
 	r := price.NewResolver([]price.Provider{wrapped}, nil, logger.NewNoop())
 
 	for i := 0; i < 4; i++ {
-		_, _, _ = r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+		_, _, _ = r.ResolveHistorical(context.Background(), price.Asset{}, time.Now())
 	}
 	require.Equal(t, 4, wrapped.calls, "success must reset counter so 4th call still runs wrapped")
 }
@@ -242,7 +241,7 @@ type sequenceProvider struct {
 }
 
 func (s *sequenceProvider) Name() price.Source { return s.name }
-func (s *sequenceProvider) GetPrice(ctx context.Context, a asset.Asset) (*big.Int, error) {
+func (s *sequenceProvider) GetPrice(ctx context.Context, a price.Asset) (*big.Int, error) {
 	s.calls++
 	err := s.errs[(s.calls-1)%len(s.errs)]
 	if err != nil {
@@ -250,7 +249,7 @@ func (s *sequenceProvider) GetPrice(ctx context.Context, a asset.Asset) (*big.In
 	}
 	return big.NewInt(1), nil
 }
-func (s *sequenceProvider) GetHistoricalPrice(ctx context.Context, a asset.Asset, t time.Time) (*price.HistoricalPrice, error) {
+func (s *sequenceProvider) GetHistoricalPrice(ctx context.Context, a price.Asset, t time.Time) (*price.HistoricalPrice, error) {
 	s.calls++
 	err := s.errs[(s.calls-1)%len(s.errs)]
 	if err != nil {
@@ -268,6 +267,6 @@ func TestResolver_WrapsUnexpectedError(t *testing.T) {
 		&stubProvider{name: price.SourceCoinGecko, err: errors.New("boom")},
 	}, nil, logger.NewNoop())
 
-	_, _, err := r.ResolveHistorical(context.Background(), asset.Asset{}, time.Now())
+	_, _, err := r.ResolveHistorical(context.Background(), price.Asset{}, time.Now())
 	require.ErrorIs(t, err, price.ErrTransient)
 }

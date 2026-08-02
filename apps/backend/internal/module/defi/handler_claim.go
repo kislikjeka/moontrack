@@ -123,7 +123,7 @@ func (h *DeFiClaimHandler) GenerateEntries(ctx context.Context, txn *DeFiTransac
 
 		walletMeta := mergeMetadata(baseMeta, map[string]interface{}{
 			"wallet_id":        walletIDStr,
-			"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetSymbol),
+			"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetID.String()),
 			"tx_hash":          txn.TxHash,
 			"chain_id":         chainIDStr,
 			"direction":        "in",
@@ -137,7 +137,7 @@ func (h *DeFiClaimHandler) GenerateEntries(ctx context.Context, txn *DeFiTransac
 			DebitCredit: ledger.Debit,
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      new(big.Int).Set(amount),
-			AssetID:     tr.AssetSymbol,
+			AssetID:     tr.AssetID,
 			USDRate:     new(big.Int).Set(usdRate),
 			USDValue:    new(big.Int).Set(usdValue),
 			OccurredAt:  txn.OccurredAt,
@@ -146,7 +146,7 @@ func (h *DeFiClaimHandler) GenerateEntries(ctx context.Context, txn *DeFiTransac
 		})
 
 		incomeMeta := mergeMetadata(baseMeta, map[string]interface{}{
-			"account_code":     accountcode.IncomeDefiCode(chainIDStr, tr.AssetSymbol),
+			"account_code":     accountcode.IncomeDefiCode(chainIDStr, tr.AssetID.String()),
 			"tx_hash":          txn.TxHash,
 			"chain_id":         chainIDStr,
 			"contract_address": tr.ContractAddress,
@@ -159,7 +159,7 @@ func (h *DeFiClaimHandler) GenerateEntries(ctx context.Context, txn *DeFiTransac
 			DebitCredit: ledger.Credit,
 			EntryType:   ledger.EntryTypeIncome,
 			Amount:      new(big.Int).Set(amount),
-			AssetID:     tr.AssetSymbol,
+			AssetID:     tr.AssetID,
 			USDRate:     new(big.Int).Set(usdRate),
 			USDValue:    new(big.Int).Set(usdValue),
 			OccurredAt:  txn.OccurredAt,

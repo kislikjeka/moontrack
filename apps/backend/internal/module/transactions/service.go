@@ -115,7 +115,7 @@ func (s *TransactionService) GetTransaction(ctx context.Context, id uuid.UUID, u
 
 	// Build response
 	walletName := w.Name
-	displayAmount := s.formatDisplayAmountResolved(ctx, fields.Amount, fields.AssetID)
+	displayAmount := s.formatDisplayAmountResolved(ctx, fields.Amount, fields.AssetSymbol)
 
 	usdValue := ""
 	if fields.USDValue != nil && fields.USDValue.Sign() > 0 {
@@ -127,8 +127,8 @@ func (s *TransactionService) GetTransaction(ctx context.Context, id uuid.UUID, u
 			ID:            tx.ID.String(),
 			Type:          tx.Type.String(),
 			TypeLabel:     tx.Type.Label(),
-			AssetID:       fields.AssetID,
-			AssetSymbol:   strings.ToUpper(fields.AssetID),
+			AssetID:       fields.AssetID.String(),
+			AssetSymbol:   fields.AssetSymbol,
 			Amount:        fields.Amount.String(),
 			DisplayAmount: displayAmount,
 			Direction:     fields.Direction,
@@ -144,7 +144,7 @@ func (s *TransactionService) GetTransaction(ctx context.Context, id uuid.UUID, u
 		RecordedAt: tx.RecordedAt.Format(time.RFC3339),
 		Notes:      fields.Notes,
 		RawData:    tx.RawData,
-		Entries:    s.toEntryResponses(ctx, tx.Entries, walletName),
+		Entries:    s.toEntryResponses(ctx, tx.Entries, walletName, symbolsFromRawData(tx.RawData)),
 	}
 
 	return detail, nil
@@ -167,7 +167,7 @@ func (s *TransactionService) toListItem(ctx context.Context, tx *ledger.Transact
 		walletName = w.Name
 	}
 
-	displayAmount := s.formatDisplayAmountResolved(ctx, fields.Amount, fields.AssetID)
+	displayAmount := s.formatDisplayAmountResolved(ctx, fields.Amount, fields.AssetSymbol)
 
 	usdValue := ""
 	if fields.USDValue != nil && fields.USDValue.Sign() > 0 {
@@ -178,8 +178,8 @@ func (s *TransactionService) toListItem(ctx context.Context, tx *ledger.Transact
 		ID:            tx.ID.String(),
 		Type:          tx.Type.String(),
 		TypeLabel:     tx.Type.Label(),
-		AssetID:       fields.AssetID,
-		AssetSymbol:   strings.ToUpper(fields.AssetID),
+		AssetID:       fields.AssetID.String(),
+		AssetSymbol:   fields.AssetSymbol,
 		Amount:        fields.Amount.String(),
 		DisplayAmount: displayAmount,
 		Direction:     fields.Direction,
@@ -192,8 +192,16 @@ func (s *TransactionService) toListItem(ctx context.Context, tx *ledger.Transact
 	}, nil
 }
 
-// toEntryResponses converts domain entries to entry response DTOs
-func (s *TransactionService) toEntryResponses(ctx context.Context, entries []*ledger.Entry, walletName string) []EntryResponse {
+// toEntryResponses converts domain entries to entry response DTOs.
+//
+// symbols maps a registry UUID to the ticker raw_data recorded for it (#59). A
+// ledger entry carries only the UUID, so the ticker has to come from beside it;
+// a transaction can touch several assets (the gas leg is rarely the same token
+// as the transfer), which is why this is a map and not one symbol for the whole
+// transaction. Assets with no recorded symbol render BLANK rather than as a
+// UUID — a raw id in a field labelled "BTC" reads as data and is worse than an
+// empty one. #42 finalises the API shape here.
+func (s *TransactionService) toEntryResponses(ctx context.Context, entries []*ledger.Entry, walletName string, symbols map[uuid.UUID]string) []EntryResponse {
 	result := make([]EntryResponse, len(entries))
 	for i, entry := range entries {
 		accountCode := ""
@@ -205,18 +213,25 @@ func (s *TransactionService) toEntryResponses(ctx context.Context, entries []*le
 			}
 		}
 
-		// Build human-readable account label
-		if strings.HasPrefix(accountCode, "wallet.") {
-			accountLabel = fmt.Sprintf("%s - %s", walletName, strings.ToUpper(entry.AssetID))
-		} else if strings.HasPrefix(accountCode, "income.") {
-			accountLabel = fmt.Sprintf("Income - %s", strings.ToUpper(entry.AssetID))
-		} else if strings.HasPrefix(accountCode, "expense.") {
-			accountLabel = fmt.Sprintf("Expense - %s", strings.ToUpper(entry.AssetID))
-		} else {
+		symbol := symbols[entry.AssetID]
+
+		// Build human-readable account label. With no symbol the label falls
+		// back to the account code, which is at least honest about being an
+		// identifier — appending a bare UUID to "Income - " would not be.
+		switch {
+		case symbol == "":
+			accountLabel = accountCode
+		case strings.HasPrefix(accountCode, "wallet."):
+			accountLabel = fmt.Sprintf("%s - %s", walletName, symbol)
+		case strings.HasPrefix(accountCode, "income."):
+			accountLabel = fmt.Sprintf("Income - %s", symbol)
+		case strings.HasPrefix(accountCode, "expense."):
+			accountLabel = fmt.Sprintf("Expense - %s", symbol)
+		default:
 			accountLabel = accountCode
 		}
 
-		displayAmount := s.formatDisplayAmountResolved(ctx, entry.Amount, entry.AssetID)
+		displayAmount := s.formatDisplayAmountResolved(ctx, entry.Amount, symbol)
 
 		result[i] = EntryResponse{
 			ID:            entry.ID.String(),
@@ -226,31 +241,99 @@ func (s *TransactionService) toEntryResponses(ctx context.Context, entries []*le
 			EntryType:     string(entry.EntryType),
 			Amount:        entry.Amount.String(),
 			DisplayAmount: displayAmount,
-			AssetID:       entry.AssetID,
-			AssetSymbol:   strings.ToUpper(entry.AssetID),
+			AssetID:       entry.AssetID.String(),
+			AssetSymbol:   symbol,
 			USDValue:      money.FormatUSD(entry.USDValue),
 		}
 	}
 	return result
 }
 
-// formatDisplayAmountResolved formats an amount using the resolver for decimal lookup.
-func (s *TransactionService) formatDisplayAmountResolved(ctx context.Context, amount *big.Int, assetID string) string {
+// formatDisplayAmountResolved formats an amount for a human, using the SYMBOL
+// to look up decimals and to label the result.
+//
+// It takes a ticker, not a registry id, deliberately (#59): both the decimal
+// resolver and the rendered suffix are presentation concerns, and the resolver
+// behind them is symbol-keyed. Passing the UUID here would resolve no decimals
+// and print "1000000000 3f2b…" at the user.
+func (s *TransactionService) formatDisplayAmountResolved(ctx context.Context, amount *big.Int, assetSymbol string) string {
 	if amount == nil {
 		return "0"
 	}
 
 	var decimals int
 	if s.resolver != nil {
-		decimals = s.resolver.ResolveSymbolOnly(ctx, assetID)
+		decimals = s.resolver.ResolveSymbolOnly(ctx, assetSymbol)
 	} else {
-		decimals = money.GetDecimals(assetID)
+		decimals = money.GetDecimals(assetSymbol)
 	}
 
 	if decimals == 0 {
-		return fmt.Sprintf("%s %s", amount.String(), strings.ToUpper(assetID))
+		return strings.TrimSpace(fmt.Sprintf("%s %s", amount.String(), assetSymbol))
 	}
 
 	humanReadable := money.FromBaseUnits(amount, decimals)
-	return fmt.Sprintf("%s %s", humanReadable, strings.ToUpper(assetID))
+	return strings.TrimSpace(fmt.Sprintf("%s %s", humanReadable, assetSymbol))
+}
+
+// symbolsFromRawData harvests every (asset_id → asset_symbol) pair a
+// transaction's raw_data recorded, so entries can be labelled by the ticker
+// that was written next to their id at sync time (#59).
+//
+// It walks the flat fields, the fee pair, and the three transfer arrays,
+// because the writers in sync emit the pair under several key spellings —
+// asset_id/asset_symbol for transfers, fee_asset/fee_asset_symbol for gas, and
+// asset_id/asset for lending. Reading them all here keeps the knowledge of
+// those spellings in one place instead of in every reader.
+func symbolsFromRawData(raw map[string]interface{}) map[uuid.UUID]string {
+	out := make(map[uuid.UUID]string)
+
+	put := func(idKey, symbolKey string, m map[string]interface{}) {
+		idStr, _ := m[idKey].(string)
+		symbol, _ := m[symbolKey].(string)
+		if idStr == "" || symbol == "" {
+			return
+		}
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			return
+		}
+		// First spelling wins; they name the same registry row, so a later
+		// one can only repeat it.
+		if _, seen := out[id]; !seen {
+			out[id] = symbol
+		}
+	}
+
+	put("asset_id", "asset_symbol", raw)
+	put("asset_id", "asset", raw) // lending flat fields
+	put("fee_asset", "fee_asset_symbol", raw)
+	put("native_asset_id", "fee_asset_symbol", raw)
+
+	for _, key := range []string{"transfers", "transfers_in", "transfers_out"} {
+		for _, m := range transferMaps(raw[key]) {
+			put("asset_id", "asset_symbol", m)
+		}
+	}
+
+	return out
+}
+
+// transferMaps normalises a raw_data transfer array, which survives a JSON
+// roundtrip as []interface{} but arrives as []map[string]interface{} when it
+// has not been through one.
+func transferMaps(v interface{}) []map[string]interface{} {
+	switch arr := v.(type) {
+	case []map[string]interface{}:
+		return arr
+	case []interface{}:
+		out := make([]map[string]interface{}, 0, len(arr))
+		for _, item := range arr {
+			if m, ok := item.(map[string]interface{}); ok {
+				out = append(out, m)
+			}
+		}
+		return out
+	}
+	return nil
 }

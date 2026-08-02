@@ -18,7 +18,7 @@ import (
 
 // TaxLotServiceInterface defines the interface for tax lot operations.
 type TaxLotServiceInterface interface {
-	GetLotsByWallet(ctx context.Context, userID, walletID uuid.UUID, asset string, chainID string) ([]*ledger.TaxLot, error)
+	GetLotsByWallet(ctx context.Context, userID, walletID uuid.UUID, asset uuid.UUID, chainID string) ([]*ledger.TaxLot, error)
 	OverrideCostBasis(ctx context.Context, userID uuid.UUID, lotID uuid.UUID, costBasis *big.Int, reason string) error
 	GetWAC(ctx context.Context, userID uuid.UUID, walletID *uuid.UUID) ([]taxlot.WACPosition, error)
 	GetLotImpactByTransaction(ctx context.Context, userID, txID uuid.UUID) (*taxlot.TransactionLotImpact, error)
@@ -27,12 +27,18 @@ type TaxLotServiceInterface interface {
 // TaxLotHandler handles tax lot HTTP requests.
 type TaxLotHandler struct {
 	taxLotService TaxLotServiceInterface
-	resolver      *money.DecimalResolver
+	assets        taxlot.AssetDecimals   // nilable — see resolveDecimals
+	resolver      *money.DecimalResolver // fallback when assets is unwired
 }
 
 // NewTaxLotHandler creates a new TaxLotHandler.
-func NewTaxLotHandler(taxLotService TaxLotServiceInterface, resolver *money.DecimalResolver) *TaxLotHandler {
-	return &TaxLotHandler{taxLotService: taxLotService, resolver: resolver}
+//
+// assets resolves a lot's registry id to its decimals (#59). Lot quantities are
+// base-unit integers, so the wrong scale here misplaces a decimal point in every
+// quantity the endpoint renders — which is why it is a registry read and not a
+// ticker table lookup.
+func NewTaxLotHandler(taxLotService TaxLotServiceInterface, assets taxlot.AssetDecimals, resolver *money.DecimalResolver) *TaxLotHandler {
+	return &TaxLotHandler{taxLotService: taxLotService, assets: assets, resolver: resolver}
 }
 
 // --- Response types ---
@@ -82,7 +88,7 @@ type WACPositionsResponse struct {
 
 // TransactionLotImpactResponse is the JSON envelope for transaction lot impact.
 type TransactionLotImpactResponse struct {
-	AcquiredLots []TaxLotResponse        `json:"acquired_lots"`
+	AcquiredLots []TaxLotResponse         `json:"acquired_lots"`
 	Disposals    []DisposalDetailResponse `json:"disposals"`
 	HasLotImpact bool                     `json:"has_lot_impact"`
 }
@@ -138,9 +144,18 @@ func (h *TaxLotHandler) GetLots(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	asset := r.URL.Query().Get("asset")
-	if asset == "" {
+	// asset is a registry UUID (#59). It used to be a ticker, which meant
+	// "?asset=USDC" returned the lots of whichever USDC the query matched. A
+	// malformed id is rejected here rather than passed on as uuid.Nil, which
+	// would return an empty list that looks like "you hold none of this".
+	assetParam := r.URL.Query().Get("asset")
+	if assetParam == "" {
 		respondWithError(w, http.StatusBadRequest, "asset is required")
+		return
+	}
+	asset, err := uuid.Parse(assetParam)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "asset must be a valid asset UUID")
 		return
 	}
 
@@ -265,7 +280,7 @@ func (h *TaxLotHandler) GetWAC(w http.ResponseWriter, r *http.Request) {
 			AccountID:       p.AccountID.String(),
 			ChainID:         p.ChainID,
 			IsAggregated:    p.AccountID == uuid.Nil,
-			Asset:           p.Asset,
+			Asset:           p.Asset.String(),
 			TotalQuantity:   money.FromBaseUnits(p.TotalQuantity, decimals),
 			WeightedAvgCost: money.FormatUSD(p.WeightedAvgCost),
 		})
@@ -320,7 +335,7 @@ func (h *TaxLotHandler) GetTransactionLots(w http.ResponseWriter, r *http.Reques
 			ProceedsStatus:   status,
 			DisposalType:     string(d.DisposalType),
 			DisposedAt:       d.DisposedAt.Format("2006-01-02T15:04:05Z07:00"),
-			LotAsset:         d.LotAsset,
+			LotAsset:         d.LotAsset.String(),
 			LotAcquiredAt:    d.LotAcquiredAt.Format("2006-01-02T15:04:05Z07:00"),
 			LotCostBasis:     money.FormatUSD(d.LotEffectiveCostBasisPerUnit),
 			LotAutoSource:    string(d.LotAutoSource),
@@ -336,12 +351,22 @@ func (h *TaxLotHandler) GetTransactionLots(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// resolveDecimals uses the resolver if available, otherwise falls back to the hardcoded map.
-func (h *TaxLotHandler) resolveDecimals(ctx context.Context, symbol string) int {
-	if h.resolver != nil {
-		return h.resolver.ResolveSymbolOnly(ctx, symbol)
+// resolveDecimals returns the scale for a lot's asset, keyed on its registry id.
+//
+// With the registry wired, that is the only source consulted — decimals are a
+// column on the row the id names. Without it (tests construct a bare handler)
+// it degrades to the symbol-keyed resolver with an empty symbol, which yields
+// the hardcoded default rather than a UUID-shaped cache miss.
+func (h *TaxLotHandler) resolveDecimals(ctx context.Context, assetID uuid.UUID) int {
+	if h.assets != nil {
+		if decimals, err := h.assets.GetDecimals(ctx, assetID.String()); err == nil {
+			return decimals
+		}
 	}
-	return money.GetDecimals(symbol)
+	if h.resolver != nil {
+		return h.resolver.ResolveSymbolOnly(ctx, "")
+	}
+	return money.GetDecimals("")
 }
 
 // --- Helpers ---
@@ -353,7 +378,7 @@ func toTaxLotResponse(lot *ledger.TaxLot, decimals int) TaxLotResponse {
 		TransactionID:             lot.TransactionID.String(),
 		AccountID:                 lot.AccountID.String(),
 		ChainID:                   lot.ChainID,
-		Asset:                     lot.Asset,
+		Asset:                     lot.Asset.String(),
 		QuantityAcquired:          money.FromBaseUnits(lot.QuantityAcquired, decimals),
 		QuantityRemaining:         money.FromBaseUnits(lot.QuantityRemaining, decimals),
 		AcquiredAt:                lot.AcquiredAt.Format("2006-01-02T15:04:05Z07:00"),

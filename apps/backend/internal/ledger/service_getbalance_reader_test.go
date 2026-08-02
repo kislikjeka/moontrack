@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -59,7 +60,10 @@ func (h *readerProbeHandler) Handle(ctx context.Context, data map[string]interfa
 		return nil, err
 	}
 	chain := data["chain_id"].(string)
-	assetID := data["asset_id"].(string)
+	assetID, err := uuid.Parse(data["asset_id"].(string))
+	if err != nil {
+		return nil, err
+	}
 	amount, _ := new(big.Int).SetString(data["amount"].(string), 10)
 
 	now := time.Now()
@@ -79,7 +83,7 @@ func (h *readerProbeHandler) Handle(ctx context.Context, data map[string]interfa
 			Metadata: map[string]interface{}{
 				"wallet_id":    walletID.String(),
 				"chain_id":     chain,
-				"account_code": accountcode.WalletCode(walletID, chain, assetID),
+				"account_code": accountcode.WalletCode(walletID, chain, assetID.String()),
 			},
 		},
 		{
@@ -94,7 +98,7 @@ func (h *readerProbeHandler) Handle(ctx context.Context, data map[string]interfa
 			CreatedAt:   now,
 			Metadata: map[string]interface{}{
 				"chain_id":     chain,
-				"account_code": accountcode.IncomeCode(chain, assetID),
+				"account_code": accountcode.IncomeCode(chain, assetID.String()),
 			},
 		},
 	}, nil
@@ -131,6 +135,7 @@ func setupReaderProbe(t *testing.T) (*ledger.Service, context.Context) {
 
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	repo := postgres.NewLedgerRepository(testDB.Pool)
 	registry := ledger.NewRegistry()
@@ -154,10 +159,8 @@ func TestGetBalance_FindsAccountWrittenByConstructor(t *testing.T) {
 	userID := createTestUser(t, ctx, testDB.Pool)
 	walletID := createReaderProbeWallet(t, ctx, userID)
 
-	const (
-		chain   = "ethereum"
-		assetID = "BTC"
-	)
+	const chain = "ethereum"
+	assetID := testasset.BTC
 	want := big.NewInt(100000000)
 
 	_, err := svc.RecordTransaction(
@@ -169,7 +172,7 @@ func TestGetBalance_FindsAccountWrittenByConstructor(t *testing.T) {
 		map[string]interface{}{
 			"wallet_id": walletID.String(),
 			"chain_id":  chain,
-			"asset_id":  assetID,
+			"asset_id":  assetID.String(),
 			"amount":    want.String(),
 		},
 	)

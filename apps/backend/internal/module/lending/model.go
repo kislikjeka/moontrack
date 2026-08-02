@@ -16,7 +16,12 @@ import (
 // the provider boundary, so a supply that once produced a principal leg and an
 // aToken leg now produces one leg (#57).
 type LendingTransferItem struct {
-	AssetID         string        `json:"asset_id"`
+	// AssetID is a registry UUID (#59). It becomes Entry.AssetID and the asset
+	// segment of the collateral / liability / wallet codes, so the position a
+	// lending op moves is now identified the same way everywhere. AssetSymbol
+	// rides along for display and keys nothing.
+	AssetID         uuid.UUID     `json:"asset_id"`
+	AssetSymbol     string        `json:"asset_symbol,omitempty"`
 	Decimals        int           `json:"decimals"`
 	Amount          *money.BigInt `json:"amount"`
 	USDRate         *money.BigInt `json:"usd_rate,omitempty"`
@@ -28,7 +33,9 @@ type LendingTransferItem struct {
 
 // Validate validates a single lending transfer item.
 func (t *LendingTransferItem) Validate() error {
-	if t.AssetID == "" {
+	// Nil is rejected here so a lending pair can never book collateral against
+	// an asset that does not exist (#59).
+	if t.AssetID == uuid.Nil {
 		return ErrInvalidAsset
 	}
 	if t.Amount == nil || t.Amount.IsNil() || t.Amount.Sign() <= 0 {
@@ -58,15 +65,17 @@ func (t *LendingTransferItem) GetUSDRate() *big.Int {
 
 // LendingTransaction represents an AAVE lending operation.
 type LendingTransaction struct {
-	WalletID    uuid.UUID     `json:"wallet_id"`
-	TxHash      string        `json:"tx_hash"`
-	ChainID     string        `json:"chain_id"`
-	OccurredAt  time.Time     `json:"occurred_at"`
-	Protocol    string        `json:"protocol,omitempty"`
-	FeeAsset    string        `json:"fee_asset,omitempty"`
-	FeeAmount   *money.BigInt `json:"fee_amount,omitempty"`
-	FeeDecimals int           `json:"fee_decimals,omitempty"`
-	FeeUSDPrice *money.BigInt `json:"fee_usd_price,omitempty"`
+	WalletID   uuid.UUID `json:"wallet_id"`
+	TxHash     string    `json:"tx_hash"`
+	ChainID    string    `json:"chain_id"`
+	OccurredAt time.Time `json:"occurred_at"`
+	Protocol   string    `json:"protocol,omitempty"`
+	// FeeAsset is the registry UUID of the gas token (#59).
+	FeeAsset       uuid.UUID     `json:"fee_asset,omitempty"`
+	FeeAssetSymbol string        `json:"fee_asset_symbol,omitempty"`
+	FeeAmount      *money.BigInt `json:"fee_amount,omitempty"`
+	FeeDecimals    int           `json:"fee_decimals,omitempty"`
+	FeeUSDPrice    *money.BigInt `json:"fee_usd_price,omitempty"`
 
 	// Transfers holds all asset movements emitted by the on-chain op.
 	// The handler books one balanced pair per item; a lending op always

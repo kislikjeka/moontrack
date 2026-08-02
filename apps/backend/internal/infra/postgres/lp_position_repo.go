@@ -25,7 +25,7 @@ func (r *LPPositionRepo) Create(ctx context.Context, pos *lpposition.LPPosition)
 	query := `
 		INSERT INTO lp_positions (
 			id, user_id, wallet_id, chain_id, protocol, nft_token_id, contract_address,
-			token0_symbol, token1_symbol, token0_contract, token1_contract, token0_decimals, token1_decimals,
+			token0_asset_id, token1_asset_id,
 			total_deposited_usd, total_withdrawn_usd, total_claimed_fees_usd,
 			total_deposited_token0, total_deposited_token1, total_withdrawn_token0, total_withdrawn_token1,
 			total_claimed_token0, total_claimed_token1,
@@ -33,12 +33,12 @@ func (r *LPPositionRepo) Create(ctx context.Context, pos *lpposition.LPPosition)
 			created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7,
-			$8, $9, $10, $11, $12, $13,
-			$14, $15, $16,
-			$17, $18, $19, $20,
-			$21, $22,
-			$23, $24, $25, $26, $27,
-			$28, $29
+			$8, $9,
+			$10, $11, $12,
+			$13, $14, $15, $16,
+			$17, $18,
+			$19, $20, $21, $22, $23,
+			$24, $25
 		)
 	`
 
@@ -55,7 +55,7 @@ func (r *LPPositionRepo) Create(ctx context.Context, pos *lpposition.LPPosition)
 
 	_, err := r.pool.Exec(ctx, query,
 		pos.ID, pos.UserID, pos.WalletID, pos.ChainID, pos.Protocol, nftTokenID, contractAddress,
-		pos.Token0Symbol, pos.Token1Symbol, pos.Token0Contract, pos.Token1Contract, pos.Token0Decimals, pos.Token1Decimals,
+		pos.Token0AssetID, pos.Token1AssetID,
 		pos.TotalDepositedUSD.String(), pos.TotalWithdrawnUSD.String(), pos.TotalClaimedFeesUSD.String(),
 		pos.TotalDepositedToken0.String(), pos.TotalDepositedToken1.String(),
 		pos.TotalWithdrawnToken0.String(), pos.TotalWithdrawnToken1.String(),
@@ -106,7 +106,7 @@ func (r *LPPositionRepo) Update(ctx context.Context, pos *lpposition.LPPosition)
 
 const selectColumns = `
 	id, user_id, wallet_id, chain_id, protocol, nft_token_id, contract_address,
-	token0_symbol, token1_symbol, token0_contract, token1_contract, token0_decimals, token1_decimals,
+	token0_asset_id, token1_asset_id,
 	total_deposited_usd, total_withdrawn_usd, total_claimed_fees_usd,
 	total_deposited_token0, total_deposited_token1, total_withdrawn_token0, total_withdrawn_token1,
 	total_claimed_token0, total_claimed_token1,
@@ -140,13 +140,18 @@ func (r *LPPositionRepo) GetByNFTTokenID(ctx context.Context, walletID uuid.UUID
 	return pos, nil
 }
 
-func (r *LPPositionRepo) FindOpenByTokenPair(ctx context.Context, walletID uuid.UUID, chainID, protocol, token0, token1 string) ([]*lpposition.LPPosition, error) {
+func (r *LPPositionRepo) FindOpenByTokenPair(ctx context.Context, walletID uuid.UUID, chainID, protocol string, token0, token1 uuid.UUID) ([]*lpposition.LPPosition, error) {
+	// The OR is deliberate: a pair has no canonical side ordering here, so the
+	// caller's token0 may be the stored token1. Matching both orientations is
+	// what makes this usable as the withdraw/claim fallback when no NFT id is
+	// available. Compare on the registry IDs — under symbols this predicate
+	// could match a position holding a different token of the same ticker.
 	query := `SELECT ` + selectColumns + `
 		FROM lp_positions
 		WHERE wallet_id = $1 AND chain_id = $2 AND protocol = $3 AND status = 'open'
 		  AND (
-			(token0_symbol = $4 AND token1_symbol = $5) OR
-			(token0_symbol = $5 AND token1_symbol = $4)
+			(token0_asset_id = $4 AND token1_asset_id = $5) OR
+			(token0_asset_id = $5 AND token1_asset_id = $4)
 		  )
 		ORDER BY opened_at ASC
 	`
@@ -183,7 +188,10 @@ func (r *LPPositionRepo) ListByUser(ctx context.Context, userID uuid.UUID, statu
 func (r *LPPositionRepo) scanOne(row pgx.Row) (*lpposition.LPPosition, error) {
 	var pos lpposition.LPPosition
 	var nftTokenID, contractAddress sql.NullString
-	var token0Contract, token1Contract sql.NullString
+	// The token columns are nullable in the schema (they were added to an
+	// existing table), so they are scanned through a nullable and left as the
+	// zero UUID when absent rather than failing the whole row.
+	var token0AssetID, token1AssetID uuid.NullUUID
 	var status string
 	var realizedPnL sql.NullString
 	var aprBps sql.NullInt32
@@ -193,7 +201,7 @@ func (r *LPPositionRepo) scanOne(row pgx.Row) (*lpposition.LPPosition, error) {
 
 	err := row.Scan(
 		&pos.ID, &pos.UserID, &pos.WalletID, &pos.ChainID, &pos.Protocol, &nftTokenID, &contractAddress,
-		&pos.Token0Symbol, &pos.Token1Symbol, &token0Contract, &token1Contract, &pos.Token0Decimals, &pos.Token1Decimals,
+		&token0AssetID, &token1AssetID,
 		&depositedUSD, &withdrawnUSD, &claimedFeesUSD,
 		&depositedT0, &depositedT1, &withdrawnT0, &withdrawnT1,
 		&claimedT0, &claimedT1,
@@ -210,11 +218,11 @@ func (r *LPPositionRepo) scanOne(row pgx.Row) (*lpposition.LPPosition, error) {
 	if contractAddress.Valid {
 		pos.ContractAddress = contractAddress.String
 	}
-	if token0Contract.Valid {
-		pos.Token0Contract = token0Contract.String
+	if token0AssetID.Valid {
+		pos.Token0AssetID = token0AssetID.UUID
 	}
-	if token1Contract.Valid {
-		pos.Token1Contract = token1Contract.String
+	if token1AssetID.Valid {
+		pos.Token1AssetID = token1AssetID.UUID
 	}
 
 	pos.Status = lpposition.Status(status)

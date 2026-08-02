@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math/big"
+	"os"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 	pkgsync "github.com/kislikjeka/moontrack/internal/platform/sync"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
+	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
 // Issue #29: collection proceeds oldest→newest and the collect cursor is the
@@ -41,12 +43,17 @@ func hwTx(id string, minedAt time.Time) pkgsync.DecodedTransaction {
 	}
 }
 
-// hwAssetRepo is an asset repo that accepts any upsert — these tests are about
-// the cursor, not asset extraction.
-func hwAssetRepo(ctx context.Context) *MockSyncAssetRepository {
-	repo := new(MockSyncAssetRepository)
-	repo.On("Upsert", ctx, mock.Anything).Return(nil)
-	return repo
+// newTestCollector builds a Collector with test doubles. It moved here when
+// collector_test.go was deleted with the extractAssets tests it existed for
+// (#59) — the cursor tests below are the remaining users.
+func newTestCollector(
+	provider pkgsync.TransactionDataProvider,
+	rawTxRepo pkgsync.RawTransactionRepository,
+	walletRepo pkgsync.WalletRepository,
+) *pkgsync.Collector {
+	log := logger.New("test", os.Stdout)
+	config := pkgsync.DefaultConfig()
+	return pkgsync.NewCollector(provider, rawTxRepo, walletRepo, config, log)
 }
 
 // hwSetup wires a collector whose wallet syncs exactly one chain, with a
@@ -71,15 +78,13 @@ func hwSetupFor(t *testing.T, ctx context.Context, walletID uuid.UUID, cursor *t
 	provider := new(MockTransactionDataProvider)
 	rawTxRepo := new(MockRawTransactionRepository)
 	walletRepo := new(MockWalletRepository)
-	assetRepo := new(MockSyncAssetRepository)
 
 	walletRepo.On("SetSyncPhase", ctx, walletID, mock.Anything).Return(nil)
 	walletRepo.On("GetChainSyncRows", ctx, walletID).Return([]wallet.WalletChainSync{
 		{WalletID: walletID, Chain: hwChain, SyncStatus: wallet.SyncStatusPending, CollectCursorAt: cursor},
 	}, nil)
-	assetRepo.On("Upsert", ctx, mock.Anything).Return(nil)
 
-	return newTestCollector(provider, rawTxRepo, walletRepo, assetRepo),
+	return newTestCollector(provider, rawTxRepo, walletRepo),
 		provider, rawTxRepo, walletRepo, w
 }
 
@@ -273,7 +278,7 @@ func TestCollect_StreamingDeepSyncPersistsPagesBeforeInterruption(t *testing.T) 
 		failAfter: 2,
 	}
 	_, _, rawTxRepo, walletRepo, w := hwSetupFor(t, ctx, walletID, nil)
-	collector := newTestCollector(streamer, rawTxRepo, walletRepo, hwAssetRepo(ctx))
+	collector := newTestCollector(streamer, rawTxRepo, walletRepo)
 
 	stored := map[string]bool{}
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.Anything).
@@ -304,7 +309,7 @@ func TestCollect_StreamingDeepSyncPersistsPagesBeforeInterruption(t *testing.T) 
 		failAfter: -1,
 	}
 	_, _, rawTxRepo2, walletRepo2, w2 := hwSetupFor(t, ctx, walletID, &lastCursor)
-	collector2 := newTestCollector(streamer2, rawTxRepo2, walletRepo2, hwAssetRepo(ctx))
+	collector2 := newTestCollector(streamer2, rawTxRepo2, walletRepo2)
 
 	rawTxRepo2.On("UpsertRawTransaction", ctx, mock.Anything).
 		Run(func(args mock.Arguments) {
@@ -347,7 +352,7 @@ func TestCollect_CursorContiguityHoldsAcrossPages(t *testing.T) {
 		failAfter: -1,
 	}
 	_, _, rawTxRepo, walletRepo, w := hwSetupFor(t, ctx, walletID, nil)
-	collector := newTestCollector(streamer, rawTxRepo, walletRepo, hwAssetRepo(ctx))
+	collector := newTestCollector(streamer, rawTxRepo, walletRepo)
 
 	// a2 (last tx of page 1) never lands.
 	rawTxRepo.On("UpsertRawTransaction", ctx, mock.MatchedBy(func(r *pkgsync.RawTransaction) bool {

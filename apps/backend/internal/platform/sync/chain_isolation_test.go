@@ -76,7 +76,7 @@ func TestCollector_OneChainErrors_OthersAdvance(t *testing.T) {
 		Run(func(args mock.Arguments) { erroredChains[args.Get(2).(string)] = args.Get(3).(string) }).
 		Return(nil)
 
-	collector := newTestCollector(provider, rawTxRepo, walletRepo, nil)
+	collector := newTestCollector(provider, rawTxRepo, walletRepo)
 	count, err := collector.CollectAll(ctx, w)
 
 	// A single chain's failure must NOT abort the whole collect.
@@ -138,7 +138,7 @@ func TestCollector_PerChainSince(t *testing.T) {
 		Run(func(args mock.Arguments) { sinceByChain["base"] = args.Get(3).(time.Time) }).
 		Return([]pkgsync.DecodedTransaction{}, nil)
 
-	collector := newTestCollector(provider, rawTxRepo, walletRepo, nil)
+	collector := newTestCollector(provider, rawTxRepo, walletRepo)
 	_, err := collector.CollectIncremental(ctx, w)
 	require.NoError(t, err)
 
@@ -190,7 +190,7 @@ func TestCollector_FailedChainResumesFromOwnCursor(t *testing.T) {
 		}).Return(nil)
 	walletRepo.On("SetChainSyncError", ctx, walletID, "base", mock.Anything).Return(nil)
 
-	collector := newTestCollector(provider, rawTxRepo, walletRepo, nil)
+	collector := newTestCollector(provider, rawTxRepo, walletRepo)
 	_, err := collector.CollectIncremental(ctx, w)
 
 	require.NoError(t, err)
@@ -237,7 +237,7 @@ func TestReconciler_OneChainErrors_OthersReconcile(t *testing.T) {
 			chainErrReasons[args.Get(2).(string)] = args.Get(3).(string)
 		}).Return(nil)
 
-	r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
+	r := newTestReconciler(rawTxRepo, posProvider, walletRepo)
 	res, err := r.Reconcile(ctx, w)
 	count := res.Flagged
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +22,14 @@ func TestPortfolioService_CalculatesTotalBalanceCorrectly(t *testing.T) {
 	ledgerRepo := setupMockLedgerRepository()
 	walletRepo := setupMockWalletRepository()
 	priceService := setupMockPriceService()
-	portfolioService := NewPortfolioService(ledgerRepo, walletRepo, priceService, nil, nil)
+	// The lookup is what turns a balance's registry id back into the ticker the
+	// (still symbol-keyed) price service understands (#59).
+	assets := newStubAssetLookup().
+		add(testasset.BTC, "BTC", 8).
+		add(testasset.ETH, "ETH", 18).
+		add(testasset.USDC, "USDC", 6)
+	portfolioService := NewPortfolioService(ledgerRepo, walletRepo, priceService, nil, nil).
+		WithAssetLookup(assets)
 
 	userID := uuid.New()
 	wallet1 := uuid.New()
@@ -41,13 +49,13 @@ func TestPortfolioService_CalculatesTotalBalanceCorrectly(t *testing.T) {
 	account3 := uuid.New()
 
 	ledgerRepo.SetMockAccounts(wallet1, []*ledger.Account{
-		{ID: account1, WalletID: &wallet1, AssetID: "BTC"},
+		{ID: account1, WalletID: &wallet1, AssetID: testasset.BTC},
 	})
 	ledgerRepo.SetMockAccounts(wallet2, []*ledger.Account{
-		{ID: account2, WalletID: &wallet2, AssetID: "ETH"},
+		{ID: account2, WalletID: &wallet2, AssetID: testasset.ETH},
 	})
 	ledgerRepo.SetMockAccounts(wallet3, []*ledger.Account{
-		{ID: account3, WalletID: &wallet3, AssetID: "USDC"},
+		{ID: account3, WalletID: &wallet3, AssetID: testasset.USDC},
 	})
 
 	// Use SetString for large integers that overflow int64
@@ -56,13 +64,13 @@ func TestPortfolioService_CalculatesTotalBalanceCorrectly(t *testing.T) {
 
 	// Mock account balances
 	ledgerRepo.SetMockBalances(account1, []*ledger.AccountBalance{
-		{AssetID: "BTC", Balance: big.NewInt(200000000)}, // 2.0 BTC
+		{AssetID: testasset.BTC, Balance: big.NewInt(200000000)}, // 2.0 BTC
 	})
 	ledgerRepo.SetMockBalances(account2, []*ledger.AccountBalance{
-		{AssetID: "ETH", Balance: ethBalance}, // 10 ETH
+		{AssetID: testasset.ETH, Balance: ethBalance}, // 10 ETH
 	})
 	ledgerRepo.SetMockBalances(account3, []*ledger.AccountBalance{
-		{AssetID: "USDC", Balance: big.NewInt(1000000000)}, // 1000 USDC
+		{AssetID: testasset.USDC, Balance: big.NewInt(1000000000)}, // 1000 USDC
 	})
 
 	// Mock prices (scaled by 10^8)
@@ -110,7 +118,8 @@ func TestPortfolioService_HandlesPriceAPIFailure(t *testing.T) {
 	ledgerRepo := setupMockLedgerRepository()
 	walletRepo := setupMockWalletRepository()
 	priceService := setupMockPriceService()
-	portfolioService := NewPortfolioService(ledgerRepo, walletRepo, priceService, nil, nil)
+	portfolioService := NewPortfolioService(ledgerRepo, walletRepo, priceService, nil, nil).
+		WithAssetLookup(newStubAssetLookup().add(testasset.BTC, "BTC", 8))
 
 	userID := uuid.New()
 	walletID := uuid.New()
@@ -121,11 +130,11 @@ func TestPortfolioService_HandlesPriceAPIFailure(t *testing.T) {
 	})
 
 	ledgerRepo.SetMockAccounts(walletID, []*ledger.Account{
-		{ID: accountID, WalletID: &walletID, AssetID: "BTC"},
+		{ID: accountID, WalletID: &walletID, AssetID: testasset.BTC},
 	})
 
 	ledgerRepo.SetMockBalances(accountID, []*ledger.AccountBalance{
-		{AssetID: "BTC", Balance: big.NewInt(100000000)}, // 1 BTC
+		{AssetID: testasset.BTC, Balance: big.NewInt(100000000)}, // 1 BTC
 	})
 
 	// Price service returns error for BTC
@@ -155,6 +164,40 @@ func setupMockWalletRepository() *MockWalletRepository {
 	return &MockWalletRepository{
 		wallets: make(map[uuid.UUID][]*Wallet),
 	}
+}
+
+// stubAssetLookup resolves a registry id to a ticker and decimals, standing in
+// for the asset_registry read the real service does (#59). It is a map because
+// that is all AssetLookup is: one row per id, with no fallback — a miss returns
+// ok=false and the caller degrades, which is the behaviour worth testing.
+type stubAssetLookup struct {
+	byID map[uuid.UUID]struct {
+		symbol   string
+		decimals int
+	}
+}
+
+func newStubAssetLookup() *stubAssetLookup {
+	return &stubAssetLookup{byID: map[uuid.UUID]struct {
+		symbol   string
+		decimals int
+	}{}}
+}
+
+func (l *stubAssetLookup) add(id uuid.UUID, symbol string, decimals int) *stubAssetLookup {
+	l.byID[id] = struct {
+		symbol   string
+		decimals int
+	}{symbol, decimals}
+	return l
+}
+
+func (l *stubAssetLookup) Describe(_ context.Context, id uuid.UUID) (string, int, bool) {
+	e, ok := l.byID[id]
+	if !ok {
+		return "", 0, false
+	}
+	return e.symbol, e.decimals, true
 }
 
 func setupMockPriceService() *MockPriceService {

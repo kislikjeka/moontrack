@@ -14,6 +14,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/infra/postgres"
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/pkg/logger"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 	"github.com/kislikjeka/moontrack/testutil/testdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,6 +47,7 @@ func TestMain(m *testing.M) {
 func setupTest(t *testing.T) (*ledger.Service, *postgres.LedgerRepository, context.Context) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	repo := postgres.NewLedgerRepository(testDB.Pool)
 	registry := ledger.NewRegistry()
@@ -56,6 +58,40 @@ func setupTest(t *testing.T) (*ledger.Service, *postgres.LedgerRepository, conte
 
 	svc := ledger.NewService(repo, registry, testLogger())
 	return svc, repo, ctx
+}
+
+// seedTestAssets inserts the pkg/testasset ids into asset_registry.
+//
+// Unit tests can use those constants directly, but entries, accounts,
+// account_balances and tax_lots all carry an FK into asset_registry since #59,
+// so an integration test writing testasset.BTC needs a row with THAT id to
+// exist. The registry's own Resolve mints its id server-side and cannot be told
+// to use a specific one, so this inserts directly.
+//
+// It is idempotent on the id and on (chain, contract), so it is safe to call in
+// every test: testDB.Reset does not truncate asset_registry, and the rows are
+// meant to outlive it.
+func seedTestAssets(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	assets := []struct {
+		id     uuid.UUID
+		symbol string
+	}{
+		{testasset.BTC, "BTC"},
+		{testasset.ETH, "ETH"},
+		{testasset.USDC, "USDC"},
+		{testasset.USDT, "USDT"},
+		{testasset.WETH, "WETH"},
+		{testasset.DAI, "DAI"},
+	}
+	for _, a := range assets {
+		_, err := pool.Exec(ctx, `
+			INSERT INTO asset_registry (id, chain, contract, symbol, name, decimals)
+			VALUES ($1, 'ethereum', $2, $3, $3, 18)
+			ON CONFLICT DO NOTHING
+		`, a.id, "0xtest"+a.symbol, a.symbol)
+		require.NoError(t, err)
+	}
 }
 
 // Helper to create a test user
@@ -84,7 +120,7 @@ func createTestWallet(t *testing.T, ctx context.Context, pool *pgxpool.Pool, use
 type testHandler struct {
 	ledger.BaseHandler
 	walletID uuid.UUID
-	assetID  string
+	assetID  uuid.UUID
 	amount   *big.Int
 }
 
@@ -92,7 +128,7 @@ func newTestHandler() *testHandler {
 	return &testHandler{
 		BaseHandler: ledger.NewBaseHandler(ledger.TxTypeManualIncome),
 		walletID:    uuid.New(),
-		assetID:     "BTC",
+		assetID:     testasset.BTC,
 		amount:      big.NewInt(100000000),
 	}
 }
@@ -104,7 +140,11 @@ func (h *testHandler) Handle(ctx context.Context, data map[string]interface{}) (
 	}
 	assetID := h.assetID
 	if aid, ok := data["asset_id"].(string); ok {
-		assetID = aid
+		parsed, err := uuid.Parse(aid)
+		if err != nil {
+			return nil, err
+		}
+		assetID = parsed
 	}
 	amount := h.amount
 	if amtStr, ok := data["amount"].(string); ok {
@@ -125,7 +165,7 @@ func (h *testHandler) Handle(ctx context.Context, data map[string]interface{}) (
 			CreatedAt:   now,
 			Metadata: map[string]interface{}{
 				"wallet_id":    walletID.String(),
-				"account_code": "wallet." + walletID.String() + "." + assetID,
+				"account_code": "wallet." + walletID.String() + "." + assetID.String(),
 			},
 		},
 		{
@@ -139,7 +179,7 @@ func (h *testHandler) Handle(ctx context.Context, data map[string]interface{}) (
 			OccurredAt:  now,
 			CreatedAt:   now,
 			Metadata: map[string]interface{}{
-				"account_code": "income." + assetID,
+				"account_code": "income." + assetID.String(),
 			},
 		},
 	}, nil
@@ -212,7 +252,7 @@ func TestLedgerService_RecordTransaction_AccountCreation(t *testing.T) {
 	account, err := repo.GetAccountByCode(ctx, accountCode)
 	require.NoError(t, err)
 	assert.Equal(t, ledger.AccountTypeCryptoWallet, account.Type)
-	assert.Equal(t, "BTC", account.AssetID)
+	assert.Equal(t, testasset.BTC, account.AssetID)
 }
 
 func TestLedgerService_RecordTransaction_BalanceUpdate(t *testing.T) {
@@ -243,7 +283,7 @@ func TestLedgerService_RecordTransaction_BalanceUpdate(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check balance after first transaction
-	balance1, err := svc.GetAccountBalance(ctx, account.ID, "BTC")
+	balance1, err := svc.GetAccountBalance(ctx, account.ID, testasset.BTC)
 	require.NoError(t, err)
 	assert.Equal(t, 0, balance1.Balance.Cmp(big.NewInt(100)))
 
@@ -264,7 +304,7 @@ func TestLedgerService_RecordTransaction_BalanceUpdate(t *testing.T) {
 	require.NotNil(t, tx2)
 
 	// Check balance after second transaction: should be 150
-	balance2, err := svc.GetAccountBalance(ctx, account.ID, "BTC")
+	balance2, err := svc.GetAccountBalance(ctx, account.ID, testasset.BTC)
 	require.NoError(t, err)
 	assert.Equal(t, 0, balance2.Balance.Cmp(big.NewInt(150)))
 }
@@ -273,7 +313,7 @@ func TestLedgerService_GetBalance_NonExistentAccount(t *testing.T) {
 	svc, _, ctx := setupTest(t)
 
 	// Get balance for non-existent wallet
-	balance, err := svc.GetBalance(ctx, uuid.New(), "ethereum", "BTC")
+	balance, err := svc.GetBalance(ctx, uuid.New(), "ethereum", testasset.BTC)
 	require.NoError(t, err)
 	assert.Equal(t, 0, balance.Cmp(big.NewInt(0)))
 }
@@ -305,7 +345,7 @@ func TestLedgerService_ReconcileBalance_Matches(t *testing.T) {
 	require.NoError(t, err)
 
 	// Reconcile should pass
-	err = svc.ReconcileBalance(ctx, account.ID, "BTC")
+	err = svc.ReconcileBalance(ctx, account.ID, testasset.BTC)
 	assert.NoError(t, err)
 }
 
@@ -344,7 +384,7 @@ func TestLedgerService_ConcurrentTransactions(t *testing.T) {
 	account, err := repo.GetAccountByCode(ctx, accountCode)
 	require.NoError(t, err)
 
-	balance, err := svc.GetAccountBalance(ctx, account.ID, "BTC")
+	balance, err := svc.GetAccountBalance(ctx, account.ID, testasset.BTC)
 	require.NoError(t, err)
 	assert.Equal(t, 0, balance.Balance.Cmp(big.NewInt(100)))
 }

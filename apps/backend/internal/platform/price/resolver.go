@@ -8,7 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kislikjeka/moontrack/internal/platform/asset"
+	"github.com/google/uuid"
+
 	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
@@ -136,7 +137,7 @@ func isTransientClass(err error) bool {
 //  4. Else if any provider was rate-limited → ErrRateLimited. (Only reaches
 //     here when ALL providers were rate-limited.)
 //  5. Else ErrNotFound.
-func (r *Resolver) ResolveHistorical(ctx context.Context, a asset.Asset, at time.Time) (*HistoricalPrice, Source, error) {
+func (r *Resolver) ResolveHistorical(ctx context.Context, a Asset, at time.Time) (*HistoricalPrice, Source, error) {
 	var sawRateLimited, sawTransient, sawNotFound bool
 	// Preserve the first rate-limit error so errors.As can still recover a
 	// *RateLimitedError (and its RetryAfter) when rate-limit wins.
@@ -148,7 +149,7 @@ func (r *Resolver) ResolveHistorical(ctx context.Context, a asset.Asset, at time
 			continue
 		}
 
-		if r.cache != nil && a.ID != (asset.Asset{}).ID {
+		if r.cache != nil && a.ID != uuid.Nil {
 			if hp, ok, _ := r.cache.GetHistorical(ctx, p.Name(), a.ID, at); ok {
 				return hp, p.Name(), nil
 			}
@@ -158,7 +159,7 @@ func (r *Resolver) ResolveHistorical(ctx context.Context, a asset.Asset, at time
 		// Update cooldown state with the raw result before re-classifying.
 		r.recordProviderResult(p.Name(), err)
 		if err == nil {
-			if r.cache != nil && a.ID != (asset.Asset{}).ID {
+			if r.cache != nil && a.ID != uuid.Nil {
 				_ = r.cache.PutHistorical(ctx, p.Name(), a.ID, at, hp)
 			}
 			return hp, p.Name(), nil
@@ -202,7 +203,7 @@ func (r *Resolver) ResolveHistorical(ctx context.Context, a asset.Asset, at time
 
 // ResolveCurrent walks the chain for a current price. Error priority matches
 // ResolveHistorical: NotFound > Transient > RateLimited.
-func (r *Resolver) ResolveCurrent(ctx context.Context, a asset.Asset) (*big.Int, Source, error) {
+func (r *Resolver) ResolveCurrent(ctx context.Context, a Asset) (*big.Int, Source, error) {
 	var sawRateLimited, sawTransient, sawNotFound bool
 	var rateLimitErr error
 

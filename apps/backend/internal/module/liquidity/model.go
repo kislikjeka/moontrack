@@ -11,21 +11,28 @@ import (
 // LPTransaction represents a liquidity pool transaction (deposit, withdraw, claim fees).
 // Reuses the same transfer-based pattern as swap transactions.
 type LPTransaction struct {
-	WalletID    uuid.UUID    `json:"wallet_id"`
-	TxHash      string       `json:"tx_hash"`
-	ChainID     string       `json:"chain_id"`
-	OccurredAt  time.Time    `json:"occurred_at"`
-	Protocol    string       `json:"protocol,omitempty"`
-	NFTTokenID  string       `json:"nft_token_id,omitempty"`
-	Transfers   []LPTransfer `json:"transfers"`
-	FeeAsset    string       `json:"fee_asset,omitempty"`
-	FeeAmount   *money.BigInt `json:"fee_amount,omitempty"`
-	FeeDecimals int          `json:"fee_decimals,omitempty"`
-	FeeUSDPrice *money.BigInt `json:"fee_usd_price,omitempty"`
+	WalletID   uuid.UUID    `json:"wallet_id"`
+	TxHash     string       `json:"tx_hash"`
+	ChainID    string       `json:"chain_id"`
+	OccurredAt time.Time    `json:"occurred_at"`
+	Protocol   string       `json:"protocol,omitempty"`
+	NFTTokenID string       `json:"nft_token_id,omitempty"`
+	Transfers  []LPTransfer `json:"transfers"`
+	// FeeAsset is the registry UUID of the gas token (#59); the symbol is
+	// display only.
+	FeeAsset       uuid.UUID     `json:"fee_asset,omitempty"`
+	FeeAssetSymbol string        `json:"fee_asset_symbol,omitempty"`
+	FeeAmount      *money.BigInt `json:"fee_amount,omitempty"`
+	FeeDecimals    int           `json:"fee_decimals,omitempty"`
+	FeeUSDPrice    *money.BigInt `json:"fee_usd_price,omitempty"`
 }
 
 // LPTransfer represents a single asset movement within an LP operation.
+//
+// AssetID is identity (Entry.AssetID plus every account code built from this
+// leg); AssetSymbol is the ticker kept for display (#59).
 type LPTransfer struct {
+	AssetID         uuid.UUID     `json:"asset_id"`
 	AssetSymbol     string        `json:"asset_symbol"`
 	Amount          *money.BigInt `json:"amount"`
 	Decimals        int           `json:"decimals"`
@@ -98,7 +105,8 @@ func (t *LPTransaction) TransfersOut() []LPTransfer {
 
 // Validate validates a single LP transfer.
 func (t *LPTransfer) Validate() error {
-	if t.AssetSymbol == "" {
+	// uuid.Nil is rejected, not defaulted — see SwapTransfer.Validate (#59).
+	if t.AssetID == uuid.Nil {
 		return ErrInvalidAssetID
 	}
 	if t.Amount.IsNil() || t.Amount.Sign() <= 0 {

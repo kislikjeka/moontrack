@@ -27,11 +27,11 @@ type Repository interface {
 	GetEntriesByAccount(ctx context.Context, accountID uuid.UUID) ([]*Entry, error)
 
 	// Balance operations
-	GetAccountBalance(ctx context.Context, accountID uuid.UUID, assetID string) (*AccountBalance, error)
-	GetAccountBalanceForUpdate(ctx context.Context, accountID uuid.UUID, assetID string) (*AccountBalance, error)
+	GetAccountBalance(ctx context.Context, accountID uuid.UUID, assetID uuid.UUID) (*AccountBalance, error)
+	GetAccountBalanceForUpdate(ctx context.Context, accountID uuid.UUID, assetID uuid.UUID) (*AccountBalance, error)
 	UpsertAccountBalance(ctx context.Context, balance *AccountBalance) error
 	GetAccountBalances(ctx context.Context, accountID uuid.UUID) ([]*AccountBalance, error)
-	CalculateBalanceFromEntries(ctx context.Context, accountID uuid.UUID, assetID string) (*big.Int, error)
+	CalculateBalanceFromEntries(ctx context.Context, accountID uuid.UUID, assetID uuid.UUID) (*big.Int, error)
 
 	// Transaction management
 	BeginTx(ctx context.Context) (context.Context, error)

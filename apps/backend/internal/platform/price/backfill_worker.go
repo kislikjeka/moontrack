@@ -9,18 +9,33 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kislikjeka/moontrack/internal/ledger"
-	"github.com/kislikjeka/moontrack/internal/platform/asset"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
-// AssetLookup resolves an asset by ID (subset of asset.Service).
+// AssetLookup resolves a pricing identity by its registry UUID.
+//
+// It is backed by asset_registry (#59). It used to read the `assets` table,
+// whose id was a different, symbol-derived identity; price_backfill_jobs.asset_id
+// now carries an FK into the registry, so the lookup and the job key agree by
+// construction and a job can no longer name an asset the lookup cannot find.
 type AssetLookup interface {
-	GetAsset(ctx context.Context, id uuid.UUID) (*asset.Asset, error)
+	GetAsset(ctx context.Context, id uuid.UUID) (*Asset, error)
+}
+
+// PricePoint is one row of price_history, as the worker writes it.
+//
+// Declared in this package for the same reason as Asset: it was asset.PricePoint,
+// and price must not depend on a package built around the dropped `assets` table.
+type PricePoint struct {
+	Time     time.Time
+	AssetID  uuid.UUID
+	PriceUSD *big.Int
+	Source   Source
 }
 
 // PriceRecorder writes a PricePoint to price_history.
 type PriceRecorder interface {
-	RecordPrice(ctx context.Context, p *asset.PricePoint) error
+	RecordPricePoint(ctx context.Context, p *PricePoint) error
 }
 
 // OnPriceResolvedFunc notifies interested parties (ledger hook) that a price
@@ -84,13 +99,13 @@ func (w *BackfillWorker) ProcessOne(ctx context.Context) error {
 	switch {
 	case rerr == nil:
 		// Record price_history, notify hook, mark resolved.
-		pp := &asset.PricePoint{
+		pp := &PricePoint{
 			Time:     hp.Timestamp,
 			AssetID:  a.ID,
 			PriceUSD: hp.PriceUSD,
-			Source:   asset.PriceSource(src),
+			Source:   src,
 		}
-		if err := w.d.PriceRecorder.RecordPrice(ctx, pp); err != nil {
+		if err := w.d.PriceRecorder.RecordPricePoint(ctx, pp); err != nil {
 			// Don't count as attempt — it's our problem, not the provider's.
 			return w.d.Jobs.UnlockWithoutCounting(ctx, job.ID, time.Now().Add(1*time.Minute))
 		}

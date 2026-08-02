@@ -59,7 +59,7 @@ func generateSwapLikeEntries(txn *DeFiTransaction) []*ledger.Entry {
 
 		entryMeta := mergeMetadata(metadata, map[string]interface{}{
 			"wallet_id":        walletIDStr,
-			"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetSymbol),
+			"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetID.String()),
 			"tx_hash":          txn.TxHash,
 			"chain_id":         chainIDStr,
 			"direction":        "out",
@@ -73,7 +73,7 @@ func generateSwapLikeEntries(txn *DeFiTransaction) []*ledger.Entry {
 			DebitCredit: ledger.Credit,
 			EntryType:   ledger.EntryTypeAssetDecrease,
 			Amount:      new(big.Int).Set(amount),
-			AssetID:     tr.AssetSymbol,
+			AssetID:     tr.AssetID,
 			USDRate:     new(big.Int).Set(usdRate),
 			USDValue:    new(big.Int).Set(usdValue),
 			OccurredAt:  txn.OccurredAt,
@@ -82,7 +82,7 @@ func generateSwapLikeEntries(txn *DeFiTransaction) []*ledger.Entry {
 		})
 
 		clearingMeta := mergeMetadata(metadata, map[string]interface{}{
-			"account_code": accountcode.ClearingCode(chainIDStr, tr.AssetSymbol),
+			"account_code": accountcode.ClearingCode(chainIDStr, tr.AssetID.String()),
 			"account_type": "CLEARING",
 			"chain_id":     chainIDStr,
 			"tx_hash":      txn.TxHash,
@@ -96,7 +96,7 @@ func generateSwapLikeEntries(txn *DeFiTransaction) []*ledger.Entry {
 			DebitCredit: ledger.Debit,
 			EntryType:   ledger.EntryTypeClearing,
 			Amount:      new(big.Int).Set(amount),
-			AssetID:     tr.AssetSymbol,
+			AssetID:     tr.AssetID,
 			USDRate:     new(big.Int).Set(usdRate),
 			USDValue:    new(big.Int).Set(usdValue),
 			OccurredAt:  txn.OccurredAt,
@@ -125,7 +125,7 @@ func generateSwapLikeEntries(txn *DeFiTransaction) []*ledger.Entry {
 
 		entryMeta := mergeMetadata(metadata, map[string]interface{}{
 			"wallet_id":        walletIDStr,
-			"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetSymbol),
+			"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetID.String()),
 			"tx_hash":          txn.TxHash,
 			"chain_id":         chainIDStr,
 			"direction":        "in",
@@ -139,7 +139,7 @@ func generateSwapLikeEntries(txn *DeFiTransaction) []*ledger.Entry {
 			DebitCredit: ledger.Debit,
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      new(big.Int).Set(amount),
-			AssetID:     tr.AssetSymbol,
+			AssetID:     tr.AssetID,
 			USDRate:     new(big.Int).Set(usdRate),
 			USDValue:    new(big.Int).Set(usdValue),
 			OccurredAt:  txn.OccurredAt,
@@ -148,7 +148,7 @@ func generateSwapLikeEntries(txn *DeFiTransaction) []*ledger.Entry {
 		})
 
 		clearingMeta := mergeMetadata(metadata, map[string]interface{}{
-			"account_code": accountcode.ClearingCode(chainIDStr, tr.AssetSymbol),
+			"account_code": accountcode.ClearingCode(chainIDStr, tr.AssetID.String()),
 			"account_type": "CLEARING",
 			"chain_id":     chainIDStr,
 			"tx_hash":      txn.TxHash,
@@ -162,7 +162,7 @@ func generateSwapLikeEntries(txn *DeFiTransaction) []*ledger.Entry {
 			DebitCredit: ledger.Credit,
 			EntryType:   ledger.EntryTypeClearing,
 			Amount:      new(big.Int).Set(amount),
-			AssetID:     tr.AssetSymbol,
+			AssetID:     tr.AssetID,
 			USDRate:     new(big.Int).Set(usdRate),
 			USDValue:    new(big.Int).Set(usdValue),
 			OccurredAt:  txn.OccurredAt,
@@ -193,7 +193,10 @@ func generateGasFeeEntries(txn *DeFiTransaction) []*ledger.Entry {
 		feeDecimals = 18 // Default to 18 for native tokens
 	}
 	feeUSDValue := money.CalcUSDValue(feeAmount, feeUSDRate, feeDecimals)
+	// Gas account and the wallet's native leg key on the fee asset's registry
+	// UUID (#59); the fee ticker is display data and keys nothing.
 	feeAsset := txn.FeeAsset
+	feeAssetSeg := feeAsset.String()
 
 	walletIDStr := txn.WalletID.String()
 	chainIDStr := txn.ChainID
@@ -213,7 +216,7 @@ func generateGasFeeEntries(txn *DeFiTransaction) []*ledger.Entry {
 		OccurredAt:  txn.OccurredAt,
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
-			"account_code": accountcode.GasCode(chainIDStr, feeAsset),
+			"account_code": accountcode.GasCode(chainIDStr, feeAssetSeg),
 			"tx_hash":      txn.TxHash,
 			"chain_id":     chainIDStr,
 		},
@@ -233,7 +236,7 @@ func generateGasFeeEntries(txn *DeFiTransaction) []*ledger.Entry {
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
 			"wallet_id":    walletIDStr,
-			"account_code": accountcode.WalletCode(txn.WalletID, chainIDStr, feeAsset),
+			"account_code": accountcode.WalletCode(txn.WalletID, chainIDStr, feeAssetSeg),
 			"tx_hash":      txn.TxHash,
 			"chain_id":     chainIDStr,
 			"entry_type":   "gas_payment",

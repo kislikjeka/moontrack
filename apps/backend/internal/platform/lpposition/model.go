@@ -23,12 +23,12 @@ type LPPosition struct {
 	NFTTokenID      string // Uniswap V3 position NFT ID, empty if unknown
 	ContractAddress string
 
-	Token0Symbol   string
-	Token1Symbol   string
-	Token0Contract string
-	Token1Contract string
-	Token0Decimals int
-	Token1Decimals int
+	// The pair is two references into asset_registry. Symbol/contract/decimals
+	// used to be carried here as six columns; a native token in a pair was then
+	// spelled as an empty contract, which made "which token is this" a question
+	// with several possible answers. One UUID each has exactly one answer.
+	Token0AssetID uuid.UUID
+	Token1AssetID uuid.UUID
 
 	TotalDepositedUSD   *big.Int
 	TotalWithdrawnUSD   *big.Int

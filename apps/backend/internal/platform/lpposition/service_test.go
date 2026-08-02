@@ -14,6 +14,15 @@ import (
 	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
+// Fixed registry IDs so assertions stay deterministic across runs. The names
+// are a reader's convenience only — the code under test compares IDs, never
+// tickers.
+var (
+	assetETH  = uuid.MustParse("11111111-1111-4111-8111-111111111111")
+	assetUSDC = uuid.MustParse("33333333-3333-4333-8333-333333333333")
+	assetWBTC = uuid.MustParse("22222222-2222-4222-8222-222222222222")
+)
+
 // mockRepo is an in-memory implementation of Repository for testing.
 type mockRepo struct {
 	positions map[uuid.UUID]*LPPosition
@@ -50,12 +59,14 @@ func (r *mockRepo) GetByNFTTokenID(_ context.Context, walletID uuid.UUID, chainI
 	return nil, nil
 }
 
-func (r *mockRepo) FindOpenByTokenPair(_ context.Context, walletID uuid.UUID, chainID, protocol, token0, token1 string) ([]*LPPosition, error) {
+func (r *mockRepo) FindOpenByTokenPair(_ context.Context, walletID uuid.UUID, chainID, protocol string, token0, token1 uuid.UUID) ([]*LPPosition, error) {
 	var result []*LPPosition
 	for _, pos := range r.positions {
 		if pos.WalletID == walletID && pos.ChainID == chainID && pos.Protocol == protocol && pos.Status == StatusOpen {
-			if (pos.Token0Contract == token0 && pos.Token1Contract == token1) ||
-				(pos.Token0Contract == token1 && pos.Token1Contract == token0) {
+			// Order-insensitive, mirroring the SQL: the caller's token0 may be
+			// the stored token1.
+			if (pos.Token0AssetID == token0 && pos.Token1AssetID == token1) ||
+				(pos.Token0AssetID == token1 && pos.Token1AssetID == token0) {
 				result = append(result, pos)
 			}
 		}
@@ -98,12 +109,8 @@ func createTestPosition(repo *mockRepo) *LPPosition {
 		ChainID:              "ethereum",
 		Protocol:             "Uniswap V3",
 		NFTTokenID:           "12345",
-		Token0Symbol:         "ETH",
-		Token1Symbol:         "USDC",
-		Token0Contract:       "0xeth",
-		Token1Contract:       "0xusdc",
-		Token0Decimals:       18,
-		Token1Decimals:       6,
+		Token0AssetID:        assetETH,
+		Token1AssetID:        assetUSDC,
 		TotalDepositedUSD:    big.NewInt(0),
 		TotalWithdrawnUSD:    big.NewInt(0),
 		TotalClaimedFeesUSD:  big.NewInt(0),
@@ -318,8 +325,8 @@ func TestFindOrCreate_ReusesExistingByNFT(t *testing.T) {
 	ctx := context.Background()
 
 	found, err := svc.FindOrCreate(ctx, pos.UserID, pos.WalletID, pos.ChainID, pos.Protocol, pos.NFTTokenID, "",
-		TokenInfo{Symbol: "ETH", Contract: "0xeth", Decimals: 18},
-		TokenInfo{Symbol: "USDC", Contract: "0xusdc", Decimals: 6},
+		TokenInfo{AssetID: assetETH},
+		TokenInfo{AssetID: assetUSDC},
 		time.Now(),
 	)
 	require.NoError(t, err)
@@ -331,15 +338,15 @@ func TestFindOrCreate_CreatesNewWhenNoNFTMatch(t *testing.T) {
 	ctx := context.Background()
 
 	pos, err := svc.FindOrCreate(ctx, uuid.New(), uuid.New(), "ethereum", "Uniswap V3", "99999", "",
-		TokenInfo{Symbol: "WBTC", Contract: "0xwbtc", Decimals: 8},
-		TokenInfo{Symbol: "ETH", Contract: "0xeth", Decimals: 18},
+		TokenInfo{AssetID: assetWBTC},
+		TokenInfo{AssetID: assetETH},
 		time.Now(),
 	)
 	require.NoError(t, err)
 	assert.NotNil(t, pos)
 	assert.Equal(t, StatusOpen, pos.Status)
-	assert.Equal(t, "WBTC", pos.Token0Symbol)
-	assert.Equal(t, "ETH", pos.Token1Symbol)
+	assert.Equal(t, assetWBTC, pos.Token0AssetID)
+	assert.Equal(t, assetETH, pos.Token1AssetID)
 }
 
 func TestFindOpenByTokenPair_WarnsOnMultiple(t *testing.T) {
@@ -357,8 +364,8 @@ func TestFindOpenByTokenPair_WarnsOnMultiple(t *testing.T) {
 			WalletID:             walletID,
 			ChainID:              "ethereum",
 			Protocol:             "Uniswap V3",
-			Token0Contract:       "0xeth",
-			Token1Contract:       "0xusdc",
+			Token0AssetID:        assetETH,
+			Token1AssetID:        assetUSDC,
 			TotalDepositedUSD:    big.NewInt(0),
 			TotalWithdrawnUSD:    big.NewInt(0),
 			TotalClaimedFeesUSD:  big.NewInt(0),
@@ -375,7 +382,13 @@ func TestFindOpenByTokenPair_WarnsOnMultiple(t *testing.T) {
 	}
 
 	// Should return one of them without error (oldest by repo)
-	found, err := svc.FindOpenByTokenPair(ctx, walletID, "ethereum", "Uniswap V3", "0xeth", "0xusdc")
+	found, err := svc.FindOpenByTokenPair(ctx, walletID, "ethereum", "Uniswap V3", assetETH, assetUSDC)
 	require.NoError(t, err)
 	assert.NotNil(t, found)
+
+	// The pair has no canonical side ordering at the call site, so the reversed
+	// pair must find the same position.
+	reversed, err := svc.FindOpenByTokenPair(ctx, walletID, "ethereum", "Uniswap V3", assetUSDC, assetETH)
+	require.NoError(t, err)
+	assert.NotNil(t, reversed, "pair lookup must be order-insensitive")
 }

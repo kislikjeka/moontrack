@@ -18,16 +18,20 @@ type LendingPositionAsset struct {
 	ID         uuid.UUID
 	PositionID uuid.UUID
 	Side       string // "supply" | "borrow"
-	Asset      string
-	Amount     *big.Int
-	Decimals   int
-	Contract   string
-	TotalIn    *big.Int
-	TotalOut   *big.Int
+	// Asset is a reference into asset_registry, not a ticker. Two tokens that
+	// both call themselves USDC are two rows here, because they are two UUIDs;
+	// under the old ticker key the second one silently overwrote the first.
+	Asset  uuid.UUID
+	Amount *big.Int
+	// Decimals and Contract used to live here as denormalized copies. They are
+	// attributes of the registry row Asset points at, so reading them from a
+	// second place could only ever disagree with it.
+	TotalIn     *big.Int
+	TotalOut    *big.Int
 	TotalInUSD  *big.Int
 	TotalOutUSD *big.Int
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type LendingPosition struct {
@@ -84,10 +88,10 @@ func (p *LendingPosition) BorrowAssets() []LendingPositionAsset {
 	return result
 }
 
-// FindAsset finds a specific asset entry by side and asset name. Returns nil if not found.
-func (p *LendingPosition) FindAsset(side, asset string) *LendingPositionAsset {
+// FindAsset finds a specific asset entry by side and registry ID. Returns nil if not found.
+func (p *LendingPosition) FindAsset(side string, assetID uuid.UUID) *LendingPositionAsset {
 	for i := range p.Assets {
-		if p.Assets[i].Side == side && p.Assets[i].Asset == asset {
+		if p.Assets[i].Side == side && p.Assets[i].Asset == assetID {
 			return &p.Assets[i]
 		}
 	}

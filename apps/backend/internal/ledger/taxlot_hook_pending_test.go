@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 )
 
 // makeEntryNilRate is like makeEntry but with USDRate set to nil,
 // simulating an acquisition where no price was available.
-func makeEntryNilRate(accountID uuid.UUID, dc DebitCredit, et EntryType, amount int64, asset string) *Entry {
+func makeEntryNilRate(accountID uuid.UUID, dc DebitCredit, et EntryType, amount int64, asset uuid.UUID) *Entry {
 	return &Entry{
 		ID:          uuid.New(),
 		AccountID:   accountID,
@@ -45,8 +46,8 @@ func TestTaxLotHook_CreatesPendingLot(t *testing.T) {
 		ID:   uuid.New(),
 		Type: TxTypeTransferIn,
 		Entries: []*Entry{
-			makeEntryNilRate(walletAcctID, Debit, EntryTypeAssetIncrease, 5000, "ETH"),
-			makeEntryNilRate(incomeAcctID, Credit, EntryTypeIncome, 5000, "ETH"),
+			makeEntryNilRate(walletAcctID, Debit, EntryTypeAssetIncrease, 5000, testasset.ETH),
+			makeEntryNilRate(incomeAcctID, Credit, EntryTypeIncome, 5000, testasset.ETH),
 		},
 	}
 
@@ -93,7 +94,7 @@ func TestTaxLotHook_DisposalWithoutRate_CreatesPendingDisposal(t *testing.T) {
 		ID:                   uuid.New(),
 		TransactionID:        uuid.New(),
 		AccountID:            walletAcctID,
-		Asset:                "ETH",
+		Asset:                testasset.ETH,
 		QuantityAcquired:     big.NewInt(1000),
 		QuantityRemaining:    big.NewInt(1000),
 		AcquiredAt:           time.Now().Add(-time.Hour),
@@ -115,8 +116,8 @@ func TestTaxLotHook_DisposalWithoutRate_CreatesPendingDisposal(t *testing.T) {
 		ID:   uuid.New(),
 		Type: TxTypeTransferOut,
 		Entries: []*Entry{
-			makeEntryNilRate(expenseAcctID, Debit, EntryTypeExpense, 500, "ETH"),
-			makeEntryNilRate(walletAcctID, Credit, EntryTypeAssetDecrease, 500, "ETH"),
+			makeEntryNilRate(expenseAcctID, Debit, EntryTypeExpense, 500, testasset.ETH),
+			makeEntryNilRate(walletAcctID, Credit, EntryTypeAssetDecrease, 500, testasset.ETH),
 		},
 	}
 
@@ -146,7 +147,7 @@ func TestTaxLotHook_DisposalWithoutRate_CreatesPendingDisposal(t *testing.T) {
 // resolved lots only.
 func TestWeightedAvgCostBasis_SkipsPendingLots(t *testing.T) {
 	accountID := uuid.New()
-	asset := "ETH"
+	asset := testasset.ETH
 	now := time.Now()
 
 	// One resolved source lot, one pending source lot.
@@ -224,7 +225,7 @@ func TestWeightedAvgCostBasis_SkipsPendingLots(t *testing.T) {
 // references a pending lot, the function returns nil (so callers fall back to FMV).
 func TestWeightedAvgCostBasis_AllPending_ReturnsNil(t *testing.T) {
 	accountID := uuid.New()
-	asset := "ETH"
+	asset := testasset.ETH
 	now := time.Now()
 
 	pendingLot := &TaxLot{
@@ -280,8 +281,8 @@ func TestTaxLotHook_ResolvedWhenRatePresent(t *testing.T) {
 		ID:   uuid.New(),
 		Type: TxTypeTransferIn,
 		Entries: []*Entry{
-			makeEntry(walletAcctID, Debit, EntryTypeAssetIncrease, 1000, "ETH", nil),
-			makeEntry(incomeAcctID, Credit, EntryTypeIncome, 1000, "ETH", nil),
+			makeEntry(walletAcctID, Debit, EntryTypeAssetIncrease, 1000, testasset.ETH, nil),
+			makeEntry(incomeAcctID, Credit, EntryTypeIncome, 1000, testasset.ETH, nil),
 		},
 	}
 

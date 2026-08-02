@@ -29,22 +29,22 @@ func (m *mockLendingPositionService) FindOrCreate(ctx context.Context, userID, w
 	return &lendingposition.LendingPosition{ID: uuid.New(), UserID: userID, WalletID: walletID, Protocol: protocol, ChainID: chainID}, nil
 }
 
-func (m *mockLendingPositionService) RecordSupply(ctx context.Context, positionID uuid.UUID, asset string, decimals int, contract string, amount, usdValue *big.Int) error {
+func (m *mockLendingPositionService) RecordSupply(ctx context.Context, positionID uuid.UUID, assetID uuid.UUID, amount, usdValue *big.Int) error {
 	m.lastUSD = usdValue
 	return nil
 }
 
-func (m *mockLendingPositionService) RecordWithdraw(ctx context.Context, positionID uuid.UUID, asset string, amount, usdValue *big.Int) error {
+func (m *mockLendingPositionService) RecordWithdraw(ctx context.Context, positionID uuid.UUID, assetID uuid.UUID, amount, usdValue *big.Int) error {
 	m.lastUSD = usdValue
 	return nil
 }
 
-func (m *mockLendingPositionService) RecordBorrow(ctx context.Context, positionID uuid.UUID, asset string, decimals int, contract string, amount, usdValue *big.Int) error {
+func (m *mockLendingPositionService) RecordBorrow(ctx context.Context, positionID uuid.UUID, assetID uuid.UUID, amount, usdValue *big.Int) error {
 	m.lastUSD = usdValue
 	return nil
 }
 
-func (m *mockLendingPositionService) RecordRepay(ctx context.Context, positionID uuid.UUID, asset string, amount, usdValue *big.Int) error {
+func (m *mockLendingPositionService) RecordRepay(ctx context.Context, positionID uuid.UUID, assetID uuid.UUID, amount, usdValue *big.Int) error {
 	m.lastUSD = usdValue
 	return nil
 }
@@ -124,7 +124,7 @@ func TestLendingUSD_AppliesDecimalsDivisor(t *testing.T) {
 
 			lendingSvc := &mockLendingPositionService{}
 
-			processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, lendingSvc, log, nil, nil, nil, nil)
+			processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, lendingSvc, log, nil, nil, nil)
 
 			tx := sync.DecodedTransaction{
 				ID:            "ext-tx-" + uuid.New().String()[:8],

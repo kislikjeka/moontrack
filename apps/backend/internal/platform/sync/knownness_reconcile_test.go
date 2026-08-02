@@ -55,7 +55,7 @@ func newReconcilerWithFilter(
 		Return([]wallet.WalletChainSync{{Chain: "base"}}, nil)
 	walletRepo.On("SetChainSyncError", mock.Anything, w.ID, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	r := pkgsync.NewReconciler(rawTxRepo, posProvider, walletRepo, nil,
+	r := pkgsync.NewReconciler(rawTxRepo, posProvider, walletRepo,
 		pkgsync.NewKnownAssetFilter(reg), log)
 	return r, walletRepo, w
 }

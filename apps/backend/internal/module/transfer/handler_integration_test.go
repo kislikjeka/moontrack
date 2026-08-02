@@ -19,6 +19,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/module/transfer"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/kislikjeka/moontrack/pkg/money"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 	"github.com/kislikjeka/moontrack/testutil/testdb"
 )
 
@@ -45,6 +46,7 @@ func TestMain(m *testing.M) {
 func setupTransferTest(t *testing.T) (*ledger.Service, *postgres.LedgerRepository, context.Context) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx)
 
 	repo := postgres.NewLedgerRepository(testDB.Pool)
 	walletRepo := postgres.NewWalletRepository(testDB.Pool)
@@ -102,7 +104,7 @@ func TestTransferIn_E2E_CreatesBalancedEntries(t *testing.T) {
 		time.Now().Add(-time.Hour),
 		map[string]interface{}{
 			"wallet_id":        walletID.String(),
-			"asset_id":         "ETH",
+			"asset_id":         testasset.ETH.String(),
 			"decimals":         18,
 			"amount":           money.NewBigIntFromInt64(1000000000000000000).String(), // 1 ETH
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),        // $2000
@@ -134,11 +136,11 @@ func TestTransferIn_E2E_CreatesBalancedEntries(t *testing.T) {
 	assert.Equal(t, ledger.EntryTypeIncome, tx.Entries[1].EntryType)
 
 	// Verify wallet balance increased
-	accountCode := "wallet." + walletID.String() + ".ETH"
+	accountCode := "wallet." + walletID.String() + ".ethereum." + testasset.ETH.String()
 	account, err := repo.GetAccountByCode(ctx, accountCode)
 	require.NoError(t, err)
 
-	balance, err := svc.GetAccountBalance(ctx, account.ID, "ETH")
+	balance, err := svc.GetAccountBalance(ctx, account.ID, testasset.ETH)
 	require.NoError(t, err)
 	assert.Equal(t, 0, balance.Balance.Cmp(big.NewInt(1000000000000000000)), "Balance should be 1 ETH")
 }
@@ -155,11 +157,11 @@ func TestTransferIn_E2E_MultipleTransfers(t *testing.T) {
 			ctx,
 			ledger.TxTypeTransferIn,
 			"blockchain",
-			stringPtr("unique-multi-" + string(rune('a'+i))),
+			stringPtr("unique-multi-"+string(rune('a'+i))),
 			time.Now().Add(-time.Duration(i+1)*time.Hour),
 			map[string]interface{}{
 				"wallet_id":        walletID.String(),
-				"asset_id":         "ETH",
+				"asset_id":         testasset.ETH.String(),
 				"decimals":         18,
 				"amount":           money.NewBigIntFromInt64(100000000000000000).String(), // 0.1 ETH
 				"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
@@ -176,11 +178,11 @@ func TestTransferIn_E2E_MultipleTransfers(t *testing.T) {
 	}
 
 	// Verify accumulated balance: 0.1 * 3 = 0.3 ETH
-	accountCode := "wallet." + walletID.String() + ".ETH"
+	accountCode := "wallet." + walletID.String() + ".ethereum." + testasset.ETH.String()
 	account, err := repo.GetAccountByCode(ctx, accountCode)
 	require.NoError(t, err)
 
-	balance, err := svc.GetAccountBalance(ctx, account.ID, "ETH")
+	balance, err := svc.GetAccountBalance(ctx, account.ID, testasset.ETH)
 	require.NoError(t, err)
 	expectedBalance := big.NewInt(300000000000000000) // 0.3 ETH
 	assert.Equal(t, 0, balance.Balance.Cmp(expectedBalance), "Balance should be 0.3 ETH")
@@ -205,7 +207,7 @@ func TestTransferOut_E2E_DecreasesBalance(t *testing.T) {
 		time.Now().Add(-2*time.Hour),
 		map[string]interface{}{
 			"wallet_id":        walletID.String(),
-			"asset_id":         "ETH",
+			"asset_id":         testasset.ETH.String(),
 			"decimals":         18,
 			"amount":           money.NewBigIntFromInt64(2000000000000000000).String(), // 2 ETH
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
@@ -229,7 +231,7 @@ func TestTransferOut_E2E_DecreasesBalance(t *testing.T) {
 		time.Now().Add(-time.Hour),
 		map[string]interface{}{
 			"wallet_id":        walletID.String(),
-			"asset_id":         "ETH",
+			"asset_id":         testasset.ETH.String(),
 			"decimals":         18,
 			"amount":           money.NewBigIntFromInt64(500000000000000000).String(), // 0.5 ETH
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
@@ -252,11 +254,11 @@ func TestTransferOut_E2E_DecreasesBalance(t *testing.T) {
 	assert.NoError(t, err, "Entries must be balanced")
 
 	// Verify wallet balance decreased: 2 - 0.5 = 1.5 ETH
-	accountCode := "wallet." + walletID.String() + ".ETH"
+	accountCode := "wallet." + walletID.String() + ".ethereum." + testasset.ETH.String()
 	account, err := repo.GetAccountByCode(ctx, accountCode)
 	require.NoError(t, err)
 
-	balance, err := svc.GetAccountBalance(ctx, account.ID, "ETH")
+	balance, err := svc.GetAccountBalance(ctx, account.ID, testasset.ETH)
 	require.NoError(t, err)
 	expectedBalance := big.NewInt(1500000000000000000) // 1.5 ETH
 	assert.Equal(t, 0, balance.Balance.Cmp(expectedBalance), "Balance should be 1.5 ETH after outgoing transfer")
@@ -277,7 +279,7 @@ func TestTransferOut_E2E_WithGas(t *testing.T) {
 		time.Now().Add(-2*time.Hour),
 		map[string]interface{}{
 			"wallet_id":        walletID.String(),
-			"asset_id":         "ETH",
+			"asset_id":         testasset.ETH.String(),
 			"decimals":         18,
 			"amount":           money.NewBigIntFromInt64(5000000000000000000).String(), // 5 ETH
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
@@ -300,13 +302,17 @@ func TestTransferOut_E2E_WithGas(t *testing.T) {
 		stringPtr("outgoing-with-gas"),
 		time.Now().Add(-time.Hour),
 		map[string]interface{}{
-			"wallet_id":        walletID.String(),
-			"asset_id":         "ETH",
-			"decimals":         18,
-			"amount":           money.NewBigIntFromInt64(1000000000000000000).String(), // 1 ETH
-			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
-			"gas_amount":       money.NewBigIntFromInt64(21000000000000000).String(), // 0.021 ETH gas
-			"gas_usd_rate":     money.NewBigIntFromInt64(200000000000).String(),
+			"wallet_id":    walletID.String(),
+			"asset_id":     testasset.ETH.String(),
+			"decimals":     18,
+			"amount":       money.NewBigIntFromInt64(1000000000000000000).String(), // 1 ETH
+			"usd_rate":     money.NewBigIntFromInt64(200000000000).String(),
+			"gas_amount":   money.NewBigIntFromInt64(21000000000000000).String(), // 0.021 ETH gas
+			"gas_usd_rate": money.NewBigIntFromInt64(200000000000).String(),
+			// Naming the coin the fee is paid in is now required (#59). It used
+			// to default to the literal "ETH", which charged every non-Ethereum
+			// chain's gas to ether.
+			"native_asset_id":  testasset.ETH.String(),
 			"chain_id":         "ethereum",
 			"tx_hash":          "0xwithgas",
 			"block_number":     int64(12345100),
@@ -345,7 +351,7 @@ func TestInternalTransfer_E2E_MovesBalance(t *testing.T) {
 		time.Now().Add(-2*time.Hour),
 		map[string]interface{}{
 			"wallet_id":        sourceWalletID.String(),
-			"asset_id":         "ETH",
+			"asset_id":         testasset.ETH.String(),
 			"decimals":         18,
 			"amount":           money.NewBigIntFromInt64(3000000000000000000).String(), // 3 ETH
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
@@ -370,7 +376,7 @@ func TestInternalTransfer_E2E_MovesBalance(t *testing.T) {
 		map[string]interface{}{
 			"source_wallet_id": sourceWalletID.String(),
 			"dest_wallet_id":   destWalletID.String(),
-			"asset_id":         "ETH",
+			"asset_id":         testasset.ETH.String(),
 			"decimals":         18,
 			"amount":           money.NewBigIntFromInt64(1000000000000000000).String(), // 1 ETH
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
@@ -392,20 +398,20 @@ func TestInternalTransfer_E2E_MovesBalance(t *testing.T) {
 	assert.NoError(t, err, "Internal transfer entries must be balanced")
 
 	// Verify source wallet balance decreased: 3 - 1 = 2 ETH
-	sourceAccountCode := "wallet." + sourceWalletID.String() + ".ETH"
+	sourceAccountCode := "wallet." + sourceWalletID.String() + ".ethereum." + testasset.ETH.String()
 	sourceAccount, err := repo.GetAccountByCode(ctx, sourceAccountCode)
 	require.NoError(t, err)
 
-	sourceBalance, err := svc.GetAccountBalance(ctx, sourceAccount.ID, "ETH")
+	sourceBalance, err := svc.GetAccountBalance(ctx, sourceAccount.ID, testasset.ETH)
 	require.NoError(t, err)
 	assert.Equal(t, 0, sourceBalance.Balance.Cmp(big.NewInt(2000000000000000000)), "Source wallet should have 2 ETH")
 
 	// Verify destination wallet balance increased: 0 + 1 = 1 ETH
-	destAccountCode := "wallet." + destWalletID.String() + ".ETH"
+	destAccountCode := "wallet." + destWalletID.String() + ".ethereum." + testasset.ETH.String()
 	destAccount, err := repo.GetAccountByCode(ctx, destAccountCode)
 	require.NoError(t, err)
 
-	destBalance, err := svc.GetAccountBalance(ctx, destAccount.ID, "ETH")
+	destBalance, err := svc.GetAccountBalance(ctx, destAccount.ID, testasset.ETH)
 	require.NoError(t, err)
 	assert.Equal(t, 0, destBalance.Balance.Cmp(big.NewInt(1000000000000000000)), "Dest wallet should have 1 ETH")
 }
@@ -426,11 +432,11 @@ func TestTransfer_Reconciliation_AfterMultipleTransfers(t *testing.T) {
 			ctx,
 			ledger.TxTypeTransferIn,
 			"blockchain",
-			stringPtr("recon-in-" + string(rune('0'+i))),
+			stringPtr("recon-in-"+string(rune('0'+i))),
 			time.Now().Add(-time.Duration(10-i)*time.Hour),
 			map[string]interface{}{
 				"wallet_id":        walletID.String(),
-				"asset_id":         "ETH",
+				"asset_id":         testasset.ETH.String(),
 				"decimals":         18,
 				"amount":           money.NewBigIntFromInt64(100000000000000000).String(), // 0.1 ETH
 				"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
@@ -452,11 +458,11 @@ func TestTransfer_Reconciliation_AfterMultipleTransfers(t *testing.T) {
 			ctx,
 			ledger.TxTypeTransferOut,
 			"blockchain",
-			stringPtr("recon-out-" + string(rune('0'+i))),
+			stringPtr("recon-out-"+string(rune('0'+i))),
 			time.Now().Add(-time.Duration(5-i)*time.Hour),
 			map[string]interface{}{
 				"wallet_id":        walletID.String(),
-				"asset_id":         "ETH",
+				"asset_id":         testasset.ETH.String(),
 				"decimals":         18,
 				"amount":           money.NewBigIntFromInt64(50000000000000000).String(), // 0.05 ETH
 				"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
@@ -473,16 +479,16 @@ func TestTransfer_Reconciliation_AfterMultipleTransfers(t *testing.T) {
 	}
 
 	// Get wallet account and reconcile
-	accountCode := "wallet." + walletID.String() + ".ETH"
+	accountCode := "wallet." + walletID.String() + ".ethereum." + testasset.ETH.String()
 	account, err := repo.GetAccountByCode(ctx, accountCode)
 	require.NoError(t, err)
 
 	// Reconcile should pass
-	err = svc.ReconcileBalance(ctx, account.ID, "ETH")
+	err = svc.ReconcileBalance(ctx, account.ID, testasset.ETH)
 	assert.NoError(t, err, "Reconciliation should pass after multiple transfers")
 
 	// Verify final balance: 5 * 0.1 - 2 * 0.05 = 0.5 - 0.1 = 0.4 ETH
-	balance, err := svc.GetAccountBalance(ctx, account.ID, "ETH")
+	balance, err := svc.GetAccountBalance(ctx, account.ID, testasset.ETH)
 	require.NoError(t, err)
 	expectedBalance := big.NewInt(400000000000000000) // 0.4 ETH
 	assert.Equal(t, 0, balance.Balance.Cmp(expectedBalance), "Balance should be 0.4 ETH")
@@ -509,7 +515,7 @@ func TestTransferIn_Idempotency_NoDuplicates(t *testing.T) {
 		time.Now().Add(-time.Hour),
 		map[string]interface{}{
 			"wallet_id":        walletID.String(),
-			"asset_id":         "ETH",
+			"asset_id":         testasset.ETH.String(),
 			"decimals":         18,
 			"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
@@ -534,7 +540,7 @@ func TestTransferIn_Idempotency_NoDuplicates(t *testing.T) {
 		time.Now().Add(-time.Hour),
 		map[string]interface{}{
 			"wallet_id":        walletID.String(),
-			"asset_id":         "ETH",
+			"asset_id":         testasset.ETH.String(),
 			"decimals":         18,
 			"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
 			"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),
@@ -558,11 +564,11 @@ func TestTransferIn_Idempotency_NoDuplicates(t *testing.T) {
 	}
 
 	// Verify balance is only 1 ETH (not doubled)
-	accountCode := "wallet." + walletID.String() + ".ETH"
+	accountCode := "wallet." + walletID.String() + ".ethereum." + testasset.ETH.String()
 	account, err := repo.GetAccountByCode(ctx, accountCode)
 	require.NoError(t, err)
 
-	balance, err := svc.GetAccountBalance(ctx, account.ID, "ETH")
+	balance, err := svc.GetAccountBalance(ctx, account.ID, testasset.ETH)
 	require.NoError(t, err)
 	expectedBalance := big.NewInt(1000000000000000000) // 1 ETH
 	assert.Equal(t, 0, balance.Balance.Cmp(expectedBalance), "Balance should be 1 ETH (not duplicated)")
@@ -571,4 +577,23 @@ func TestTransferIn_Idempotency_NoDuplicates(t *testing.T) {
 // Helper function
 func stringPtr(s string) *string {
 	return &s
+}
+
+// seedTestAssets inserts the pkg/testasset ids into asset_registry.
+//
+// accounts, entries, account_balances and tax_lots all carry an FK into
+// asset_registry since #59, so a test booking an entry against testasset.ETH
+// needs a registry row with THAT id. Resolve mints ids server-side and cannot be
+// told to use a specific one, so these go in directly. Idempotent, and called
+// after every Reset because Reset truncates the registry along with the rest.
+func seedTestAssets(t *testing.T, ctx context.Context) {
+	t.Helper()
+	for _, a := range testasset.All() {
+		_, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO asset_registry (id, chain, contract, symbol, name, decimals)
+			VALUES ($1, 'ethereum', $2, $3, $3, 18)
+			ON CONFLICT DO NOTHING
+		`, a.ID, "0xtest"+a.Symbol, a.Symbol)
+		require.NoError(t, err)
+	}
 }

@@ -129,14 +129,14 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			DebitCredit: ledger.Credit,
 			EntryType:   ledger.EntryTypeAssetDecrease,
 			Amount:      new(big.Int).Set(amount),
-			AssetID:     tr.AssetSymbol,
+			AssetID:     tr.AssetID,
 			USDRate:     new(big.Int).Set(usdRate),
 			USDValue:    new(big.Int).Set(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":        walletIDStr,
-				"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetSymbol),
+				"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetID.String()),
 				"tx_hash":          txn.TxHash,
 				"chain_id":         chainIDStr,
 				"swap_direction":   "out",
@@ -151,16 +151,16 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			DebitCredit: ledger.Debit,
 			EntryType:   ledger.EntryTypeClearing,
 			Amount:      new(big.Int).Set(amount),
-			AssetID:     tr.AssetSymbol,
+			AssetID:     tr.AssetID,
 			USDRate:     new(big.Int).Set(usdRate),
 			USDValue:    new(big.Int).Set(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code": accountcode.ClearingCode(txn.ChainID, tr.AssetSymbol),
-				"account_type": "CLEARING",
-				"chain_id":     chainIDStr,
-				"tx_hash":      txn.TxHash,
+				"account_code":   accountcode.ClearingCode(txn.ChainID, tr.AssetID.String()),
+				"account_type":   "CLEARING",
+				"chain_id":       chainIDStr,
+				"tx_hash":        txn.TxHash,
 				"swap_direction": "out",
 			},
 		})
@@ -182,14 +182,14 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			DebitCredit: ledger.Debit,
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      new(big.Int).Set(amount),
-			AssetID:     tr.AssetSymbol,
+			AssetID:     tr.AssetID,
 			USDRate:     new(big.Int).Set(usdRate),
 			USDValue:    new(big.Int).Set(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":        walletIDStr,
-				"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetSymbol),
+				"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetID.String()),
 				"tx_hash":          txn.TxHash,
 				"chain_id":         chainIDStr,
 				"swap_direction":   "in",
@@ -204,16 +204,16 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			DebitCredit: ledger.Credit,
 			EntryType:   ledger.EntryTypeClearing,
 			Amount:      new(big.Int).Set(amount),
-			AssetID:     tr.AssetSymbol,
+			AssetID:     tr.AssetID,
 			USDRate:     new(big.Int).Set(usdRate),
 			USDValue:    new(big.Int).Set(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code": accountcode.ClearingCode(txn.ChainID, tr.AssetSymbol),
-				"account_type": "CLEARING",
-				"chain_id":     chainIDStr,
-				"tx_hash":      txn.TxHash,
+				"account_code":   accountcode.ClearingCode(txn.ChainID, tr.AssetID.String()),
+				"account_type":   "CLEARING",
+				"chain_id":       chainIDStr,
+				"tx_hash":        txn.TxHash,
 				"swap_direction": "in",
 			},
 		})
@@ -231,7 +231,11 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			feeDecimals = 18 // Default to 18 for native tokens
 		}
 		feeUSDValue := money.CalcUSDValue(feeAmount, feeUSDRate, feeDecimals)
+		// Gas account and the wallet's native-token leg are both keyed on the fee
+		// asset's registry UUID (#59), so they resolve to the same account the
+		// native transfers of that token do.
 		feeAsset := txn.FeeAsset
+		feeAssetSeg := feeAsset.String()
 
 		// DEBIT gas account (gas fee)
 		entries = append(entries, &ledger.Entry{
@@ -246,7 +250,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code": accountcode.GasCode(txn.ChainID, feeAsset),
+				"account_code": accountcode.GasCode(txn.ChainID, feeAssetSeg),
 				"tx_hash":      txn.TxHash,
 				"chain_id":     chainIDStr,
 			},
@@ -266,7 +270,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":    walletIDStr,
-				"account_code": accountcode.WalletCode(txn.WalletID, chainIDStr, feeAsset),
+				"account_code": accountcode.WalletCode(txn.WalletID, chainIDStr, feeAssetSeg),
 				"tx_hash":      txn.TxHash,
 				"chain_id":     chainIDStr,
 				"entry_type":   "gas_payment",
@@ -286,4 +290,3 @@ func (txn *SwapTransaction) getFeeAmount() *big.Int {
 	}
 	return txn.FeeAmount.ToBigInt()
 }
-

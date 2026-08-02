@@ -763,18 +763,18 @@ func (r *LedgerRepository) scanEntry(row pgx.Row) (*ledger.Entry, error) {
 // Balance operations
 
 // GetAccountBalance retrieves the current balance for an account/asset
-func (r *LedgerRepository) GetAccountBalance(ctx context.Context, accountID uuid.UUID, assetID string) (*ledger.AccountBalance, error) {
+func (r *LedgerRepository) GetAccountBalance(ctx context.Context, accountID uuid.UUID, assetID uuid.UUID) (*ledger.AccountBalance, error) {
 	return r.getAccountBalanceWithLock(ctx, accountID, assetID, false)
 }
 
 // GetAccountBalanceForUpdate retrieves the current balance with row-level locking (SELECT FOR UPDATE)
 // This should be used within a transaction to prevent race conditions during concurrent balance updates
-func (r *LedgerRepository) GetAccountBalanceForUpdate(ctx context.Context, accountID uuid.UUID, assetID string) (*ledger.AccountBalance, error) {
+func (r *LedgerRepository) GetAccountBalanceForUpdate(ctx context.Context, accountID uuid.UUID, assetID uuid.UUID) (*ledger.AccountBalance, error) {
 	return r.getAccountBalanceWithLock(ctx, accountID, assetID, true)
 }
 
 // getAccountBalanceWithLock is a helper that retrieves balance with optional row-level locking
-func (r *LedgerRepository) getAccountBalanceWithLock(ctx context.Context, accountID uuid.UUID, assetID string, forUpdate bool) (*ledger.AccountBalance, error) {
+func (r *LedgerRepository) getAccountBalanceWithLock(ctx context.Context, accountID uuid.UUID, assetID uuid.UUID, forUpdate bool) (*ledger.AccountBalance, error) {
 	query := `
 		SELECT account_id, asset_id, balance, usd_value, last_updated
 		FROM account_balances
@@ -911,7 +911,7 @@ func (r *LedgerRepository) GetAccountBalances(ctx context.Context, accountID uui
 }
 
 // CalculateBalanceFromEntries calculates the balance from ledger entries (for verification)
-func (r *LedgerRepository) CalculateBalanceFromEntries(ctx context.Context, accountID uuid.UUID, assetID string) (*big.Int, error) {
+func (r *LedgerRepository) CalculateBalanceFromEntries(ctx context.Context, accountID uuid.UUID, assetID uuid.UUID) (*big.Int, error) {
 	query := `
 		SELECT
 			COALESCE(SUM(

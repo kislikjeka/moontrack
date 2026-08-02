@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 )
 
 // TestPriceResolvedHook_ResolvesPendingLots verifies that the hook finds all
@@ -24,7 +25,7 @@ func TestPriceResolvedHook_ResolvesPendingLots(t *testing.T) {
 		ID:                   uuid.New(),
 		TransactionID:        uuid.New(),
 		AccountID:            uuid.New(),
-		Asset:                "TOKEN",
+		Asset:                testasset.ForTicker("TOKEN"),
 		QuantityAcquired:     big.NewInt(1000),
 		QuantityRemaining:    big.NewInt(1000),
 		AcquiredAt:           at,
@@ -37,7 +38,10 @@ func TestPriceResolvedHook_ResolvesPendingLots(t *testing.T) {
 	repo := &mockTaxLotRepo{lots: []*TaxLot{pendingLot}}
 	hook := NewPriceResolvedHook(repo, newTestLogger())
 
-	assetID := uuid.New()
+	// The hook is keyed on the same registry id the lot carries. Before #59 the
+	// lot held a ticker and the hook held a UUID, so the two could only be
+	// related through a lookup; now they are the same value.
+	assetID := pendingLot.Asset
 	price := big.NewInt(123_000_000) // $1.23 scaled 10^8
 	err := hook(ctx, assetID, at, price, CostBasisFMVAtTransfer)
 	if err != nil {
@@ -72,7 +76,7 @@ func TestPriceResolvedHook_NoMatchingLots(t *testing.T) {
 		ID:                   uuid.New(),
 		TransactionID:        uuid.New(),
 		AccountID:            uuid.New(),
-		Asset:                "TOKEN",
+		Asset:                testasset.ForTicker("TOKEN"),
 		QuantityAcquired:     big.NewInt(500),
 		QuantityRemaining:    big.NewInt(500),
 		AcquiredAt:           at,
@@ -110,7 +114,7 @@ func TestPriceResolvedHook_ResolvesPendingDisposals(t *testing.T) {
 		ID:                   uuid.New(),
 		TransactionID:        uuid.New(),
 		AccountID:            uuid.New(),
-		Asset:                "TOKEN",
+		Asset:                testasset.ForTicker("TOKEN"),
 		QuantityAcquired:     big.NewInt(1000),
 		QuantityRemaining:    big.NewInt(500),
 		AcquiredAt:           at.Add(-time.Hour),
@@ -156,21 +160,27 @@ func TestPriceResolvedHook_ResolvesPendingDisposals(t *testing.T) {
 }
 
 // TestPriceResolvedHook_OnlyTouchesLotsForAssetID verifies that when two pending
-// lots share a symbol but map to different asset UUIDs (same token on two
-// chains, e.g. USDT on Ethereum vs USDT on BNB), the hook only resolves the
-// lot owned by the asset UUID the worker just resolved.
+// lots share a symbol but are different assets (same token on two chains, e.g.
+// USDT on Ethereum vs USDT on BNB), the hook only resolves the lot owned by the
+// asset the worker just resolved.
+//
+// This is the case #59 exists for. It used to be expressible only through a
+// side map, because both lots literally held the string "USDT" and nothing on
+// the lot itself could tell them apart — the ticker was the identity, and the
+// ticker collided. Now each chain's USDT is its own registry id and the lots
+// differ where it counts.
 func TestPriceResolvedHook_OnlyTouchesLotsForAssetID(t *testing.T) {
 	ctx := context.Background()
 	at := time.Now().UTC().Truncate(time.Minute)
 
-	ethUSDT := uuid.New()
-	bnbUSDT := uuid.New()
+	ethUSDT := testasset.ForTicker("USDT@ethereum")
+	bnbUSDT := testasset.ForTicker("USDT@bnb")
 
 	lotOnEth := &TaxLot{
 		ID:                   uuid.New(),
 		TransactionID:        uuid.New(),
 		AccountID:            uuid.New(),
-		Asset:                "USDT",
+		Asset:                ethUSDT,
 		QuantityAcquired:     big.NewInt(1_000_000),
 		QuantityRemaining:    big.NewInt(1_000_000),
 		AcquiredAt:           at,
@@ -183,7 +193,7 @@ func TestPriceResolvedHook_OnlyTouchesLotsForAssetID(t *testing.T) {
 		ID:                   uuid.New(),
 		TransactionID:        uuid.New(),
 		AccountID:            uuid.New(),
-		Asset:                "USDT",
+		Asset:                bnbUSDT,
 		QuantityAcquired:     big.NewInt(2_000_000),
 		QuantityRemaining:    big.NewInt(2_000_000),
 		AcquiredAt:           at,
@@ -193,13 +203,7 @@ func TestPriceResolvedHook_OnlyTouchesLotsForAssetID(t *testing.T) {
 		CreatedAt:            time.Now(),
 	}
 
-	repo := &mockTaxLotRepo{
-		lots: []*TaxLot{lotOnEth, lotOnBnb},
-		lotAssetIDs: map[uuid.UUID]uuid.UUID{
-			lotOnEth.ID: ethUSDT,
-			lotOnBnb.ID: bnbUSDT,
-		},
-	}
+	repo := &mockTaxLotRepo{lots: []*TaxLot{lotOnEth, lotOnBnb}}
 	hook := NewPriceResolvedHook(repo, newTestLogger())
 
 	price := big.NewInt(100_000_000) // $1 scaled 10^8

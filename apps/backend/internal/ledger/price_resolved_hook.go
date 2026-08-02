@@ -34,7 +34,7 @@ func NewPriceResolvedHook(repo TaxLotRepository, log *logger.Logger) PriceResolv
 	hlog := log.WithField("component", "price_resolved_hook")
 	return func(ctx context.Context, assetID uuid.UUID, at time.Time, price *big.Int, source CostBasisSource) error {
 		// 1. Resolve pending tax lots (cost basis side).
-		lots, err := repo.ListPendingLotsByAssetIDAndTime(ctx, assetID, at)
+		lots, err := repo.ListPendingLotsByAssetAndTime(ctx, assetID, at)
 		if err != nil {
 			return err
 		}

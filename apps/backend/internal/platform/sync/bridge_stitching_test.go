@@ -799,7 +799,7 @@ func newStitchPipelineEnv(t *testing.T, userID uuid.UUID, w *wallet.Wallet, txs 
 	log := logger.New("test", os.Stdout)
 	rawRepo := newStitchRawRepo(raws)
 
-	builder := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, nil, nil)
+	builder := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, nil)
 
 	return &stitchEnv{
 		processor: sync.NewProcessor(rawRepo, walletRepo, builder, log),

@@ -27,24 +27,6 @@ import (
 // `gas.polygon.ETH`.
 const NativeContract = "native"
 
-// legacyContractAddress translates a contract back into the spelling the
-// pre-#56 stores use, where native is the empty string.
-//
-// The sentinel is the vocabulary of the new registry. The legacy stores
-// (`assets`, `chain_assets`) are explicitly left alone during the expand phase,
-// so anything still writing to them must speak their spelling — otherwise a
-// column that has always held the empty string for native starts holding the
-// literal `native`, which is a data-format change nobody asked for and which
-// the shape checks on `assets.contract_address` would reject outright.
-//
-// This translation disappears with those tables in the contract phase (#59).
-func legacyContractAddress(contract string) string {
-	if contract == NativeContract {
-		return ""
-	}
-	return contract
-}
-
 // AssetKey is the on-chain identity of an asset: the chain it lives on plus its
 // contract, with the native coin carrying NativeContract. It is the key of the
 // asset registry and the argument of every resolve.

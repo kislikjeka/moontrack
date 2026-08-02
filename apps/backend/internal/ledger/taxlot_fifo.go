@@ -16,7 +16,7 @@ func DisposeFIFO(
 	ctx context.Context,
 	repo TaxLotRepository,
 	accountID uuid.UUID,
-	asset string,
+	asset uuid.UUID,
 	quantity *big.Int,
 	proceedsPerUnit *big.Int,
 	disposalType DisposalType,

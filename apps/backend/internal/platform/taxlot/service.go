@@ -14,16 +14,21 @@ import (
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/pkg/logger"
-	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
 // WACPosition enriches PositionWAC with wallet context for the frontend.
+//
+// Asset is the registry UUID carried straight through from ledger.PositionWAC
+// (#59). It is not translated back to a ticker here: two same-ticker tokens
+// aggregated into one WAC row is the arithmetic error the UUID key removes, and
+// resolving the id to a display symbol belongs at the presentation edge, where
+// there is a registry to ask.
 type WACPosition struct {
 	WalletID        uuid.UUID
 	WalletName      string
 	AccountID       uuid.UUID
 	ChainID         string
-	Asset           string
+	Asset           uuid.UUID
 	TotalQuantity   *big.Int
 	WeightedAvgCost *big.Int
 }
@@ -38,11 +43,29 @@ type TransactionLotImpact struct {
 // DisposalDetail enriches a LotDisposal with lot metadata for display.
 type DisposalDetail struct {
 	ledger.LotDisposal
-	LotAsset                     string
+	// LotAsset is the disposed lot's registry UUID (#59), copied verbatim from
+	// the lot. The HTTP layer decides how to display it.
+	LotAsset                     uuid.UUID
 	LotAcquiredAt                time.Time
 	LotEffectiveCostBasisPerUnit *big.Int
 	LotAutoSource                ledger.CostBasisSource
 	RealizedGainLoss             *big.Int
+}
+
+// AssetDecimals answers "what scale is this asset's quantity in", keyed on the
+// registry identity the lot already carries (#59).
+//
+// A lot's quantity and its cost basis are in different scales — base units and
+// USD×10^8 — so turning (proceeds - cost) × quantity into a USD figure needs
+// the asset's decimals. Before this ticket that came from money.GetDecimals on
+// a ticker, a compiled-in table that answered "USDC" with one number no matter
+// which of several same-ticker tokens the lot actually held. Decimals are a
+// property of the registry row, so the registry is asked for them.
+//
+// The reference is a string because the registry lookup accepts both a UUID and
+// a CoinGecko slug; callers here always pass Asset.String().
+type AssetDecimals interface {
+	GetDecimals(ctx context.Context, assetRef string) (int, error)
 }
 
 // Service provides business logic for tax lot operations.
@@ -50,23 +73,29 @@ type Service struct {
 	taxLotRepo     ledger.TaxLotRepository
 	ledgerRepo     ledger.Repository
 	walletRepo     wallet.Repository
+	decimals       AssetDecimals // nilable — realized PnL is then left unreported
 	logger         *logger.Logger
 	lastWACRefresh time.Time
 	wacRefreshMu   sync.Mutex
 }
 
 // NewService creates a new tax lot service.
-func NewService(taxLotRepo ledger.TaxLotRepository, ledgerRepo ledger.Repository, walletRepo wallet.Repository, log *logger.Logger) *Service {
+func NewService(taxLotRepo ledger.TaxLotRepository, ledgerRepo ledger.Repository, walletRepo wallet.Repository, decimals AssetDecimals, log *logger.Logger) *Service {
 	return &Service{
 		taxLotRepo: taxLotRepo,
 		ledgerRepo: ledgerRepo,
 		walletRepo: walletRepo,
+		decimals:   decimals,
 		logger:     log.WithField("component", "taxlot"),
 	}
 }
 
 // GetLotsByWallet returns tax lots for a wallet+asset, verifying ownership.
-func (s *Service) GetLotsByWallet(ctx context.Context, userID, walletID uuid.UUID, asset string, chainID string) ([]*ledger.TaxLot, error) {
+//
+// asset is the registry UUID (#59). uuid.Nil is not a wildcard — the repository
+// filters on it literally and matches nothing — so callers that want every
+// asset must not reach this method with an empty filter.
+func (s *Service) GetLotsByWallet(ctx context.Context, userID, walletID uuid.UUID, asset uuid.UUID, chainID string) ([]*ledger.TaxLot, error) {
 	// Verify wallet ownership
 	if _, err := s.verifyWalletOwnership(ctx, userID, walletID); err != nil {
 		return nil, err
@@ -241,13 +270,23 @@ func (s *Service) GetLotImpactByTransaction(ctx context.Context, userID, txID uu
 		// Skip pending disposals — their proceeds are still unresolved and
 		// reporting a PnL of (0 - cost) would be wrong.
 		proceedsResolved := d.ProceedsPerUnit != nil && d.ProceedsStatus != ledger.ProceedsStatusPending
-		if proceedsResolved && lot.EffectiveCostBasisPerUnit() != nil {
-			decimals := money.GetDecimals(lot.Asset)
-			priceDiff := new(big.Int).Sub(d.ProceedsPerUnit, lot.EffectiveCostBasisPerUnit())
-			gainLoss := new(big.Int).Mul(priceDiff, d.QuantityDisposed)
-			divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
-			gainLoss.Div(gainLoss, divisor)
-			detail.RealizedGainLoss = gainLoss
+		if proceedsResolved && lot.EffectiveCostBasisPerUnit() != nil && s.decimals != nil {
+			// Decimals come from the registry row this lot's Asset points at.
+			// A lookup failure leaves RealizedGainLoss nil — the same shape a
+			// pending disposal produces — rather than dividing by a guessed
+			// scale, which would misreport the PnL by orders of magnitude and
+			// look like a real number (#59).
+			decimals, err := s.decimals.GetDecimals(ctx, lot.Asset.String())
+			if err != nil {
+				s.logger.Warn("realized PnL skipped: decimals unresolved",
+					"lot_id", lot.ID, "asset_id", lot.Asset, "error", err)
+			} else {
+				priceDiff := new(big.Int).Sub(d.ProceedsPerUnit, lot.EffectiveCostBasisPerUnit())
+				gainLoss := new(big.Int).Mul(priceDiff, d.QuantityDisposed)
+				divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
+				gainLoss.Div(gainLoss, divisor)
+				detail.RealizedGainLoss = gainLoss
+			}
 		}
 
 		disposals = append(disposals, detail)
@@ -323,7 +362,7 @@ func (s *Service) GetWAC(ctx context.Context, userID uuid.UUID, walletID *uuid.U
 	// Compute aggregated WAC per (wallet_id, asset)
 	type aggKey struct {
 		WalletID uuid.UUID
-		Asset    string
+		Asset    uuid.UUID
 	}
 	agg := make(map[aggKey]struct {
 		totalQty   *big.Int

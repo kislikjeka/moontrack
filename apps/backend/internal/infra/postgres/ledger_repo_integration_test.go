@@ -69,6 +69,8 @@ func createTestWallet(t *testing.T, ctx context.Context, userID uuid.UUID) uuid.
 func TestLedgerRepository_CreateAccount_Success(t *testing.T) {
 	repo, ctx := setupTest(t)
 
+	assetBTC := seedAssetTicker(t, "BTC")
+
 	// Create user and wallet first
 	userID := createTestUser(t, ctx)
 	walletID := createTestWallet(t, ctx, userID)
@@ -77,7 +79,7 @@ func TestLedgerRepository_CreateAccount_Success(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".BTC",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  map[string]interface{}{"test": true},
@@ -98,6 +100,8 @@ func TestLedgerRepository_CreateAccount_Success(t *testing.T) {
 func TestLedgerRepository_CreateAccount_DuplicateCode(t *testing.T) {
 	repo, ctx := setupTest(t)
 
+	assetBTC := seedAssetTicker(t, "BTC")
+
 	userID := createTestUser(t, ctx)
 	walletID := createTestWallet(t, ctx, userID)
 
@@ -105,7 +109,7 @@ func TestLedgerRepository_CreateAccount_DuplicateCode(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".BTC",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -119,7 +123,7 @@ func TestLedgerRepository_CreateAccount_DuplicateCode(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      account.Code, // Same code
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -132,6 +136,8 @@ func TestLedgerRepository_CreateAccount_DuplicateCode(t *testing.T) {
 func TestLedgerRepository_GetAccountByCode_Exists(t *testing.T) {
 	repo, ctx := setupTest(t)
 
+	assetETH := seedAssetTicker(t, "ETH")
+
 	userID := createTestUser(t, ctx)
 	walletID := createTestWallet(t, ctx, userID)
 
@@ -139,7 +145,7 @@ func TestLedgerRepository_GetAccountByCode_Exists(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".ETH",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "ETH",
+		AssetID:   assetETH,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -164,11 +170,13 @@ func TestLedgerRepository_GetAccountByCode_NotExists(t *testing.T) {
 func TestLedgerRepository_CreateAccount_IncomeAccount(t *testing.T) {
 	repo, ctx := setupTest(t)
 
+	assetBTC := seedAssetTicker(t, "BTC")
+
 	account := &ledger.Account{
 		ID:        uuid.New(),
 		Code:      "income.BTC",
 		Type:      ledger.AccountTypeIncome,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  nil, // Income accounts don't have wallet
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -188,6 +196,8 @@ func TestLedgerRepository_CreateAccount_IncomeAccount(t *testing.T) {
 func TestLedgerRepository_CreateTransaction_WithEntries(t *testing.T) {
 	repo, ctx := setupTest(t)
 
+	assetBTC := seedAssetTicker(t, "BTC")
+
 	userID := createTestUser(t, ctx)
 	walletID := createTestWallet(t, ctx, userID)
 
@@ -196,7 +206,7 @@ func TestLedgerRepository_CreateTransaction_WithEntries(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".BTC",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -205,7 +215,7 @@ func TestLedgerRepository_CreateTransaction_WithEntries(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "income.BTC",
 		Type:      ledger.AccountTypeIncome,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  nil,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -236,7 +246,7 @@ func TestLedgerRepository_CreateTransaction_WithEntries(t *testing.T) {
 				DebitCredit:   ledger.Debit,
 				EntryType:     ledger.EntryTypeAssetIncrease,
 				Amount:        amount,
-				AssetID:       "BTC",
+				AssetID:       assetBTC,
 				USDRate:       usdRate,
 				USDValue:      usdValue,
 				OccurredAt:    now.Add(-time.Hour),
@@ -250,7 +260,7 @@ func TestLedgerRepository_CreateTransaction_WithEntries(t *testing.T) {
 				DebitCredit:   ledger.Credit,
 				EntryType:     ledger.EntryTypeIncome,
 				Amount:        amount,
-				AssetID:       "BTC",
+				AssetID:       assetBTC,
 				USDRate:       usdRate,
 				USDValue:      usdValue,
 				OccurredAt:    now.Add(-time.Hour),
@@ -280,6 +290,8 @@ func TestLedgerRepository_CreateTransaction_WithEntries(t *testing.T) {
 func TestLedgerRepository_GetTransaction_WithEntries(t *testing.T) {
 	repo, ctx := setupTest(t)
 
+	assetETH := seedAssetTicker(t, "ETH")
+
 	userID := createTestUser(t, ctx)
 	walletID := createTestWallet(t, ctx, userID)
 
@@ -288,7 +300,7 @@ func TestLedgerRepository_GetTransaction_WithEntries(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".ETH",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "ETH",
+		AssetID:   assetETH,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -297,7 +309,7 @@ func TestLedgerRepository_GetTransaction_WithEntries(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "income.ETH",
 		Type:      ledger.AccountTypeIncome,
-		AssetID:   "ETH",
+		AssetID:   assetETH,
 		WalletID:  nil,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -316,7 +328,7 @@ func TestLedgerRepository_GetTransaction_WithEntries(t *testing.T) {
 		Version:    1,
 		OccurredAt: now.Add(-time.Hour),
 		RecordedAt: now,
-		RawData:    map[string]interface{}{"asset": "ETH"},
+		RawData:    map[string]interface{}{"asset": assetETH},
 		Metadata:   make(map[string]interface{}),
 		Entries: []*ledger.Entry{
 			{
@@ -326,7 +338,7 @@ func TestLedgerRepository_GetTransaction_WithEntries(t *testing.T) {
 				DebitCredit:   ledger.Debit,
 				EntryType:     ledger.EntryTypeAssetIncrease,
 				Amount:        amount,
-				AssetID:       "ETH",
+				AssetID:       assetETH,
 				USDRate:       big.NewInt(300000000000), // $3000
 				USDValue:      big.NewInt(300000000000),
 				OccurredAt:    now.Add(-time.Hour),
@@ -340,7 +352,7 @@ func TestLedgerRepository_GetTransaction_WithEntries(t *testing.T) {
 				DebitCredit:   ledger.Credit,
 				EntryType:     ledger.EntryTypeIncome,
 				Amount:        amount,
-				AssetID:       "ETH",
+				AssetID:       assetETH,
 				USDRate:       big.NewInt(300000000000),
 				USDValue:      big.NewInt(300000000000),
 				OccurredAt:    now.Add(-time.Hour),
@@ -370,6 +382,8 @@ func TestLedgerRepository_GetTransaction_WithEntries(t *testing.T) {
 func TestLedgerRepository_ListTransactions_Filters(t *testing.T) {
 	repo, ctx := setupTest(t)
 
+	assetBTC := seedAssetTicker(t, "BTC")
+
 	userID := createTestUser(t, ctx)
 	walletID := createTestWallet(t, ctx, userID)
 
@@ -378,7 +392,7 @@ func TestLedgerRepository_ListTransactions_Filters(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".BTC",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -387,7 +401,7 @@ func TestLedgerRepository_ListTransactions_Filters(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "income.BTC",
 		Type:      ledger.AccountTypeIncome,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  nil,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -396,7 +410,7 @@ func TestLedgerRepository_ListTransactions_Filters(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "expense.BTC",
 		Type:      ledger.AccountTypeExpense,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  nil,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -427,7 +441,7 @@ func TestLedgerRepository_ListTransactions_Filters(t *testing.T) {
 				DebitCredit:   ledger.Debit,
 				EntryType:     ledger.EntryTypeAssetIncrease,
 				Amount:        amount,
-				AssetID:       "BTC",
+				AssetID:       assetBTC,
 				USDRate:       big.NewInt(0),
 				USDValue:      big.NewInt(0),
 				OccurredAt:    now.Add(-2 * time.Hour),
@@ -441,7 +455,7 @@ func TestLedgerRepository_ListTransactions_Filters(t *testing.T) {
 				DebitCredit:   ledger.Credit,
 				EntryType:     ledger.EntryTypeIncome,
 				Amount:        amount,
-				AssetID:       "BTC",
+				AssetID:       assetBTC,
 				USDRate:       big.NewInt(0),
 				USDValue:      big.NewInt(0),
 				OccurredAt:    now.Add(-2 * time.Hour),
@@ -473,7 +487,7 @@ func TestLedgerRepository_ListTransactions_Filters(t *testing.T) {
 				DebitCredit:   ledger.Credit,
 				EntryType:     ledger.EntryTypeAssetDecrease,
 				Amount:        big.NewInt(50000000),
-				AssetID:       "BTC",
+				AssetID:       assetBTC,
 				USDRate:       big.NewInt(0),
 				USDValue:      big.NewInt(0),
 				OccurredAt:    now.Add(-1 * time.Hour),
@@ -487,7 +501,7 @@ func TestLedgerRepository_ListTransactions_Filters(t *testing.T) {
 				DebitCredit:   ledger.Debit,
 				EntryType:     ledger.EntryTypeExpense,
 				Amount:        big.NewInt(50000000),
-				AssetID:       "BTC",
+				AssetID:       assetBTC,
 				USDRate:       big.NewInt(0),
 				USDValue:      big.NewInt(0),
 				OccurredAt:    now.Add(-1 * time.Hour),
@@ -526,6 +540,8 @@ func TestLedgerRepository_ListTransactions_Filters(t *testing.T) {
 func TestLedgerRepository_GetAccountBalance_ZeroInitial(t *testing.T) {
 	repo, ctx := setupTest(t)
 
+	assetBTC := seedAssetTicker(t, "BTC")
+
 	userID := createTestUser(t, ctx)
 	walletID := createTestWallet(t, ctx, userID)
 
@@ -533,7 +549,7 @@ func TestLedgerRepository_GetAccountBalance_ZeroInitial(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".BTC",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -541,13 +557,15 @@ func TestLedgerRepository_GetAccountBalance_ZeroInitial(t *testing.T) {
 	require.NoError(t, repo.CreateAccount(ctx, account))
 
 	// Get balance for account with no entries
-	balance, err := repo.GetAccountBalance(ctx, account.ID, "BTC")
+	balance, err := repo.GetAccountBalance(ctx, account.ID, assetBTC)
 	require.NoError(t, err)
 	assert.Equal(t, 0, balance.Balance.Cmp(big.NewInt(0)))
 }
 
 func TestLedgerRepository_UpsertAccountBalance_Insert(t *testing.T) {
 	repo, ctx := setupTest(t)
+
+	assetBTC := seedAssetTicker(t, "BTC")
 
 	userID := createTestUser(t, ctx)
 	walletID := createTestWallet(t, ctx, userID)
@@ -556,7 +574,7 @@ func TestLedgerRepository_UpsertAccountBalance_Insert(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".BTC",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -565,7 +583,7 @@ func TestLedgerRepository_UpsertAccountBalance_Insert(t *testing.T) {
 
 	balance := &ledger.AccountBalance{
 		AccountID:   account.ID,
-		AssetID:     "BTC",
+		AssetID:     assetBTC,
 		Balance:     big.NewInt(100000000),
 		USDValue:    big.NewInt(5000000000000),
 		LastUpdated: time.Now(),
@@ -575,13 +593,15 @@ func TestLedgerRepository_UpsertAccountBalance_Insert(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify
-	retrieved, err := repo.GetAccountBalance(ctx, account.ID, "BTC")
+	retrieved, err := repo.GetAccountBalance(ctx, account.ID, assetBTC)
 	require.NoError(t, err)
 	assert.Equal(t, 0, retrieved.Balance.Cmp(big.NewInt(100000000)))
 }
 
 func TestLedgerRepository_UpsertAccountBalance_Update(t *testing.T) {
 	repo, ctx := setupTest(t)
+
+	assetBTC := seedAssetTicker(t, "BTC")
 
 	userID := createTestUser(t, ctx)
 	walletID := createTestWallet(t, ctx, userID)
@@ -590,7 +610,7 @@ func TestLedgerRepository_UpsertAccountBalance_Update(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".BTC",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -600,7 +620,7 @@ func TestLedgerRepository_UpsertAccountBalance_Update(t *testing.T) {
 	// Insert initial balance
 	balance1 := &ledger.AccountBalance{
 		AccountID:   account.ID,
-		AssetID:     "BTC",
+		AssetID:     assetBTC,
 		Balance:     big.NewInt(100000000),
 		USDValue:    big.NewInt(5000000000000),
 		LastUpdated: time.Now(),
@@ -610,7 +630,7 @@ func TestLedgerRepository_UpsertAccountBalance_Update(t *testing.T) {
 	// Update balance
 	balance2 := &ledger.AccountBalance{
 		AccountID:   account.ID,
-		AssetID:     "BTC",
+		AssetID:     assetBTC,
 		Balance:     big.NewInt(200000000),
 		USDValue:    big.NewInt(10000000000000),
 		LastUpdated: time.Now(),
@@ -618,13 +638,15 @@ func TestLedgerRepository_UpsertAccountBalance_Update(t *testing.T) {
 	require.NoError(t, repo.UpsertAccountBalance(ctx, balance2))
 
 	// Verify update
-	retrieved, err := repo.GetAccountBalance(ctx, account.ID, "BTC")
+	retrieved, err := repo.GetAccountBalance(ctx, account.ID, assetBTC)
 	require.NoError(t, err)
 	assert.Equal(t, 0, retrieved.Balance.Cmp(big.NewInt(200000000)))
 }
 
 func TestLedgerRepository_CalculateBalanceFromEntries(t *testing.T) {
 	repo, ctx := setupTest(t)
+
+	assetBTC := seedAssetTicker(t, "BTC")
 
 	userID := createTestUser(t, ctx)
 	walletID := createTestWallet(t, ctx, userID)
@@ -634,7 +656,7 @@ func TestLedgerRepository_CalculateBalanceFromEntries(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".BTC",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -643,7 +665,7 @@ func TestLedgerRepository_CalculateBalanceFromEntries(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "income.BTC",
 		Type:      ledger.AccountTypeIncome,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  nil,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -652,7 +674,7 @@ func TestLedgerRepository_CalculateBalanceFromEntries(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "expense.BTC",
 		Type:      ledger.AccountTypeExpense,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  nil,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -682,7 +704,7 @@ func TestLedgerRepository_CalculateBalanceFromEntries(t *testing.T) {
 				DebitCredit:   ledger.Debit, // +100
 				EntryType:     ledger.EntryTypeAssetIncrease,
 				Amount:        big.NewInt(100),
-				AssetID:       "BTC",
+				AssetID:       assetBTC,
 				USDRate:       big.NewInt(0),
 				USDValue:      big.NewInt(0),
 				OccurredAt:    now.Add(-2 * time.Hour),
@@ -696,7 +718,7 @@ func TestLedgerRepository_CalculateBalanceFromEntries(t *testing.T) {
 				DebitCredit:   ledger.Credit,
 				EntryType:     ledger.EntryTypeIncome,
 				Amount:        big.NewInt(100),
-				AssetID:       "BTC",
+				AssetID:       assetBTC,
 				USDRate:       big.NewInt(0),
 				USDValue:      big.NewInt(0),
 				OccurredAt:    now.Add(-2 * time.Hour),
@@ -728,7 +750,7 @@ func TestLedgerRepository_CalculateBalanceFromEntries(t *testing.T) {
 				DebitCredit:   ledger.Credit, // -30
 				EntryType:     ledger.EntryTypeAssetDecrease,
 				Amount:        big.NewInt(30),
-				AssetID:       "BTC",
+				AssetID:       assetBTC,
 				USDRate:       big.NewInt(0),
 				USDValue:      big.NewInt(0),
 				OccurredAt:    now.Add(-1 * time.Hour),
@@ -742,7 +764,7 @@ func TestLedgerRepository_CalculateBalanceFromEntries(t *testing.T) {
 				DebitCredit:   ledger.Debit,
 				EntryType:     ledger.EntryTypeExpense,
 				Amount:        big.NewInt(30),
-				AssetID:       "BTC",
+				AssetID:       assetBTC,
 				USDRate:       big.NewInt(0),
 				USDValue:      big.NewInt(0),
 				OccurredAt:    now.Add(-1 * time.Hour),
@@ -759,13 +781,15 @@ func TestLedgerRepository_CalculateBalanceFromEntries(t *testing.T) {
 	require.NoError(t, repo.CreateTransaction(ctx, tx2))
 
 	// Calculate balance from entries: should be 100 - 30 = 70
-	balance, err := repo.CalculateBalanceFromEntries(ctx, walletAccount.ID, "BTC")
+	balance, err := repo.CalculateBalanceFromEntries(ctx, walletAccount.ID, assetBTC)
 	require.NoError(t, err)
 	assert.Equal(t, 0, balance.Cmp(big.NewInt(70)))
 }
 
 func TestLedgerRepository_NUMERIC78_Precision(t *testing.T) {
 	repo, ctx := setupTest(t)
+
+	assetETH := seedAssetTicker(t, "ETH")
 
 	userID := createTestUser(t, ctx)
 	walletID := createTestWallet(t, ctx, userID)
@@ -775,7 +799,7 @@ func TestLedgerRepository_NUMERIC78_Precision(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".ETH",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "ETH",
+		AssetID:   assetETH,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -784,7 +808,7 @@ func TestLedgerRepository_NUMERIC78_Precision(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "income.ETH",
 		Type:      ledger.AccountTypeIncome,
-		AssetID:   "ETH",
+		AssetID:   assetETH,
 		WalletID:  nil,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -816,7 +840,7 @@ func TestLedgerRepository_NUMERIC78_Precision(t *testing.T) {
 				DebitCredit:   ledger.Debit,
 				EntryType:     ledger.EntryTypeAssetIncrease,
 				Amount:        largeAmount,
-				AssetID:       "ETH",
+				AssetID:       assetETH,
 				USDRate:       big.NewInt(0),
 				USDValue:      big.NewInt(0),
 				OccurredAt:    now.Add(-time.Hour),
@@ -830,7 +854,7 @@ func TestLedgerRepository_NUMERIC78_Precision(t *testing.T) {
 				DebitCredit:   ledger.Credit,
 				EntryType:     ledger.EntryTypeIncome,
 				Amount:        largeAmount,
-				AssetID:       "ETH",
+				AssetID:       assetETH,
 				USDRate:       big.NewInt(0),
 				USDValue:      big.NewInt(0),
 				OccurredAt:    now.Add(-time.Hour),
@@ -858,6 +882,8 @@ func TestLedgerRepository_NUMERIC78_Precision(t *testing.T) {
 func TestLedgerRepository_FindTransactionsBySource(t *testing.T) {
 	repo, ctx := setupTest(t)
 
+	assetBTC := seedAssetTicker(t, "BTC")
+
 	userID := createTestUser(t, ctx)
 	walletID := createTestWallet(t, ctx, userID)
 
@@ -865,7 +891,7 @@ func TestLedgerRepository_FindTransactionsBySource(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".BTC",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -874,7 +900,7 @@ func TestLedgerRepository_FindTransactionsBySource(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "income.BTC",
 		Type:      ledger.AccountTypeIncome,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  nil,
 		CreatedAt: time.Now(),
 		Metadata:  make(map[string]interface{}),
@@ -904,7 +930,7 @@ func TestLedgerRepository_FindTransactionsBySource(t *testing.T) {
 				DebitCredit:   ledger.Debit,
 				EntryType:     ledger.EntryTypeAssetIncrease,
 				Amount:        big.NewInt(100),
-				AssetID:       "BTC",
+				AssetID:       assetBTC,
 				USDRate:       big.NewInt(0),
 				USDValue:      big.NewInt(0),
 				OccurredAt:    now.Add(-time.Hour),
@@ -918,7 +944,7 @@ func TestLedgerRepository_FindTransactionsBySource(t *testing.T) {
 				DebitCredit:   ledger.Credit,
 				EntryType:     ledger.EntryTypeIncome,
 				Amount:        big.NewInt(100),
-				AssetID:       "BTC",
+				AssetID:       assetBTC,
 				USDRate:       big.NewInt(0),
 				USDValue:      big.NewInt(0),
 				OccurredAt:    now.Add(-time.Hour),

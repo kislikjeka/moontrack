@@ -18,14 +18,20 @@ const (
 	DirectionInternal   = "internal"
 )
 
-// ListFields contains the fields needed for transaction list view
+// ListFields contains the fields needed for transaction list view.
+//
+// AssetID and AssetSymbol are separated by #59: the UUID is the registry
+// identity the API returns as a stable key, the symbol is what a human reads.
+// They used to be one string, which is why the list view could show a ticker
+// and mean whichever same-ticker token happened to be written.
 type ListFields struct {
-	WalletID  uuid.UUID
-	AssetID   string
-	Amount    *big.Int
-	USDValue  *big.Int
-	Direction string // DirectionIn, DirectionOut, DirectionAdjustment, DirectionInternal
-	ChainID   string // Zerion chain name, e.g. "ethereum", "base"
+	WalletID    uuid.UUID
+	AssetID     uuid.UUID
+	AssetSymbol string
+	Amount      *big.Int
+	USDValue    *big.Int
+	Direction   string // DirectionIn, DirectionOut, DirectionAdjustment, DirectionInternal
+	ChainID     string // Zerion chain name, e.g. "ethereum", "base"
 }
 
 // DetailFields contains the fields needed for transaction detail view
@@ -117,12 +123,13 @@ func (r *TransferInReader) ReadForList(raw map[string]interface{}) (*ListFields,
 	}
 
 	return &ListFields{
-		WalletID:  transfer.WalletID,
-		AssetID:   transfer.AssetID,
-		Amount:    transfer.GetAmount(),
-		USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
-		Direction: DirectionIn,
-		ChainID:   transfer.ChainID,
+		WalletID:    transfer.WalletID,
+		AssetID:     transfer.AssetID,
+		AssetSymbol: transfer.AssetSymbol,
+		Amount:      transfer.GetAmount(),
+		USDValue:    money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
+		Direction:   DirectionIn,
+		ChainID:     transfer.ChainID,
 	}, nil
 }
 
@@ -134,11 +141,12 @@ func (r *TransferInReader) ReadForDetail(raw map[string]interface{}) (*DetailFie
 
 	return &DetailFields{
 		ListFields: ListFields{
-			WalletID:  transfer.WalletID,
-			AssetID:   transfer.AssetID,
-			Amount:    transfer.GetAmount(),
-			USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
-			Direction: DirectionIn,
+			WalletID:    transfer.WalletID,
+			AssetID:     transfer.AssetID,
+			AssetSymbol: transfer.AssetSymbol,
+			Amount:      transfer.GetAmount(),
+			USDValue:    money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
+			Direction:   DirectionIn,
 		},
 		ExtraFields: map[string]interface{}{
 			"tx_hash":          transfer.TxHash,
@@ -165,12 +173,13 @@ func (r *TransferOutReader) ReadForList(raw map[string]interface{}) (*ListFields
 	}
 
 	return &ListFields{
-		WalletID:  transfer.WalletID,
-		AssetID:   transfer.AssetID,
-		Amount:    transfer.GetAmount(),
-		USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
-		Direction: DirectionOut,
-		ChainID:   transfer.ChainID,
+		WalletID:    transfer.WalletID,
+		AssetID:     transfer.AssetID,
+		AssetSymbol: transfer.AssetSymbol,
+		Amount:      transfer.GetAmount(),
+		USDValue:    money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
+		Direction:   DirectionOut,
+		ChainID:     transfer.ChainID,
 	}, nil
 }
 
@@ -182,11 +191,12 @@ func (r *TransferOutReader) ReadForDetail(raw map[string]interface{}) (*DetailFi
 
 	return &DetailFields{
 		ListFields: ListFields{
-			WalletID:  transfer.WalletID,
-			AssetID:   transfer.AssetID,
-			Amount:    transfer.GetAmount(),
-			USDValue:  money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
-			Direction: DirectionOut,
+			WalletID:    transfer.WalletID,
+			AssetID:     transfer.AssetID,
+			AssetSymbol: transfer.AssetSymbol,
+			Amount:      transfer.GetAmount(),
+			USDValue:    money.CalcUSDValue(transfer.GetAmount(), transfer.GetUSDRate(), transfer.Decimals),
+			Direction:   DirectionOut,
 		},
 		ExtraFields: map[string]interface{}{
 			"tx_hash":          transfer.TxHash,
@@ -264,11 +274,12 @@ func (r *AdjustmentReader) ReadForList(raw map[string]interface{}) (*ListFields,
 	}
 
 	return &ListFields{
-		WalletID:  adj.WalletID,
-		AssetID:   adj.AssetID,
-		Amount:    adj.GetNewBalance(),
-		USDValue:  money.CalcUSDValue(adj.GetNewBalance(), adj.GetUSDRate(), adj.Decimals),
-		Direction: DirectionAdjustment,
+		WalletID:    adj.WalletID,
+		AssetID:     adj.AssetID,
+		AssetSymbol: adj.AssetSymbol,
+		Amount:      adj.GetNewBalance(),
+		USDValue:    money.CalcUSDValue(adj.GetNewBalance(), adj.GetUSDRate(), adj.Decimals),
+		Direction:   DirectionAdjustment,
 	}, nil
 }
 
@@ -280,11 +291,12 @@ func (r *AdjustmentReader) ReadForDetail(raw map[string]interface{}) (*DetailFie
 
 	return &DetailFields{
 		ListFields: ListFields{
-			WalletID:  adj.WalletID,
-			AssetID:   adj.AssetID,
-			Amount:    adj.GetNewBalance(),
-			USDValue:  money.CalcUSDValue(adj.GetNewBalance(), adj.GetUSDRate(), adj.Decimals),
-			Direction: DirectionAdjustment,
+			WalletID:    adj.WalletID,
+			AssetID:     adj.AssetID,
+			AssetSymbol: adj.AssetSymbol,
+			Amount:      adj.GetNewBalance(),
+			USDValue:    money.CalcUSDValue(adj.GetNewBalance(), adj.GetUSDRate(), adj.Decimals),
+			Direction:   DirectionAdjustment,
 		},
 		Notes: adj.Notes,
 		ExtraFields: map[string]interface{}{
@@ -315,16 +327,17 @@ func (r *LPReader) ReadForList(raw map[string]interface{}) (*ListFields, error) 
 		return nil, fmt.Errorf("invalid wallet_id in LP transaction: %w", err)
 	}
 
-	assetSymbol, amount, usdValue := r.primaryTransfer(raw)
+	assetID, assetSymbol, amount, usdValue := r.primaryTransfer(raw)
 	chainID, _ := raw["chain_id"].(string)
 
 	return &ListFields{
-		WalletID:  walletID,
-		AssetID:   assetSymbol,
-		Amount:    amount,
-		USDValue:  usdValue,
-		Direction: r.direction,
-		ChainID:   chainID,
+		WalletID:    walletID,
+		AssetID:     assetID,
+		AssetSymbol: assetSymbol,
+		Amount:      amount,
+		USDValue:    usdValue,
+		Direction:   r.direction,
+		ChainID:     chainID,
 	}, nil
 }
 
@@ -359,7 +372,7 @@ func (r *LPReader) ReadForDetail(raw map[string]interface{}) (*DetailFields, err
 
 // primaryTransfer finds the first transfer matching the reader's direction
 // and returns its symbol, amount, and USD value.
-func (r *LPReader) primaryTransfer(raw map[string]interface{}) (string, *big.Int, *big.Int) {
+func (r *LPReader) primaryTransfer(raw map[string]interface{}) (uuid.UUID, string, *big.Int, *big.Int) {
 	transfers, ok := raw["transfers"].([]map[string]interface{})
 	if !ok {
 		// Try type assertion for []interface{} (JSON roundtrip)
@@ -373,7 +386,7 @@ func (r *LPReader) primaryTransfer(raw map[string]interface{}) (string, *big.Int
 				}
 			}
 		}
-		return "", big.NewInt(0), nil
+		return uuid.Nil, "", big.NewInt(0), nil
 	}
 
 	for _, t := range transfers {
@@ -387,7 +400,7 @@ func (r *LPReader) primaryTransfer(raw map[string]interface{}) (string, *big.Int
 	if len(transfers) > 0 {
 		return extractTransferFields(transfers[0])
 	}
-	return "", big.NewInt(0), nil
+	return uuid.Nil, "", big.NewInt(0), nil
 }
 
 // --- Lending reader ---
@@ -409,6 +422,11 @@ func (r *LendingReader) ReadForList(raw map[string]interface{}) (*ListFields, er
 		return nil, fmt.Errorf("invalid wallet_id in lending transaction: %w", err)
 	}
 
+	// setLendingAssetFields (sync) writes the registry UUID under "asset_id"
+	// and the ticker under "asset". A malformed id yields uuid.Nil here rather
+	// than an error: this is the list view, and refusing to render a row is a
+	// worse outcome than rendering it without a stable asset key.
+	assetID, _ := uuid.Parse(stringField(raw, "asset_id"))
 	assetSymbol, _ := raw["asset"].(string)
 	amount := parseBigIntField(raw, "amount")
 	chainID, _ := raw["chain_id"].(string)
@@ -426,12 +444,13 @@ func (r *LendingReader) ReadForList(raw map[string]interface{}) (*ListFields, er
 	}
 
 	return &ListFields{
-		WalletID:  walletID,
-		AssetID:   assetSymbol,
-		Amount:    amount,
-		USDValue:  usdValue,
-		Direction: r.direction,
-		ChainID:   chainID,
+		WalletID:    walletID,
+		AssetID:     assetID,
+		AssetSymbol: assetSymbol,
+		Amount:      amount,
+		USDValue:    usdValue,
+		Direction:   r.direction,
+		ChainID:     chainID,
 	}, nil
 }
 
@@ -473,15 +492,16 @@ func (r *SwapReader) ReadForList(raw map[string]interface{}) (*ListFields, error
 	chainID, _ := raw["chain_id"].(string)
 
 	// Display the received asset (transfers_in) as primary
-	assetSymbol, amount, usdValue := firstTransferFromArray(raw, "transfers_in")
+	assetID, assetSymbol, amount, usdValue := firstTransferFromArray(raw, "transfers_in")
 
 	return &ListFields{
-		WalletID:  walletID,
-		AssetID:   assetSymbol,
-		Amount:    amount,
-		USDValue:  usdValue,
-		Direction: DirectionIn,
-		ChainID:   chainID,
+		WalletID:    walletID,
+		AssetID:     assetID,
+		AssetSymbol: assetSymbol,
+		Amount:      amount,
+		USDValue:    usdValue,
+		Direction:   DirectionIn,
+		ChainID:     chainID,
 	}, nil
 }
 
@@ -520,7 +540,11 @@ func (r *GenesisReader) ReadForList(raw map[string]interface{}) (*ListFields, er
 		return nil, fmt.Errorf("invalid wallet_id in genesis transaction: %w", err)
 	}
 
-	assetID, _ := raw["asset_id"].(string)
+	// Genesis raw_data carries the registry UUID under asset_id and the ticker
+	// under asset_symbol (#59). uuid.Nil on a malformed id — the list view
+	// degrades rather than dropping the row.
+	assetID, _ := uuid.Parse(stringField(raw, "asset_id"))
+	assetSymbol, _ := raw["asset_symbol"].(string)
 	amount := parseBigIntField(raw, "amount")
 	chainID, _ := raw["chain_id"].(string)
 
@@ -537,12 +561,13 @@ func (r *GenesisReader) ReadForList(raw map[string]interface{}) (*ListFields, er
 	}
 
 	return &ListFields{
-		WalletID:  walletID,
-		AssetID:   assetID,
-		Amount:    amount,
-		USDValue:  usdValue,
-		Direction: DirectionIn,
-		ChainID:   chainID,
+		WalletID:    walletID,
+		AssetID:     assetID,
+		AssetSymbol: assetSymbol,
+		Amount:      amount,
+		USDValue:    usdValue,
+		Direction:   DirectionIn,
+		ChainID:     chainID,
 	}, nil
 }
 
@@ -567,8 +592,12 @@ func (r *GenesisReader) ReadForDetail(raw map[string]interface{}) (*DetailFields
 
 // --- Helpers ---
 
-// extractTransferFields extracts symbol, amount, and USD value from a transfer map.
-func extractTransferFields(t map[string]interface{}) (string, *big.Int, *big.Int) {
+// extractTransferFields extracts the registry id, symbol, amount and USD value
+// from a transfer map. The id is the key the API returns; the symbol is what
+// gets rendered (#59). An unparseable id yields uuid.Nil rather than an error —
+// this is the read path, and a row with no stable key still displays.
+func extractTransferFields(t map[string]interface{}) (uuid.UUID, string, *big.Int, *big.Int) {
+	assetID, _ := uuid.Parse(stringField(t, "asset_id"))
 	symbol, _ := t["asset_symbol"].(string)
 	amount := big.NewInt(0)
 	if amtStr, ok := t["amount"].(string); ok {
@@ -590,7 +619,14 @@ func extractTransferFields(t map[string]interface{}) (string, *big.Int, *big.Int
 		}
 	}
 
-	return symbol, amount, usdValue
+	return assetID, symbol, amount, usdValue
+}
+
+// stringField reads a string value from a raw_data map, returning "" when the
+// key is absent or holds another type.
+func stringField(raw map[string]interface{}, key string) string {
+	v, _ := raw[key].(string)
+	return v
 }
 
 // parseBigIntField parses a string field from raw data into a *big.Int.
@@ -606,7 +642,7 @@ func parseBigIntField(raw map[string]interface{}, key string) *big.Int {
 
 // firstTransferFromArray extracts the first element from a named transfer array
 // (e.g., "transfers_in" or "transfers_out") and returns its fields.
-func firstTransferFromArray(raw map[string]interface{}, key string) (string, *big.Int, *big.Int) {
+func firstTransferFromArray(raw map[string]interface{}, key string) (uuid.UUID, string, *big.Int, *big.Int) {
 	if arr, ok := raw[key].([]interface{}); ok && len(arr) > 0 {
 		if m, ok := arr[0].(map[string]interface{}); ok {
 			return extractTransferFields(m)
@@ -615,5 +651,5 @@ func firstTransferFromArray(raw map[string]interface{}, key string) (string, *bi
 	if arr, ok := raw[key].([]map[string]interface{}); ok && len(arr) > 0 {
 		return extractTransferFields(arr[0])
 	}
-	return "", big.NewInt(0), nil
+	return uuid.Nil, "", big.NewInt(0), nil
 }

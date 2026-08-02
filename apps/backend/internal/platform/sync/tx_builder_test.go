@@ -26,7 +26,17 @@ import (
 
 func newTxBuilder(walletRepo sync.WalletRepository, ledgerSvc sync.LedgerService) *sync.TxBuilder {
 	log := logger.New("test", os.Stdout)
-	return sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, nil, nil)
+	return sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, nil)
+}
+
+// newTxBuilderWithRegistry is newTxBuilder for the tests that assert on the
+// identity a leg carries. Identity is a registry UUID since #59, so a builder
+// with no registry resolves every leg to uuid.Nil and an assertion on
+// `asset_id` would compare two zero values and pass for the wrong reason.
+func newTxBuilderWithRegistry(walletRepo sync.WalletRepository, ledgerSvc sync.LedgerService) (*sync.TxBuilder, *fakeAssetRegistry) {
+	log := logger.New("test", os.Stdout)
+	registry := newFakeAssetRegistry()
+	return sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, registry, nil), registry
 }
 
 func newDecodedTransaction(opType sync.OperationType, transfers []sync.DecodedTransfer) sync.DecodedTransaction {
@@ -85,7 +95,7 @@ func TestTxBuilder_TransferIn(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := newTxBuilder(walletRepo, ledgerSvc)
+	processor, registry := newTxBuilderWithRegistry(walletRepo, ledgerSvc)
 	w := newTestWallet(userID, walletAddr)
 
 	tx := newDecodedTransaction(sync.OpReceive, []sync.DecodedTransfer{
@@ -105,7 +115,9 @@ func TestTxBuilder_TransferIn(t *testing.T) {
 	assert.Equal(t, tx.TxHash, rawData["tx_hash"])
 	assert.Equal(t, "ethereum", rawData["chain_id"])
 
-	assert.Equal(t, "ETH", rawData["asset_id"])
+	// Identity is the registry UUID; the ticker rides alongside for display.
+	assert.Equal(t, registry.idFor(t, "ethereum", sync.NativeContract).String(), rawData["asset_id"])
+	assert.Equal(t, "ETH", rawData["asset_symbol"])
 	assert.Equal(t, "1000000000000000000", rawData["amount"])
 	assert.Equal(t, 18, rawData["decimals"])
 	assert.Equal(t, externalAddr, rawData["from_address"])
@@ -353,7 +365,7 @@ func TestTxBuilder_USDPrices(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := newTxBuilder(walletRepo, ledgerSvc)
+	processor, registry := newTxBuilderWithRegistry(walletRepo, ledgerSvc)
 	w := newTestWallet(userID, walletAddr)
 
 	ethPrice := big.NewInt(250000000000)
@@ -373,7 +385,8 @@ func TestTxBuilder_USDPrices(t *testing.T) {
 
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
 	rawData := ledgerSvc.recordedTransactions[0].RawData
-	assert.Equal(t, "ETH", rawData["asset_id"])
+	assert.Equal(t, registry.idFor(t, "ethereum", sync.NativeContract).String(), rawData["asset_id"])
+	assert.Equal(t, "ETH", rawData["asset_symbol"])
 	assert.Equal(t, ethPrice.String(), rawData["usd_rate"])
 }
 
@@ -390,7 +403,7 @@ func TestTxBuilder_GasFee(t *testing.T) {
 	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferOut, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := newTxBuilder(walletRepo, ledgerSvc)
+	processor, registry := newTxBuilderWithRegistry(walletRepo, ledgerSvc)
 	w := newTestWallet(userID, walletAddr)
 
 	feeUSDPrice := big.NewInt(500000000) // $5
@@ -410,7 +423,10 @@ func TestTxBuilder_GasFee(t *testing.T) {
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
 	rawData := ledgerSvc.recordedTransactions[0].RawData
 
-	assert.Equal(t, "ETH", rawData["fee_asset"])
+	// Gas is always the chain's native coin, so the fee identity is
+	// (ethereum, native) — the same asset the outgoing leg resolves to.
+	assert.Equal(t, registry.idFor(t, "ethereum", sync.NativeContract).String(), rawData["fee_asset"])
+	assert.Equal(t, "ETH", rawData["fee_asset_symbol"])
 	assert.Equal(t, "21000000000000", rawData["fee_amount"])
 	assert.Equal(t, 18, rawData["fee_decimals"])
 	assert.Equal(t, feeUSDPrice.String(), rawData["fee_usd_price"])

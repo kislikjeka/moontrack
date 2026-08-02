@@ -17,6 +17,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/kislikjeka/moontrack/pkg/money"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 )
 
 // MockWalletRepository is a mock implementation of WalletRepository
@@ -88,6 +89,7 @@ func TestDeFiDepositHandler_SimpleDeposit_Balance(t *testing.T) {
 		"operation_type": "deposit",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":         testasset.ForTicker("cbBTC").String(),
 				"asset_symbol":     "cbBTC",
 				"amount":           "981547",
 				"decimals":         8,
@@ -98,6 +100,7 @@ func TestDeFiDepositHandler_SimpleDeposit_Balance(t *testing.T) {
 				"recipient":        "0xaave",
 			},
 			{
+				"asset_id":         testasset.ForTicker("aBascbBTC").String(),
 				"asset_symbol":     "aBascbBTC",
 				"amount":           "981581",
 				"decimals":         8,
@@ -117,14 +120,14 @@ func TestDeFiDepositHandler_SimpleDeposit_Balance(t *testing.T) {
 	// Verify OUT pair: CREDIT wallet cbBTC + DEBIT clearing cbBTC
 	assert.Equal(t, ledger.Credit, entries[0].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeAssetDecrease, entries[0].EntryType)
-	assert.Equal(t, "cbBTC", entries[0].AssetID)
+	assert.Equal(t, testasset.ForTicker("cbBTC"), entries[0].AssetID)
 	assert.Equal(t, ledger.Debit, entries[1].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeClearing, entries[1].EntryType)
 
 	// Verify IN pair: DEBIT wallet aBascbBTC + CREDIT clearing aBascbBTC
 	assert.Equal(t, ledger.Debit, entries[2].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeAssetIncrease, entries[2].EntryType)
-	assert.Equal(t, "aBascbBTC", entries[2].AssetID)
+	assert.Equal(t, testasset.ForTicker("aBascbBTC"), entries[2].AssetID)
 	assert.Equal(t, ledger.Credit, entries[3].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeClearing, entries[3].EntryType)
 
@@ -148,12 +151,13 @@ func TestDeFiDepositHandler_WithGasFee_Balance(t *testing.T) {
 		"occurred_at":    time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
 		"protocol":       "AAVE",
 		"operation_type": "deposit",
-		"fee_asset":      "ETH",
+		"fee_asset":      testasset.ETH.String(),
 		"fee_amount":     money.NewBigIntFromInt64(21000000000000).String(),
 		"fee_decimals":   18,
 		"fee_usd_price":  "200000000000",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":         testasset.ForTicker("cbBTC").String(),
 				"asset_symbol":     "cbBTC",
 				"amount":           "981547",
 				"decimals":         8,
@@ -164,6 +168,7 @@ func TestDeFiDepositHandler_WithGasFee_Balance(t *testing.T) {
 				"recipient":        "0xaave",
 			},
 			{
+				"asset_id":         testasset.ForTicker("aBascbBTC").String(),
 				"asset_symbol":     "aBascbBTC",
 				"amount":           "981581",
 				"decimals":         8,
@@ -185,7 +190,7 @@ func TestDeFiDepositHandler_WithGasFee_Balance(t *testing.T) {
 	gasCredit := entries[5]
 	assert.Equal(t, ledger.EntryTypeGasFee, gasDebit.EntryType)
 	assert.Equal(t, ledger.Debit, gasDebit.DebitCredit)
-	assert.Equal(t, "ETH", gasDebit.AssetID)
+	assert.Equal(t, testasset.ETH, gasDebit.AssetID)
 	assert.Equal(t, ledger.EntryTypeAssetDecrease, gasCredit.EntryType)
 	assert.Equal(t, ledger.Credit, gasCredit.DebitCredit)
 	assert.Equal(t, 0, gasDebit.Amount.Cmp(gasCredit.Amount), "Gas pair must balance")
@@ -213,6 +218,7 @@ func TestDeFiDepositHandler_MintOnly_Balance(t *testing.T) {
 		"operation_type": "mint",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":         testasset.ForTicker("GM").String(),
 				"asset_symbol":     "GM",
 				"amount":           "151057598000000000000",
 				"decimals":         18,
@@ -232,7 +238,7 @@ func TestDeFiDepositHandler_MintOnly_Balance(t *testing.T) {
 	// Verify IN pair
 	assert.Equal(t, ledger.Debit, entries[0].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeAssetIncrease, entries[0].EntryType)
-	assert.Equal(t, "GM", entries[0].AssetID)
+	assert.Equal(t, testasset.ForTicker("GM"), entries[0].AssetID)
 	assert.Equal(t, ledger.Credit, entries[1].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeClearing, entries[1].EntryType)
 
@@ -260,6 +266,7 @@ func TestDeFiDepositHandler_USDPriceFallback(t *testing.T) {
 		"operation_type": "deposit",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":         testasset.ForTicker("cbBTC").String(),
 				"asset_symbol":     "cbBTC",
 				"amount":           "1000000",
 				"decimals":         8,
@@ -270,6 +277,7 @@ func TestDeFiDepositHandler_USDPriceFallback(t *testing.T) {
 				"recipient":        "0xaave",
 			},
 			{
+				"asset_id":         testasset.ForTicker("aBascbBTC").String(),
 				"asset_symbol":     "aBascbBTC",
 				"amount":           "1000000",
 				"decimals":         8,
@@ -321,6 +329,7 @@ func TestDeFiDepositHandler_EntryMetadata(t *testing.T) {
 		"operation_type": "deposit",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":         testasset.ForTicker("cbBTC").String(),
 				"asset_symbol":     "cbBTC",
 				"amount":           "100",
 				"decimals":         8,
@@ -331,6 +340,7 @@ func TestDeFiDepositHandler_EntryMetadata(t *testing.T) {
 				"recipient":        "0xaave",
 			},
 			{
+				"asset_id":         testasset.ForTicker("aBascbBTC").String(),
 				"asset_symbol":     "aBascbBTC",
 				"amount":           "100",
 				"decimals":         8,
@@ -415,6 +425,7 @@ func TestDeFiDepositHandler_Validate_MissingFields(t *testing.T) {
 			modifyData: func(data map[string]interface{}) {
 				data["transfers"] = []map[string]interface{}{
 					{
+						"asset_id":     testasset.ETH.String(),
 						"asset_symbol": "ETH",
 						"amount":       "-1",
 						"decimals":     18,
@@ -430,6 +441,7 @@ func TestDeFiDepositHandler_Validate_MissingFields(t *testing.T) {
 			modifyData: func(data map[string]interface{}) {
 				data["transfers"] = []map[string]interface{}{
 					{
+						"asset_id":     uuid.Nil.String(),
 						"asset_symbol": "",
 						"amount":       "100",
 						"decimals":     8,
@@ -496,6 +508,7 @@ func TestDeFiWithdrawHandler_SimpleWithdraw_Balance(t *testing.T) {
 		"operation_type": "withdraw",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":         testasset.ForTicker("fUSDC").String(),
 				"asset_symbol":     "fUSDC",
 				"amount":           "1360462608",
 				"decimals":         6,
@@ -506,6 +519,7 @@ func TestDeFiWithdrawHandler_SimpleWithdraw_Balance(t *testing.T) {
 				"recipient":        "0xflux",
 			},
 			{
+				"asset_id":         testasset.USDC.String(),
 				"asset_symbol":     "USDC",
 				"amount":           "1500000000",
 				"decimals":         6,
@@ -525,12 +539,12 @@ func TestDeFiWithdrawHandler_SimpleWithdraw_Balance(t *testing.T) {
 	// Verify OUT pair: CREDIT wallet fUSDC + DEBIT clearing fUSDC
 	assert.Equal(t, ledger.Credit, entries[0].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeAssetDecrease, entries[0].EntryType)
-	assert.Equal(t, "fUSDC", entries[0].AssetID)
+	assert.Equal(t, testasset.ForTicker("fUSDC"), entries[0].AssetID)
 
 	// Verify IN pair: DEBIT wallet USDC + CREDIT clearing USDC
 	assert.Equal(t, ledger.Debit, entries[2].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeAssetIncrease, entries[2].EntryType)
-	assert.Equal(t, "USDC", entries[2].AssetID)
+	assert.Equal(t, testasset.USDC, entries[2].AssetID)
 
 	assertEntriesBalanced(t, entries)
 }
@@ -551,12 +565,13 @@ func TestDeFiWithdrawHandler_WithGasFee_Balance(t *testing.T) {
 		"chain_id":       "ethereum",
 		"occurred_at":    time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
 		"operation_type": "withdraw",
-		"fee_asset":      "ETH",
+		"fee_asset":      testasset.ETH.String(),
 		"fee_amount":     money.NewBigIntFromInt64(50000000000000).String(),
 		"fee_decimals":   18,
 		"fee_usd_price":  "200000000000",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":     testasset.ForTicker("fUSDC").String(),
 				"asset_symbol": "fUSDC",
 				"amount":       "1000000",
 				"decimals":     6,
@@ -564,6 +579,7 @@ func TestDeFiWithdrawHandler_WithGasFee_Balance(t *testing.T) {
 				"direction":    "out",
 			},
 			{
+				"asset_id":     testasset.USDC.String(),
 				"asset_symbol": "USDC",
 				"amount":       "1000000",
 				"decimals":     6,
@@ -641,6 +657,7 @@ func TestDeFiWithdrawHandler_EntryMetadata(t *testing.T) {
 		"operation_type": "burn",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":     testasset.ForTicker("fUSDC").String(),
 				"asset_symbol": "fUSDC",
 				"amount":       "100",
 				"decimals":     6,
@@ -648,6 +665,7 @@ func TestDeFiWithdrawHandler_EntryMetadata(t *testing.T) {
 				"direction":    "out",
 			},
 			{
+				"asset_id":     testasset.USDC.String(),
 				"asset_symbol": "USDC",
 				"amount":       "100",
 				"decimals":     6,
@@ -696,6 +714,7 @@ func TestDeFiClaimHandler_SimpleClaim_Balance(t *testing.T) {
 		"operation_type": "claim",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":         testasset.AAVE.String(),
 				"asset_symbol":     "AAVE",
 				"amount":           "500000000000000000",
 				"decimals":         18,
@@ -715,12 +734,12 @@ func TestDeFiClaimHandler_SimpleClaim_Balance(t *testing.T) {
 	// Verify wallet entry (asset increase)
 	assert.Equal(t, ledger.Debit, entries[0].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeAssetIncrease, entries[0].EntryType)
-	assert.Equal(t, "AAVE", entries[0].AssetID)
+	assert.Equal(t, testasset.AAVE, entries[0].AssetID)
 
 	// Verify income entry
 	assert.Equal(t, ledger.Credit, entries[1].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeIncome, entries[1].EntryType)
-	assert.Equal(t, "AAVE", entries[1].AssetID)
+	assert.Equal(t, testasset.AAVE, entries[1].AssetID)
 	assert.Contains(t, entries[1].Metadata["account_code"], "income.defi.")
 
 	assertEntriesBalanced(t, entries)
@@ -742,12 +761,13 @@ func TestDeFiClaimHandler_WithGasFee_Balance(t *testing.T) {
 		"chain_id":       "ethereum",
 		"occurred_at":    time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
 		"operation_type": "claim",
-		"fee_asset":      "ETH",
+		"fee_asset":      testasset.ETH.String(),
 		"fee_amount":     money.NewBigIntFromInt64(30000000000000).String(),
 		"fee_decimals":   18,
 		"fee_usd_price":  "200000000000",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":     testasset.ForTicker("COMP").String(),
 				"asset_symbol": "COMP",
 				"amount":       "1000000000000000000",
 				"decimals":     18,
@@ -782,6 +802,7 @@ func TestDeFiClaimHandler_MultipleRewards_Balance(t *testing.T) {
 		"operation_type": "claim",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":     testasset.AAVE.String(),
 				"asset_symbol": "AAVE",
 				"amount":       "500000000000000000",
 				"decimals":     18,
@@ -789,6 +810,7 @@ func TestDeFiClaimHandler_MultipleRewards_Balance(t *testing.T) {
 				"direction":    "in",
 			},
 			{
+				"asset_id":     testasset.ForTicker("stkAAVE").String(),
 				"asset_symbol": "stkAAVE",
 				"amount":       "200000000000000000",
 				"decimals":     18,
@@ -803,14 +825,14 @@ func TestDeFiClaimHandler_MultipleRewards_Balance(t *testing.T) {
 	require.Len(t, entries, 4, "Multiple rewards should generate 4 entries (2 per reward)")
 
 	// Verify both reward pairs
-	assert.Equal(t, "AAVE", entries[0].AssetID)
+	assert.Equal(t, testasset.AAVE, entries[0].AssetID)
 	assert.Equal(t, ledger.EntryTypeAssetIncrease, entries[0].EntryType)
-	assert.Equal(t, "AAVE", entries[1].AssetID)
+	assert.Equal(t, testasset.AAVE, entries[1].AssetID)
 	assert.Equal(t, ledger.EntryTypeIncome, entries[1].EntryType)
 
-	assert.Equal(t, "stkAAVE", entries[2].AssetID)
+	assert.Equal(t, testasset.ForTicker("stkAAVE"), entries[2].AssetID)
 	assert.Equal(t, ledger.EntryTypeAssetIncrease, entries[2].EntryType)
-	assert.Equal(t, "stkAAVE", entries[3].AssetID)
+	assert.Equal(t, testasset.ForTicker("stkAAVE"), entries[3].AssetID)
 	assert.Equal(t, ledger.EntryTypeIncome, entries[3].EntryType)
 
 	assertEntriesBalanced(t, entries)
@@ -835,6 +857,7 @@ func TestDeFiClaimHandler_Validate_NoInTransfers(t *testing.T) {
 		"operation_type": "claim",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":     testasset.ETH.String(),
 				"asset_symbol": "ETH",
 				"amount":       "100",
 				"decimals":     18,
@@ -867,6 +890,7 @@ func TestDeFiClaimHandler_EntryMetadata(t *testing.T) {
 		"operation_type": "claim",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":         testasset.WETH.String(),
 				"asset_symbol":     "WETH",
 				"amount":           "100000000000000",
 				"decimals":         18,
@@ -892,7 +916,7 @@ func TestDeFiClaimHandler_EntryMetadata(t *testing.T) {
 	incomeEntry := entries[1]
 	assert.Equal(t, "claim", incomeEntry.Metadata["operation_type"])
 	assert.Equal(t, "GMX", incomeEntry.Metadata["protocol"])
-	expectedIncomeCode := "income.defi.arbitrum.WETH"
+	expectedIncomeCode := "income.defi.arbitrum." + testasset.WETH.String()
 	assert.Equal(t, expectedIncomeCode, incomeEntry.Metadata["account_code"])
 
 	assertEntriesBalanced(t, entries)
@@ -927,6 +951,7 @@ func TestDeFiDepositHandler_USDPriceFallback_DifferentAmounts(t *testing.T) {
 		"operation_type": "deposit",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":         testasset.ForTicker("cbBTC").String(),
 				"asset_symbol":     "cbBTC",
 				"amount":           "981547",
 				"decimals":         8,
@@ -937,6 +962,7 @@ func TestDeFiDepositHandler_USDPriceFallback_DifferentAmounts(t *testing.T) {
 				"recipient":        "0xaave",
 			},
 			{
+				"asset_id":         testasset.ForTicker("aBascbBTC").String(),
 				"asset_symbol":     "aBascbBTC",
 				"amount":           "981581",
 				"decimals":         8,
@@ -987,6 +1013,7 @@ func TestDeFiDepositHandler_Validate_ZeroAmount(t *testing.T) {
 	data := validDepositData(walletID)
 	data["transfers"] = []map[string]interface{}{
 		{
+			"asset_id":     testasset.ETH.String(),
 			"asset_symbol": "ETH",
 			"amount":       "0",
 			"decimals":     18,
@@ -1016,6 +1043,7 @@ func TestDeFiDepositHandler_Validate_NegativeDecimals(t *testing.T) {
 	data := validDepositData(walletID)
 	data["transfers"] = []map[string]interface{}{
 		{
+			"asset_id":     testasset.ETH.String(),
 			"asset_symbol": "ETH",
 			"amount":       "100",
 			"decimals":     -1,
@@ -1038,27 +1066,35 @@ func TestDeFiHandlers_Unauthorized(t *testing.T) {
 	walletID := uuid.New()
 
 	testCases := []struct {
-		name        string
-		newHandler  func(defi.WalletRepository, *logger.Logger) interface{ ValidateData(context.Context, map[string]interface{}) error }
-		dataFunc    func(uuid.UUID) map[string]interface{}
+		name       string
+		newHandler func(defi.WalletRepository, *logger.Logger) interface {
+			ValidateData(context.Context, map[string]interface{}) error
+		}
+		dataFunc func(uuid.UUID) map[string]interface{}
 	}{
 		{
 			name: "deposit handler",
-			newHandler: func(repo defi.WalletRepository, log *logger.Logger) interface{ ValidateData(context.Context, map[string]interface{}) error } {
+			newHandler: func(repo defi.WalletRepository, log *logger.Logger) interface {
+				ValidateData(context.Context, map[string]interface{}) error
+			} {
 				return defi.NewDeFiDepositHandler(repo, log)
 			},
 			dataFunc: validDepositData,
 		},
 		{
 			name: "withdraw handler",
-			newHandler: func(repo defi.WalletRepository, log *logger.Logger) interface{ ValidateData(context.Context, map[string]interface{}) error } {
+			newHandler: func(repo defi.WalletRepository, log *logger.Logger) interface {
+				ValidateData(context.Context, map[string]interface{}) error
+			} {
 				return defi.NewDeFiWithdrawHandler(repo, log)
 			},
 			dataFunc: validWithdrawData,
 		},
 		{
 			name: "claim handler",
-			newHandler: func(repo defi.WalletRepository, log *logger.Logger) interface{ ValidateData(context.Context, map[string]interface{}) error } {
+			newHandler: func(repo defi.WalletRepository, log *logger.Logger) interface {
+				ValidateData(context.Context, map[string]interface{}) error
+			} {
 				return defi.NewDeFiClaimHandler(repo, log)
 			},
 			dataFunc: validClaimData,
@@ -1109,6 +1145,7 @@ func TestDeFiDepositHandler_MultiAsset_Balance(t *testing.T) {
 		"operation_type": "deposit",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":         testasset.ETH.String(),
 				"asset_symbol":     "ETH",
 				"amount":           money.NewBigIntFromInt64(1000000000000000000).String(),
 				"decimals":         18,
@@ -1119,6 +1156,7 @@ func TestDeFiDepositHandler_MultiAsset_Balance(t *testing.T) {
 				"recipient":        "0xgmx",
 			},
 			{
+				"asset_id":         testasset.USDC.String(),
 				"asset_symbol":     "USDC",
 				"amount":           money.NewBigIntFromInt64(2000000000).String(),
 				"decimals":         6,
@@ -1129,6 +1167,7 @@ func TestDeFiDepositHandler_MultiAsset_Balance(t *testing.T) {
 				"recipient":        "0xgmx",
 			},
 			{
+				"asset_id":         testasset.ForTicker("GM-ETH-USDC").String(),
 				"asset_symbol":     "GM-ETH-USDC",
 				"amount":           money.NewBigIntFromInt64(500000000000000000).String(),
 				"decimals":         18,
@@ -1139,6 +1178,7 @@ func TestDeFiDepositHandler_MultiAsset_Balance(t *testing.T) {
 				"recipient":        "0x1234",
 			},
 			{
+				"asset_id":         testasset.ForTicker("esGMX").String(),
 				"asset_symbol":     "esGMX",
 				"amount":           money.NewBigIntFromInt64(100000000000000000).String(),
 				"decimals":         18,
@@ -1157,23 +1197,23 @@ func TestDeFiDepositHandler_MultiAsset_Balance(t *testing.T) {
 
 	// Verify OUT entries
 	assert.Equal(t, ledger.Credit, entries[0].DebitCredit)
-	assert.Equal(t, "ETH", entries[0].AssetID)
+	assert.Equal(t, testasset.ETH, entries[0].AssetID)
 	assert.Equal(t, ledger.Debit, entries[1].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeClearing, entries[1].EntryType)
 
 	assert.Equal(t, ledger.Credit, entries[2].DebitCredit)
-	assert.Equal(t, "USDC", entries[2].AssetID)
+	assert.Equal(t, testasset.USDC, entries[2].AssetID)
 	assert.Equal(t, ledger.Debit, entries[3].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeClearing, entries[3].EntryType)
 
 	// Verify IN entries
 	assert.Equal(t, ledger.Debit, entries[4].DebitCredit)
-	assert.Equal(t, "GM-ETH-USDC", entries[4].AssetID)
+	assert.Equal(t, testasset.ForTicker("GM-ETH-USDC"), entries[4].AssetID)
 	assert.Equal(t, ledger.Credit, entries[5].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeClearing, entries[5].EntryType)
 
 	assert.Equal(t, ledger.Debit, entries[6].DebitCredit)
-	assert.Equal(t, "esGMX", entries[6].AssetID)
+	assert.Equal(t, testasset.ForTicker("esGMX"), entries[6].AssetID)
 	assert.Equal(t, ledger.Credit, entries[7].DebitCredit)
 	assert.Equal(t, ledger.EntryTypeClearing, entries[7].EntryType)
 
@@ -1218,6 +1258,7 @@ func TestDeFiWithdrawHandler_Validate_ExpandedFields(t *testing.T) {
 			modifyData: func(data map[string]interface{}) {
 				data["transfers"] = []map[string]interface{}{
 					{
+						"asset_id":     testasset.USDC.String(),
 						"asset_symbol": "USDC",
 						"amount":       "-1",
 						"decimals":     6,
@@ -1233,6 +1274,7 @@ func TestDeFiWithdrawHandler_Validate_ExpandedFields(t *testing.T) {
 			modifyData: func(data map[string]interface{}) {
 				data["transfers"] = []map[string]interface{}{
 					{
+						"asset_id":     uuid.Nil.String(),
 						"asset_symbol": "",
 						"amount":       "100",
 						"decimals":     6,
@@ -1269,6 +1311,7 @@ func validClaimData(walletID uuid.UUID) map[string]interface{} {
 		"operation_type": "claim",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":     testasset.AAVE.String(),
 				"asset_symbol": "AAVE",
 				"amount":       "500000000000000000",
 				"decimals":     18,
@@ -1288,6 +1331,7 @@ func validDepositData(walletID uuid.UUID) map[string]interface{} {
 		"operation_type": "deposit",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":         testasset.ForTicker("cbBTC").String(),
 				"asset_symbol":     "cbBTC",
 				"amount":           "100",
 				"decimals":         8,
@@ -1298,6 +1342,7 @@ func validDepositData(walletID uuid.UUID) map[string]interface{} {
 				"recipient":        "0xaave",
 			},
 			{
+				"asset_id":         testasset.ForTicker("aBascbBTC").String(),
 				"asset_symbol":     "aBascbBTC",
 				"amount":           "100",
 				"decimals":         8,
@@ -1320,6 +1365,7 @@ func validWithdrawData(walletID uuid.UUID) map[string]interface{} {
 		"operation_type": "withdraw",
 		"transfers": []map[string]interface{}{
 			{
+				"asset_id":     testasset.ForTicker("fUSDC").String(),
 				"asset_symbol": "fUSDC",
 				"amount":       "1000000",
 				"decimals":     6,
@@ -1327,6 +1373,7 @@ func validWithdrawData(walletID uuid.UUID) map[string]interface{} {
 				"direction":    "out",
 			},
 			{
+				"asset_id":     testasset.USDC.String(),
 				"asset_symbol": "USDC",
 				"amount":       "1000000",
 				"decimals":     6,

@@ -75,7 +75,7 @@ func TestCollector_FansOutOverEnabledChains(t *testing.T) {
 			storedChains[raw.ChainID] = true
 		}).Return(nil)
 
-	collector := newTestCollector(provider, rawTxRepo, walletRepo, nil)
+	collector := newTestCollector(provider, rawTxRepo, walletRepo)
 	count, err := collector.CollectAll(ctx, w)
 
 	require.NoError(t, err)
@@ -129,7 +129,7 @@ func TestReconciler_FansOutOverEnabledChains(t *testing.T) {
 			flaggedChains[args.Get(2).(string)] = true
 		}).Return(nil)
 
-	r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
+	r := newTestReconciler(rawTxRepo, posProvider, walletRepo)
 	res, err := r.Reconcile(ctx, w)
 	count := res.Flagged
 

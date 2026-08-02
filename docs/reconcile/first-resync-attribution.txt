@@ -1,0 +1,121 @@
+ATTRIBUTION OF EVERY PROVIDER POSITION ABSENT FROM THE LEDGER
+total P-only: 106
+
+================================================================================================================
+CATEGORY: NOT-IN-KNOWNNESS   count=1
+================================================================================================================
+  base      0xd4a0e0b9149bcee3c920d2e00b5de09138fd8bb7   aBasWETH                   qty=2.920844995720962745
+
+================================================================================================================
+CATEGORY: known   count=4
+================================================================================================================
+  arbitrum  0x70d95587d40a2caf56bd97485ab3eec10bee6336   GM                         qty=105.144272541188163337
+  base      0x59dca05b6c26dbd64b5381374aaac5cd05644c28   variableDebtBasUSDC        qty=4524.846736
+  base      0xbdb9300b7cde636d9cd4aff00f6f009ffbbc8ee6   aBascbBTC                  qty=0.11219239
+  base      0xf42f5795d9ac7e9d757db633d693cd548cfd9169   fUSDC                      qty=4227.480672
+
+================================================================================================================
+CATEGORY: pending   count=101
+================================================================================================================
+  base      0x033b1444fbfac85f3761831000dbdad714c48e50   SOL                        qty=100
+  base      0x03fef7db0067772037da7db2c3096401e97621c6   RocketB20                  qty=25
+  base      0x0604e459c28c7a32bbd5cc1ce1a8afebdb70d096   FDOR                       qty=50
+  base      0x073ffeb4a7a707781f61ce4018ad7111e22cc5da   POLLY                      qty=8888
+  base      0x0bf43486ba5b80c0ff742d5e31576abc63d8c0e8   NATO                       qty=1
+  base      0x0c4dcf0e640683d11067c0a257d912024cdb10cf   REBELL                     qty=100
+  base      0x0ff37d3638577b9900561ec247250d8f51c7faa7   DAOR COIN                  qty=25
+  base      0x1062f5cb624427fc843e385cb8744fc8201838f0   TRUMP                      qty=1
+  base      0x11373977cf095247bdd2fd5fe56212e7e7dfad2d   DISCOPUSSY                 qty=20
+  base      0x158609cc4e5e1eb12d8d03329860e597d8048358   ESSE                       qty=1
+  base      0x183d0b78bd3a8bf10e013a1c637e8090cc770606   CUKI                       qty=50
+  base      0x19ed88560781cbd496e344cbd48701a53eb1a580   $RLSS                      qty=88
+  base      0x1c58eaecb9b8e8e7bd1819c82a3da03a3539e6ad   DRONE                      qty=25
+  base      0x1ce89cf4a098295d4ec294c3dd7e0e195f906626   Moltbook                   qty=9
+  base      0x1e25c1c67a1de4fc8a602a638355659e36378aaf   MIRROR                     qty=1
+  base      0x1e358596f48420fe4cd147dcc850661632125e21   Telegram @TronVanity88_bot qty=8888
+  base      0x22dd8aa02034903df62f82ee81d6e73ee8e37a2d   BASE                       qty=1
+  base      0x293ed67c6ba6d4131484954194ccda56b6b567eb   USOH                       qty=1
+  base      0x2f73b6a349e56781a8d6432258d942587a8e40b3   BABUCKS                    qty=1
+  base      0x30607b4b05b105e403a62f387ae637941163f4ee   $MONWHALEE                 qty=111
+  base      0x32a9689c8be6a2cba780c1fd2a56232b8a9b685c   42                         qty=27
+  base      0x35bcab0f106bf16e871234ce6f81ff7ccbca32de   GOAL                       qty=1
+  base      0x36e31cb885dafd469f699be7e85217bfda9772b7   VERSA                      qty=1
+  base      0x3820588b5ebc5bd3f78cf18ebb3e435a01b8b52b   SOLS                       qty=25
+  base      0x3b9efc6f8165812c033618f45a5145cb07548712   USGR                       qty=25
+  base      0x412c2ddddb42e59dff2a4b1091f469c68d0ea757   NEXARION                   qty=10
+  base      0x458759e81f8da8ce552162da6f631fdd36e7347f   BDGA                       qty=15
+  base      0x486f662020286e17e7469df4e5f2cf2415f36662   AI                         qty=1
+  base      0x494e8951094d2c5700c4fe09bd3ea24e8fe9727e   ARMA                       qty=25
+  base      0x4995f6876ad120efdc8962691278efdcfadfaebb   LIMAS                      qty=25
+  base      0x49c32c82b4c2320be180b267bb3b111758e7a328   ROSS                       qty=25
+  base      0x4c0546c198b5f2134abe1527f71e9d1f504edcf4   VROF                       qty=20
+  base      0x4d61857bb6919b20b6b6fdd48034260b34c939da   STEVEN                     qty=1
+  base      0x50f1094e6fbd914ad146111e5a97258cf6c6948d   LUNA                       qty=1
+  base      0x51b92122fe58883601fba4e99fc6f7f98ce0d1e0   MAGA                       qty=4
+  base      0x52ca825d762a97205aedc0cd8b9509bc03b73543   USWR                       qty=25
+  base      0x5364e2b7cabdb67607895900a70716b266736fe3   USTOF                      qty=6
+  base      0x57894437f05640ca014e2c4723fa18fd79b4c9e1   PENGUIN                    qty=9
+  base      0x58a02270bbeb487eee7da422be3fdf0cd9b6d8c8   BDGA                       qty=20
+  base      0x58d477bb21c27a2e2a918569e0da580785ed21f3   USCC                       qty=50
+  base      0x5bc7d3f4db6d32e7a2876965e4cf1c5809503c08   LYTHERA                    qty=10
+  base      0x625b2c48020901df23a95136cdfd173220b6fbbd   2026                       qty=111
+  base      0x6808c0a865094dc0c257536f707accf8cdee2e4a   gRONALDO                   qty=10
+  base      0x68e0acc6a24007718a9d1877ed2f41a2f9561004   LIGHT                      qty=2
+  base      0x6ab0beb71a0c420035e861ee6834db4ccd2ff71f   SXC                        qty=1
+  base      0x6abc46cb32d8dff95b0af7b746a2fa5d0d8b25ae   GBT                        qty=1
+  base      0x6b8d803d55ec5cb74f8bb121e01ff2c49668d620   ANSEM                      qty=20
+  base      0x6e96d8316004313439be46d0f0af40bf61cfe38e   POOM                       qty=20
+  base      0x78cdbef65ede022351f2dd635abc41ac74788cbd   GENESIS                    qty=15
+  base      0x7992e1da2c11be520584f51a04e06753e4ee533e   $WDC                       qty=100
+  base      0x79eb0fdfd3a12c9987685a71b11ecb8ddc76ecbe   XOGE                       qty=9
+  base      0x818eecdd2fec8a11bcd3d9470639d544eaf101bf   BOUNTYLIFE                 qty=25
+  base      0x85285167f790f71e7c11cc73563755cdcae89e28   NOVA                       qty=16
+  base      0x8bb0ac8ae1033cdee8a45b1fa669b0fad5b40278   USOR                       qty=1
+  base      0x8cf96465366b8d903094deaec95ffcc6270f724f   VDR                        qty=20
+  base      0x91139e10899c7f38678cf370555d688d957b2c8f   ROOT                       qty=20
+  base      0x9272d6153133175175bc276512b2336be3931ce9   fWETH                      qty=0.035487091373563734
+  base      0x92b6ba60726ffb1ac0aceb333e38e7134d3e9440   USWR                       qty=25
+  base      0x95908c3fa801d71dccd80022006245418d1d1064   FED                        qty=10
+  base      0x97d0d02f643e6dc0651452932a0f18e0c41e597e   DRONE                      qty=25
+  base      0xa1f8ea4ad00538d92654b7a1408b242b5d1acea5   PIZZA                      qty=25
+  base      0xb70695a052c02ca2f6eda07ccf4a66a3f5cc612c   NVIDIA                     qty=10
+  base      0xba1429a6b3e5a7ad94e622d0282fb355edb1b92b   AORIE                      qty=25
+  base      0xbde6973d36a668c8346523b514d798ad79cfb425   EXY                        qty=20
+  base      0xc19e4dad3218aec0573b9882ef683d73f8004f75   $ZORA                      qty=1
+  base      0xc2722ac13daf6d8eda72c677e5eb865e475edfb3   Santa                      qty=1.1
+  base      0xc3f1d238d436ba63dfc692c17733f77f3556cc27   $SPX                       qty=15
+  base      0xc5ce8f730d540d4dbc210235933c51c0e5917ce5   ESP                        qty=9
+  base      0xc753e0b5a7682fc93a1094303c3578eea72a6bda   SBS                        qty=100
+  base      0xc8f4cc5426f948bb3b4cf2f49cc2a73b0d56388d   EDDL                       qty=1
+  base      0xcc336e1a6454c734ccba34dc3a51972766274451   PENGU                      qty=1
+  base      0xccde439de3de2df88b0b8c7043e8e110c5f81f5d   USSR                       qty=25
+  base      0xccfd27324fdf87186afc4d6599c8a690242ff875   rCAP                       qty=9
+  base      0xcdd42e83688e46e17ef6e330ff694afe950d36fe   SZNP                       qty=9
+  base      0xcf90628ab96fa93101ba92ef796224257f05e30f   XMAS                       qty=1
+  base      0xd15cc42e0113d94e4c529079580e90bcb9c4c923   BUTERBEAR                  qty=100
+  base      0xd2b6878973dedc61ca5407c0194ff3b996b37134   NNWR                       qty=15
+  base      0xd74c7095742c0645ca83f9b4a2d599d67008de3f   $LE                        qty=25
+  base      0xd8860c4a780d9b1c8f972a025304d143681b8519   USWR                       qty=18
+  base      0xd90487d529bff1b7c28ffdd3e3388eb377ee073d   wDINO                      qty=16.873
+  base      0xdb9d15e484368facb45f5784a99a0a5feceed624   NTFS                       qty=21
+  base      0xdd2e30c43bd10b4546b67e47d2a4473c821ee31d   U S D C ✅Visit to claim: t qty=1
+  base      0xe8a2e29c8199ecef54e20b7766de65a5c5591c6b   TEA                        qty=2
+  base      0xe8f7bb9bb7ed57db3f1561d0da987861a25725cf   SURGE                      qty=80
+  base      0xe95c429d2e4e1129074c68d4e8e6973ea0156594   DOGE                       qty=1985
+  base      0xeb9caafc9cd52434fc906dc6ef28f24509d9b309   UЅDС                       qty=7090.5
+  base      0xf124e18c84248f1502da7ef4626c631c698f1e3b   Bountywork                 qty=5
+  base      0xf17ffaef3de6148a0ef8c96d502a65df6e89e76f   EURO                       qty=1
+  base      0xf1fabf37b5319881b7ffd2ca56efa9eae2494703   TGC                        qty=10000
+  base      0xf2b2c2a4e4eae02ba07decece8d831b11bd7a350   BONK                       qty=2
+  base      0xf56834d3ff89dd7f3ee3547b2f1488b209edfdb0   HEUBEU                     qty=1
+  base      0xf5e2a99b19fe65c5355746765a42647984ca9aed   PIMPBALL                   qty=9999
+  base      0xf707fdafae8427c3dc2acc691bc598260893fae3   TESLA                      qty=20
+  base      0xf9f8a1638f6a868d783fc9cf39c20dfd14a03b80   GOAT                       qty=1
+  base      0xfae7d01301e2eeede488f0953547e712a56c5e1d   OracleAI                   qty=3
+  base      0xfb9bd838721c959a87055d35fe7b9a1d86894363   USEDTESLA                  qty=25
+  base      0xfd724781411285a1db6e3ea83c136032f0a93569   USSR                       qty=25
+  base      0xfe3a3f6677df1834bc9638067f28eb9cf8f4497b   $DRB                       qty=1
+  base      0xff2ab362df2e52852a88ad210ff3c6fa2fe1fe5d   BASEVARIABLE               qty=25
+  ethereum  0x9347e04ea939b15f5965dd1adb5e496423d21956   PICKLE                     qty=1
+  ethereum  0xcdb9f907bd8828be9643b39cd4638d362fd6e9c4   KEKIUS                     qty=1
+

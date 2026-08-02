@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kislikjeka/moontrack/pkg/logger"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 )
 
 // mockLedgerRepo implements a minimal ledger.Repository for hook tests.
@@ -24,12 +25,18 @@ func (m *mockLedgerRepo) GetAccount(_ context.Context, id uuid.UUID) (*Account, 
 }
 
 // Unused methods — satisfy interface
-func (m *mockLedgerRepo) CreateAccount(context.Context, *Account) error                       { return nil }
-func (m *mockLedgerRepo) GetOrCreateAccount(_ context.Context, a *Account) (*Account, error)  { return a, nil }
-func (m *mockLedgerRepo) GetAccountByCode(context.Context, string) (*Account, error)          { return nil, nil }
-func (m *mockLedgerRepo) FindAccountsByWallet(context.Context, uuid.UUID) ([]*Account, error) { return nil, nil }
-func (m *mockLedgerRepo) CreateTransaction(context.Context, *Transaction) error               { return nil }
-func (m *mockLedgerRepo) GetTransaction(context.Context, uuid.UUID) (*Transaction, error)     { return nil, nil }
+func (m *mockLedgerRepo) CreateAccount(context.Context, *Account) error { return nil }
+func (m *mockLedgerRepo) GetOrCreateAccount(_ context.Context, a *Account) (*Account, error) {
+	return a, nil
+}
+func (m *mockLedgerRepo) GetAccountByCode(context.Context, string) (*Account, error) { return nil, nil }
+func (m *mockLedgerRepo) FindAccountsByWallet(context.Context, uuid.UUID) ([]*Account, error) {
+	return nil, nil
+}
+func (m *mockLedgerRepo) CreateTransaction(context.Context, *Transaction) error { return nil }
+func (m *mockLedgerRepo) GetTransaction(context.Context, uuid.UUID) (*Transaction, error) {
+	return nil, nil
+}
 func (m *mockLedgerRepo) FindTransactionsBySource(context.Context, string, string) (*Transaction, error) {
 	return nil, nil
 }
@@ -42,17 +49,17 @@ func (m *mockLedgerRepo) GetEntriesByTransaction(context.Context, uuid.UUID) ([]
 func (m *mockLedgerRepo) GetEntriesByAccount(context.Context, uuid.UUID) ([]*Entry, error) {
 	return nil, nil
 }
-func (m *mockLedgerRepo) GetAccountBalance(_ context.Context, id uuid.UUID, asset string) (*AccountBalance, error) {
+func (m *mockLedgerRepo) GetAccountBalance(_ context.Context, id uuid.UUID, asset uuid.UUID) (*AccountBalance, error) {
 	return &AccountBalance{AccountID: id, AssetID: asset, Balance: big.NewInt(0), USDValue: big.NewInt(0), LastUpdated: time.Now()}, nil
 }
-func (m *mockLedgerRepo) GetAccountBalanceForUpdate(_ context.Context, id uuid.UUID, asset string) (*AccountBalance, error) {
+func (m *mockLedgerRepo) GetAccountBalanceForUpdate(_ context.Context, id uuid.UUID, asset uuid.UUID) (*AccountBalance, error) {
 	return &AccountBalance{AccountID: id, AssetID: asset, Balance: big.NewInt(0), USDValue: big.NewInt(0), LastUpdated: time.Now()}, nil
 }
-func (m *mockLedgerRepo) UpsertAccountBalance(context.Context, *AccountBalance) error   { return nil }
+func (m *mockLedgerRepo) UpsertAccountBalance(context.Context, *AccountBalance) error { return nil }
 func (m *mockLedgerRepo) GetAccountBalances(context.Context, uuid.UUID) ([]*AccountBalance, error) {
 	return nil, nil
 }
-func (m *mockLedgerRepo) CalculateBalanceFromEntries(context.Context, uuid.UUID, string) (*big.Int, error) {
+func (m *mockLedgerRepo) CalculateBalanceFromEntries(context.Context, uuid.UUID, uuid.UUID) (*big.Int, error) {
 	return big.NewInt(0), nil
 }
 func (m *mockLedgerRepo) BeginTx(ctx context.Context) (context.Context, error) { return ctx, nil }
@@ -71,7 +78,7 @@ func walletAccount(id uuid.UUID) *Account {
 		ID:       id,
 		Code:     "wallet.test.eth.ETH",
 		Type:     AccountTypeCryptoWallet,
-		AssetID:  "ETH",
+		AssetID:  testasset.ETH,
 		WalletID: &wid,
 	}
 }
@@ -81,7 +88,7 @@ func incomeAccount(id uuid.UUID) *Account {
 		ID:      id,
 		Code:    "income.eth.ETH",
 		Type:    AccountTypeIncome,
-		AssetID: "ETH",
+		AssetID: testasset.ETH,
 	}
 }
 
@@ -90,7 +97,7 @@ func expenseAccount(id uuid.UUID) *Account {
 		ID:      id,
 		Code:    "expense.eth.ETH",
 		Type:    AccountTypeExpense,
-		AssetID: "ETH",
+		AssetID: testasset.ETH,
 	}
 }
 
@@ -99,11 +106,11 @@ func gasAccount(id uuid.UUID) *Account {
 		ID:      id,
 		Code:    "gas.eth.ETH",
 		Type:    AccountTypeGasFee,
-		AssetID: "ETH",
+		AssetID: testasset.ETH,
 	}
 }
 
-func makeEntry(accountID uuid.UUID, dc DebitCredit, et EntryType, amount int64, asset string, meta map[string]interface{}) *Entry {
+func makeEntry(accountID uuid.UUID, dc DebitCredit, et EntryType, amount int64, asset uuid.UUID, meta map[string]interface{}) *Entry {
 	return &Entry{
 		ID:          uuid.New(),
 		AccountID:   accountID,
@@ -137,8 +144,8 @@ func TestTaxLotHook_TransferIn_CreatesLot(t *testing.T) {
 		ID:   uuid.New(),
 		Type: TxTypeTransferIn,
 		Entries: []*Entry{
-			makeEntry(walletAcctID, Debit, EntryTypeAssetIncrease, 1000, "ETH", nil),
-			makeEntry(incomeAcctID, Credit, EntryTypeIncome, 1000, "ETH", nil),
+			makeEntry(walletAcctID, Debit, EntryTypeAssetIncrease, 1000, testasset.ETH, nil),
+			makeEntry(incomeAcctID, Credit, EntryTypeIncome, 1000, testasset.ETH, nil),
 		},
 	}
 
@@ -171,7 +178,7 @@ func TestTaxLotHook_TransferOut_DisposesLot(t *testing.T) {
 		ID:                   uuid.New(),
 		TransactionID:        uuid.New(),
 		AccountID:            walletAcctID,
-		Asset:                "ETH",
+		Asset:                testasset.ETH,
 		QuantityAcquired:     big.NewInt(1000),
 		QuantityRemaining:    big.NewInt(1000),
 		AcquiredAt:           time.Now().Add(-time.Hour),
@@ -192,8 +199,8 @@ func TestTaxLotHook_TransferOut_DisposesLot(t *testing.T) {
 		ID:   uuid.New(),
 		Type: TxTypeTransferOut,
 		Entries: []*Entry{
-			makeEntry(expenseAcctID, Debit, EntryTypeExpense, 500, "ETH", nil),
-			makeEntry(walletAcctID, Credit, EntryTypeAssetDecrease, 500, "ETH", nil),
+			makeEntry(expenseAcctID, Debit, EntryTypeExpense, 500, testasset.ETH, nil),
+			makeEntry(walletAcctID, Credit, EntryTypeAssetDecrease, 500, testasset.ETH, nil),
 		},
 	}
 
@@ -227,7 +234,7 @@ func TestTaxLotHook_TransferOutWithGas_TwoDisposals(t *testing.T) {
 		ID:                   uuid.New(),
 		TransactionID:        uuid.New(),
 		AccountID:            walletAcctID,
-		Asset:                "ETH",
+		Asset:                testasset.ETH,
 		QuantityAcquired:     big.NewInt(10000),
 		QuantityRemaining:    big.NewInt(10000),
 		AcquiredAt:           time.Now().Add(-time.Hour),
@@ -249,10 +256,10 @@ func TestTaxLotHook_TransferOutWithGas_TwoDisposals(t *testing.T) {
 		ID:   uuid.New(),
 		Type: TxTypeTransferOut,
 		Entries: []*Entry{
-			makeEntry(expenseAcctID, Debit, EntryTypeExpense, 500, "ETH", nil),
-			makeEntry(walletAcctID, Credit, EntryTypeAssetDecrease, 500, "ETH", nil),
-			makeEntry(gasAcctID, Debit, EntryTypeGasFee, 10, "ETH", nil),
-			makeEntry(walletAcctID, Credit, EntryTypeAssetDecrease, 10, "ETH",
+			makeEntry(expenseAcctID, Debit, EntryTypeExpense, 500, testasset.ETH, nil),
+			makeEntry(walletAcctID, Credit, EntryTypeAssetDecrease, 500, testasset.ETH, nil),
+			makeEntry(gasAcctID, Debit, EntryTypeGasFee, 10, testasset.ETH, nil),
+			makeEntry(walletAcctID, Credit, EntryTypeAssetDecrease, 10, testasset.ETH,
 				map[string]interface{}{"entry_type": "gas_payment"}),
 		},
 	}
@@ -285,7 +292,7 @@ func TestTaxLotHook_Swap_DisposalPlusAcquisition(t *testing.T) {
 		ID:                   uuid.New(),
 		TransactionID:        uuid.New(),
 		AccountID:            walletAcctID,
-		Asset:                "USDC",
+		Asset:                testasset.USDC,
 		QuantityAcquired:     big.NewInt(5000),
 		QuantityRemaining:    big.NewInt(5000),
 		AcquiredAt:           time.Now().Add(-time.Hour),
@@ -299,7 +306,7 @@ func TestTaxLotHook_Swap_DisposalPlusAcquisition(t *testing.T) {
 	taxLotRepo := &mockTaxLotRepo{lots: []*TaxLot{existingLot}}
 	ledgerRepo := &mockLedgerRepo{accounts: map[uuid.UUID]*Account{
 		walletAcctID:   walletAcct,
-		clearingAcctID: {ID: clearingAcctID, Code: "clearing.swap", Type: AccountTypeClearing, AssetID: "USDC"},
+		clearingAcctID: {ID: clearingAcctID, Code: "clearing.swap", Type: AccountTypeClearing, AssetID: testasset.USDC},
 	}}
 
 	hook := NewTaxLotHook(taxLotRepo, ledgerRepo, newTestLogger())
@@ -309,11 +316,11 @@ func TestTaxLotHook_Swap_DisposalPlusAcquisition(t *testing.T) {
 		Type: TxTypeSwap,
 		Entries: []*Entry{
 			// Sold USDC
-			makeEntry(walletAcctID, Credit, EntryTypeAssetDecrease, 2000, "USDC", nil),
-			makeEntry(clearingAcctID, Debit, EntryTypeClearing, 2000, "USDC", nil),
+			makeEntry(walletAcctID, Credit, EntryTypeAssetDecrease, 2000, testasset.USDC, nil),
+			makeEntry(clearingAcctID, Debit, EntryTypeClearing, 2000, testasset.USDC, nil),
 			// Bought ETH
-			makeEntry(walletAcctID, Debit, EntryTypeAssetIncrease, 100, "ETH", nil),
-			makeEntry(clearingAcctID, Credit, EntryTypeClearing, 100, "ETH", nil),
+			makeEntry(walletAcctID, Debit, EntryTypeAssetIncrease, 100, testasset.ETH, nil),
+			makeEntry(clearingAcctID, Credit, EntryTypeClearing, 100, testasset.ETH, nil),
 		},
 	}
 
@@ -335,7 +342,7 @@ func TestTaxLotHook_Swap_DisposalPlusAcquisition(t *testing.T) {
 		t.Fatalf("expected 2 lots (1 existing + 1 new), got %d", len(taxLotRepo.lots))
 	}
 	newLot := taxLotRepo.lots[1]
-	if newLot.Asset != "ETH" {
+	if newLot.Asset != testasset.ETH {
 		t.Errorf("expected new lot asset ETH, got %s", newLot.Asset)
 	}
 	if newLot.AutoCostBasisSource != CostBasisSwapPrice {
@@ -352,7 +359,7 @@ func TestTaxLotHook_InternalTransfer_DisposalPlusLinkedLot(t *testing.T) {
 		ID:                   uuid.New(),
 		TransactionID:        uuid.New(),
 		AccountID:            srcWalletAcctID,
-		Asset:                "ETH",
+		Asset:                testasset.ETH,
 		QuantityAcquired:     big.NewInt(1000),
 		QuantityRemaining:    big.NewInt(1000),
 		AcquiredAt:           time.Now().Add(-time.Hour),
@@ -376,8 +383,8 @@ func TestTaxLotHook_InternalTransfer_DisposalPlusLinkedLot(t *testing.T) {
 		ID:   uuid.New(),
 		Type: TxTypeInternalTransfer,
 		Entries: []*Entry{
-			makeEntry(dstWalletAcctID, Debit, EntryTypeAssetIncrease, 500, "ETH", nil),
-			makeEntry(srcWalletAcctID, Credit, EntryTypeAssetDecrease, 500, "ETH", nil),
+			makeEntry(dstWalletAcctID, Debit, EntryTypeAssetIncrease, 500, testasset.ETH, nil),
+			makeEntry(srcWalletAcctID, Credit, EntryTypeAssetDecrease, 500, testasset.ETH, nil),
 		},
 	}
 
@@ -433,8 +440,8 @@ func TestTaxLotHook_NonWalletEntries_Skipped(t *testing.T) {
 		ID:   uuid.New(),
 		Type: TxTypeManualIncome,
 		Entries: []*Entry{
-			makeEntry(incomeAcctID, Credit, EntryTypeIncome, 500, "ETH", nil),
-			makeEntry(expenseAcctID, Debit, EntryTypeExpense, 500, "ETH", nil),
+			makeEntry(incomeAcctID, Credit, EntryTypeIncome, 500, testasset.ETH, nil),
+			makeEntry(expenseAcctID, Debit, EntryTypeExpense, 500, testasset.ETH, nil),
 		},
 	}
 
@@ -468,8 +475,8 @@ func TestTaxLotHook_InsufficientLots_WarnsButSucceeds(t *testing.T) {
 		ID:   uuid.New(),
 		Type: TxTypeTransferOut,
 		Entries: []*Entry{
-			makeEntry(expenseAcctID, Debit, EntryTypeExpense, 500, "ETH", nil),
-			makeEntry(walletAcctID, Credit, EntryTypeAssetDecrease, 500, "ETH", nil),
+			makeEntry(expenseAcctID, Debit, EntryTypeExpense, 500, testasset.ETH, nil),
+			makeEntry(walletAcctID, Credit, EntryTypeAssetDecrease, 500, testasset.ETH, nil),
 		},
 	}
 

@@ -58,6 +58,47 @@ func (c *captureLedger) FindBySourceExternalID(ctx context.Context, source, exte
 	return nil, nil
 }
 
+// portRegistry is an in-memory asset registry. Identity is a registry UUID
+// since #59, so the builder needs one for its legs to resolve to anything the
+// real lending handler will accept — uuid.Nil is rejected outright.
+//
+// It also remembers which UUID it minted per ticker, which is what lets these
+// tests keep asserting in the vocabulary the defect was described in ("only
+// cbBTC may be booked") while the entries themselves carry UUIDs.
+type portRegistry struct {
+	byKey    map[sync.AssetKey]*sync.RegistryAsset
+	bySymbol map[string]uuid.UUID
+}
+
+func newPortRegistry() *portRegistry {
+	return &portRegistry{
+		byKey:    map[sync.AssetKey]*sync.RegistryAsset{},
+		bySymbol: map[string]uuid.UUID{},
+	}
+}
+
+func (r *portRegistry) Resolve(ctx context.Context, key sync.AssetKey, symbol, name string, decimals int) (*sync.RegistryAsset, error) {
+	if a, ok := r.byKey[key]; ok {
+		return a, nil
+	}
+	a := &sync.RegistryAsset{ID: uuid.New(), Key: key, Symbol: symbol, Name: name, Decimals: decimals}
+	r.byKey[key] = a
+	r.bySymbol[symbol] = a.ID
+	return a, nil
+}
+
+// idOf returns the UUID minted for a ticker, failing the test if the ticker was
+// never resolved — which would silently turn an assertion into a comparison of
+// two zero UUIDs.
+func (r *portRegistry) idOf(t *testing.T, symbol string) uuid.UUID {
+	t.Helper()
+	id, ok := r.bySymbol[symbol]
+	require.True(t, ok, "expected %q to have been resolved; resolved: %v", symbol, r.bySymbol)
+	return id
+}
+
+var _ sync.AssetRegistry = (*portRegistry)(nil)
+
 // stubWalletRepo is the minimum the lending handler's ownership check and the
 // builder's internal-transfer detection need.
 type stubWalletRepo struct{ w *wallet.Wallet }
@@ -138,7 +179,7 @@ func accountCodesOf(entries []*ledger.Entry) []string {
 
 // runLendingSupplyFixture drives lending_supply.json end to end and returns the
 // entries the real lending handler produced.
-func runLendingSupplyFixture(t *testing.T) (ledger.TransactionType, []*ledger.Entry) {
+func runLendingSupplyFixture(t *testing.T) (ledger.TransactionType, []*ledger.Entry, *portRegistry) {
 	t.Helper()
 
 	ctx := context.Background()
@@ -152,7 +193,8 @@ func runLendingSupplyFixture(t *testing.T) (ledger.TransactionType, []*ledger.En
 	repo := &stubWalletRepo{w: w}
 	cap := &captureLedger{t: t, handler: lending.NewLendingSupplyHandler(repo, log)}
 
-	builder := sync.NewTxBuilder(repo, cap, nil, nil, log, nil, nil, nil, nil)
+	registry := newPortRegistry()
+	builder := sync.NewTxBuilder(repo, cap, nil, nil, log, nil, registry, nil)
 
 	// The REAL adapter converts the REAL fixture: nothing about the receipt is
 	// simulated by the test.
@@ -162,7 +204,7 @@ func runLendingSupplyFixture(t *testing.T) (ledger.TransactionType, []*ledger.En
 	require.NoError(t, err)
 
 	require.NotEmpty(t, cap.entries, "the supply must produce entries")
-	return cap.txType, cap.entries
+	return cap.txType, cap.entries, registry
 }
 
 // TestPort_LendingSupply_BooksPrincipalOnly is the acceptance test for the
@@ -173,7 +215,7 @@ func runLendingSupplyFixture(t *testing.T) (ledger.TransactionType, []*ledger.En
 // that actually left the wallet and one for the aBascbBTC receipt minted
 // against it — and the position read double.
 func TestPort_LendingSupply_BooksPrincipalOnly(t *testing.T) {
-	txType, entries := runLendingSupplyFixture(t)
+	txType, entries, registry := runLendingSupplyFixture(t)
 
 	assert.Equal(t, ledger.TxTypeLendingSupply, txType)
 
@@ -194,9 +236,10 @@ func TestPort_LendingSupply_BooksPrincipalOnly(t *testing.T) {
 	// the double-count this rule exists to remove: before the change the aToken
 	// produced a second, independently balanced pair for the same event.
 	require.Len(t, supply, 2, "one supply is one balanced pair, not two")
+	principal := registry.idOf(t, "cbBTC")
 	for _, e := range supply {
-		assert.Equal(t, "cbBTC", e.AssetID,
-			"only the principal may be booked; got an entry for %q", e.AssetID)
+		assert.Equal(t, principal, e.AssetID,
+			"only the principal (cbBTC) may be booked; got an entry for %q", e.AssetID)
 	}
 
 	debits, credits := 0, 0
@@ -212,8 +255,9 @@ func TestPort_LendingSupply_BooksPrincipalOnly(t *testing.T) {
 
 	// The gas pair is the native coin and nothing else — in particular it is
 	// not a receipt that slipped through under a different entry type.
+	gasAsset := registry.idOf(t, "ETH")
 	for _, e := range gas {
-		assert.Equal(t, "ETH", e.AssetID)
+		assert.Equal(t, gasAsset, e.AssetID)
 	}
 }
 
@@ -229,19 +273,32 @@ func TestPort_LendingSupply_BooksPrincipalOnly(t *testing.T) {
 // them: any account code mentioning the receipt ticker is a failure, whatever
 // its prefix.
 func TestPort_LendingSupply_ReceiptTickerInNoNamespace(t *testing.T) {
-	_, entries := runLendingSupplyFixture(t)
+	_, entries, registry := runLendingSupplyFixture(t)
 
 	codes := accountCodesOf(entries)
 	require.NotEmpty(t, codes, "entries must carry account codes")
 
-	// The receipt ticker from the fixture, plus the debt-token shape that the
-	// same rule removes.
+	// The receipt from the fixture, plus the debt-token shapes the same rule
+	// removes. Account codes name an asset by its registry UUID since #59, so a
+	// receipt is "absent" when the id it WOULD have been given appears nowhere —
+	// matching on the ticker string would now pass vacuously, because no ticker
+	// can appear in a code at all.
+	//
+	// Only tickers the registry actually saw can be checked this way; a receipt
+	// that never reached the registry is absent by the stronger fact that it was
+	// never resolved, which is asserted separately below.
 	forbidden := []string{"aBascbBTC", "aBasWETH", "variableDebt", "stableDebt"}
 
-	for _, code := range codes {
-		for _, bad := range forbidden {
-			assert.NotContains(t, code, bad,
-				"receipt ticker %q must not appear in any namespace; found in %q", bad, code)
+	for _, bad := range forbidden {
+		id, resolved := registry.bySymbol[bad]
+		if !resolved {
+			// Never resolved: the leg was dropped before it could acquire an
+			// identity, which is the outcome the rule exists to produce.
+			continue
+		}
+		for _, code := range codes {
+			assert.NotContains(t, code, id.String(),
+				"receipt %q (%s) must not appear in any namespace; found in %q", bad, id, code)
 		}
 	}
 
@@ -255,7 +312,8 @@ func TestPort_LendingSupply_ReceiptTickerInNoNamespace(t *testing.T) {
 	// Positive control: the principal IS booked, so the assertions above are
 	// not passing merely because nothing was produced.
 	joined := strings.Join(codes, " ")
-	assert.Contains(t, joined, "cbBTC", "the principal must still be booked somewhere")
+	assert.Contains(t, joined, registry.idOf(t, "cbBTC").String(),
+		"the principal must still be booked somewhere")
 }
 
 // TestPort_RewardsReceived_StaysAPosition pins the other side of the boundary

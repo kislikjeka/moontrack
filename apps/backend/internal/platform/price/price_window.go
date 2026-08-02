@@ -1,4 +1,4 @@
-package asset
+package price
 
 import "time"
 

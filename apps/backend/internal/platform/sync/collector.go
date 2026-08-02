@@ -13,12 +13,18 @@ import (
 	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
-// Collector handles Phase 1: collecting raw transactions from the sync provider
+// Collector handles Phase 1: collecting raw transactions from the sync provider.
+//
+// It records NO asset metadata. Until #59 it also upserted every leg into
+// chain_assets, a store keyed on (symbol, chain_id) whose upsert overwrote
+// decimals on every sighting. That table is gone; identity is now recorded once,
+// in the processing phase, by resolveAssetIdentities against the registry —
+// where the key is (chain, contract) and metadata is written only on creation.
+// Collecting is again purely about getting raw transactions durable.
 type Collector struct {
 	txProvider TransactionDataProvider
 	rawTxRepo  RawTransactionRepository
 	walletRepo WalletRepository
-	assetRepo  SyncAssetRepository
 	config     *Config
 	logger     *logger.Logger
 }
@@ -28,7 +34,6 @@ func NewCollector(
 	txProvider TransactionDataProvider,
 	rawTxRepo RawTransactionRepository,
 	walletRepo WalletRepository,
-	assetRepo SyncAssetRepository,
 	config *Config,
 	log *logger.Logger,
 ) *Collector {
@@ -36,7 +41,6 @@ func NewCollector(
 		txProvider: txProvider,
 		rawTxRepo:  rawTxRepo,
 		walletRepo: walletRepo,
-		assetRepo:  assetRepo,
 		config:     config,
 		logger:     log.WithField("component", "collector"),
 	}
@@ -168,8 +172,6 @@ func (c *Collector) collectChain(
 	contiguous := true
 
 	onPage := func(page []DecodedTransaction) error {
-		// Extract asset metadata for the page before storing its raw txs.
-		c.extractAssets(ctx, page)
 		fetched += len(page)
 
 		pageStored, highWater, pageContiguous := c.storeAscending(ctx, w, chain, page)
@@ -285,72 +287,6 @@ func (c *Collector) storeAscending(
 	}
 
 	return stored, highWater, contiguous
-}
-
-// extractAssets iterates over decoded transactions and upserts asset metadata
-// into the chain_assets table. Deduplicates by symbol:chain within the batch.
-func (c *Collector) extractAssets(ctx context.Context, txs []DecodedTransaction) {
-	if c.assetRepo == nil {
-		return
-	}
-
-	type assetKey struct {
-		symbol  string
-		chainID string
-	}
-	seen := make(map[assetKey]bool)
-
-	for _, dt := range txs {
-		for _, t := range dt.Transfers {
-			if t.AssetSymbol == "" {
-				continue
-			}
-			key := assetKey{t.AssetSymbol, dt.ChainID}
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-
-			if err := c.assetRepo.Upsert(ctx, &SyncAsset{
-				Symbol:  t.AssetSymbol,
-				Name:    t.AssetName,
-				ChainID: dt.ChainID,
-				// The legacy store keeps its own spelling of native — the empty
-				// string its column defaults to. The sentinel belongs to the new
-				// (chain, contract) registry; writing it here would change the
-				// format of a live legacy column that this phase is meant to
-				// leave alone (#56), and chain_assets is keyed on
-				// (symbol, chain_id) anyway, so its contract is metadata only.
-				ContractAddress: legacyContractAddress(t.ContractAddress),
-				Decimals:        t.Decimals,
-				IconURL:         t.IconURL,
-			}); err != nil {
-				c.logger.Warn("failed to upsert sync asset",
-					"symbol", t.AssetSymbol,
-					"chain_id", dt.ChainID,
-					"error", err)
-			}
-		}
-
-		if dt.Fee != nil && dt.Fee.AssetSymbol != "" {
-			key := assetKey{dt.Fee.AssetSymbol, dt.ChainID}
-			if !seen[key] {
-				seen[key] = true
-				if err := c.assetRepo.Upsert(ctx, &SyncAsset{
-					Symbol:   dt.Fee.AssetSymbol,
-					Name:     dt.Fee.AssetName,
-					ChainID:  dt.ChainID,
-					Decimals: dt.Fee.Decimals,
-					IconURL:  dt.Fee.IconURL,
-				}); err != nil {
-					c.logger.Warn("failed to upsert sync asset (fee)",
-						"symbol", dt.Fee.AssetSymbol,
-						"chain_id", dt.ChainID,
-						"error", err)
-				}
-			}
-		}
-	}
 }
 
 // decodedTxToRawTx converts a DecodedTransaction to a RawTransaction for storage

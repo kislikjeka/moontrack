@@ -46,6 +46,8 @@ func TestLedgerRepository_Precision_MaxValue(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetBTC := seedAssetTicker(t, "BTC")
+
 	repo := NewLedgerRepository(testDB.Pool)
 	userID := createPrecisionTestUser(t, ctx)
 	walletID := createPrecisionTestWallet(t, ctx, userID)
@@ -60,7 +62,7 @@ func TestLedgerRepository_Precision_MaxValue(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".BTC",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  map[string]interface{}{},
@@ -70,7 +72,7 @@ func TestLedgerRepository_Precision_MaxValue(t *testing.T) {
 	// Create balance with max value
 	balance := &ledger.AccountBalance{
 		AccountID:   account.ID,
-		AssetID:     "BTC",
+		AssetID:     assetBTC,
 		Balance:     new(big.Int).Set(maxValue),
 		USDValue:    big.NewInt(0),
 		LastUpdated: time.Now(),
@@ -78,7 +80,7 @@ func TestLedgerRepository_Precision_MaxValue(t *testing.T) {
 	require.NoError(t, repo.UpsertAccountBalance(ctx, balance))
 
 	// Retrieve and verify
-	retrieved, err := repo.GetAccountBalance(ctx, account.ID, "BTC")
+	retrieved, err := repo.GetAccountBalance(ctx, account.ID, assetBTC)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, retrieved.Balance.Cmp(maxValue),
@@ -91,6 +93,8 @@ func TestLedgerRepository_Precision_MaxValue(t *testing.T) {
 func TestLedgerRepository_Precision_LargeValue(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+
+	assetETH := seedAssetTicker(t, "ETH")
 
 	repo := NewLedgerRepository(testDB.Pool)
 	userID := createPrecisionTestUser(t, ctx)
@@ -105,7 +109,7 @@ func TestLedgerRepository_Precision_LargeValue(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".ETH",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "ETH",
+		AssetID:   assetETH,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  map[string]interface{}{},
@@ -115,7 +119,7 @@ func TestLedgerRepository_Precision_LargeValue(t *testing.T) {
 	// Create balance
 	balance := &ledger.AccountBalance{
 		AccountID:   account.ID,
-		AssetID:     "ETH",
+		AssetID:     assetETH,
 		Balance:     new(big.Int).Set(largeValue),
 		USDValue:    big.NewInt(0),
 		LastUpdated: time.Now(),
@@ -123,7 +127,7 @@ func TestLedgerRepository_Precision_LargeValue(t *testing.T) {
 	require.NoError(t, repo.UpsertAccountBalance(ctx, balance))
 
 	// Retrieve and verify
-	retrieved, err := repo.GetAccountBalance(ctx, account.ID, "ETH")
+	retrieved, err := repo.GetAccountBalance(ctx, account.ID, assetETH)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, retrieved.Balance.Cmp(largeValue),
@@ -136,6 +140,8 @@ func TestLedgerRepository_Precision_LargeValue(t *testing.T) {
 func TestLedgerRepository_Precision_RoundTrip_256bit(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+
+	assetWETH := seedAssetTicker(t, "WETH")
 
 	repo := NewLedgerRepository(testDB.Pool)
 	userID := createPrecisionTestUser(t, ctx)
@@ -152,7 +158,7 @@ func TestLedgerRepository_Precision_RoundTrip_256bit(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".WETH",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "WETH",
+		AssetID:   assetWETH,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  map[string]interface{}{},
@@ -162,7 +168,7 @@ func TestLedgerRepository_Precision_RoundTrip_256bit(t *testing.T) {
 	// Create balance
 	balance := &ledger.AccountBalance{
 		AccountID:   account.ID,
-		AssetID:     "WETH",
+		AssetID:     assetWETH,
 		Balance:     new(big.Int).Set(maxUint256),
 		USDValue:    big.NewInt(0),
 		LastUpdated: time.Now(),
@@ -170,7 +176,7 @@ func TestLedgerRepository_Precision_RoundTrip_256bit(t *testing.T) {
 	require.NoError(t, repo.UpsertAccountBalance(ctx, balance))
 
 	// Retrieve and verify
-	retrieved, err := repo.GetAccountBalance(ctx, account.ID, "WETH")
+	retrieved, err := repo.GetAccountBalance(ctx, account.ID, assetWETH)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, retrieved.Balance.Cmp(maxUint256),
@@ -182,6 +188,8 @@ func TestLedgerRepository_Precision_RoundTrip_256bit(t *testing.T) {
 func TestLedgerRepository_Precision_EntryAmount(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+
+	assetETH := seedAssetTicker(t, "ETH")
 
 	repo := NewLedgerRepository(testDB.Pool)
 	userID := createPrecisionTestUser(t, ctx)
@@ -197,7 +205,7 @@ func TestLedgerRepository_Precision_EntryAmount(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".ETH",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "ETH",
+		AssetID:   assetETH,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  map[string]interface{}{},
@@ -208,7 +216,7 @@ func TestLedgerRepository_Precision_EntryAmount(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "income.ETH",
 		Type:      ledger.AccountTypeIncome,
-		AssetID:   "ETH",
+		AssetID:   assetETH,
 		CreatedAt: time.Now(),
 		Metadata:  map[string]interface{}{},
 	}
@@ -236,7 +244,7 @@ func TestLedgerRepository_Precision_EntryAmount(t *testing.T) {
 				DebitCredit:   ledger.Debit,
 				EntryType:     ledger.EntryTypeAssetIncrease,
 				Amount:        new(big.Int).Set(largeAmount),
-				AssetID:       "ETH",
+				AssetID:       assetETH,
 				USDRate:       big.NewInt(200000000000), // $2000 * 10^8
 				USDValue:      big.NewInt(0),
 				OccurredAt:    now.Add(-time.Hour),
@@ -250,7 +258,7 @@ func TestLedgerRepository_Precision_EntryAmount(t *testing.T) {
 				DebitCredit:   ledger.Credit,
 				EntryType:     ledger.EntryTypeIncome,
 				Amount:        new(big.Int).Set(largeAmount),
-				AssetID:       "ETH",
+				AssetID:       assetETH,
 				USDRate:       big.NewInt(200000000000),
 				USDValue:      big.NewInt(0),
 				OccurredAt:    now.Add(-time.Hour),
@@ -279,6 +287,8 @@ func TestLedgerRepository_USD_LargeRates(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetRARE := seedAssetTicker(t, "RARE")
+
 	repo := NewLedgerRepository(testDB.Pool)
 	userID := createPrecisionTestUser(t, ctx)
 	walletID := createPrecisionTestWallet(t, ctx, userID)
@@ -293,7 +303,7 @@ func TestLedgerRepository_USD_LargeRates(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".RARE",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "RARE",
+		AssetID:   assetRARE,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  map[string]interface{}{},
@@ -304,7 +314,7 @@ func TestLedgerRepository_USD_LargeRates(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "income.RARE",
 		Type:      ledger.AccountTypeIncome,
-		AssetID:   "RARE",
+		AssetID:   assetRARE,
 		CreatedAt: time.Now(),
 		Metadata:  map[string]interface{}{},
 	}
@@ -339,7 +349,7 @@ func TestLedgerRepository_USD_LargeRates(t *testing.T) {
 				DebitCredit:   ledger.Debit,
 				EntryType:     ledger.EntryTypeAssetIncrease,
 				Amount:        amount,
-				AssetID:       "RARE",
+				AssetID:       assetRARE,
 				USDRate:       new(big.Int).Set(largeRate),
 				USDValue:      new(big.Int).Set(usdValue),
 				OccurredAt:    now.Add(-time.Hour),
@@ -353,7 +363,7 @@ func TestLedgerRepository_USD_LargeRates(t *testing.T) {
 				DebitCredit:   ledger.Credit,
 				EntryType:     ledger.EntryTypeIncome,
 				Amount:        amount,
-				AssetID:       "RARE",
+				AssetID:       assetRARE,
 				USDRate:       new(big.Int).Set(largeRate),
 				USDValue:      new(big.Int).Set(usdValue),
 				OccurredAt:    now.Add(-time.Hour),
@@ -385,6 +395,8 @@ func TestLedgerRepository_USD_SmallAmounts(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetETH := seedAssetTicker(t, "ETH")
+
 	repo := NewLedgerRepository(testDB.Pool)
 	userID := createPrecisionTestUser(t, ctx)
 	walletID := createPrecisionTestWallet(t, ctx, userID)
@@ -405,7 +417,7 @@ func TestLedgerRepository_USD_SmallAmounts(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".ETH",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "ETH",
+		AssetID:   assetETH,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  map[string]interface{}{},
@@ -416,7 +428,7 @@ func TestLedgerRepository_USD_SmallAmounts(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "income.ETH",
 		Type:      ledger.AccountTypeIncome,
-		AssetID:   "ETH",
+		AssetID:   assetETH,
 		CreatedAt: time.Now(),
 		Metadata:  map[string]interface{}{},
 	}
@@ -443,7 +455,7 @@ func TestLedgerRepository_USD_SmallAmounts(t *testing.T) {
 				DebitCredit:   ledger.Debit,
 				EntryType:     ledger.EntryTypeAssetIncrease,
 				Amount:        new(big.Int).Set(smallAmount),
-				AssetID:       "ETH",
+				AssetID:       assetETH,
 				USDRate:       new(big.Int).Set(rate),
 				USDValue:      new(big.Int).Set(usdValue),
 				OccurredAt:    now.Add(-time.Hour),
@@ -457,7 +469,7 @@ func TestLedgerRepository_USD_SmallAmounts(t *testing.T) {
 				DebitCredit:   ledger.Credit,
 				EntryType:     ledger.EntryTypeIncome,
 				Amount:        new(big.Int).Set(smallAmount),
-				AssetID:       "ETH",
+				AssetID:       assetETH,
 				USDRate:       new(big.Int).Set(rate),
 				USDValue:      new(big.Int).Set(usdValue),
 				OccurredAt:    now.Add(-time.Hour),
@@ -487,6 +499,8 @@ func TestLedgerRepository_Precision_CalculateBalanceFromEntries(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
 
+	assetBTC := seedAssetTicker(t, "BTC")
+
 	repo := NewLedgerRepository(testDB.Pool)
 	userID := createPrecisionTestUser(t, ctx)
 	walletID := createPrecisionTestWallet(t, ctx, userID)
@@ -500,7 +514,7 @@ func TestLedgerRepository_Precision_CalculateBalanceFromEntries(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".BTC",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  map[string]interface{}{},
@@ -511,7 +525,7 @@ func TestLedgerRepository_Precision_CalculateBalanceFromEntries(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "income.BTC",
 		Type:      ledger.AccountTypeIncome,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		CreatedAt: time.Now(),
 		Metadata:  map[string]interface{}{},
 	}
@@ -543,7 +557,7 @@ func TestLedgerRepository_Precision_CalculateBalanceFromEntries(t *testing.T) {
 					DebitCredit:   ledger.Debit,
 					EntryType:     ledger.EntryTypeAssetIncrease,
 					Amount:        new(big.Int).Set(amount),
-					AssetID:       "BTC",
+					AssetID:       assetBTC,
 					USDRate:       big.NewInt(5000000000000),
 					USDValue:      big.NewInt(0),
 					OccurredAt:    now.Add(-time.Duration(numTransactions-i) * time.Hour),
@@ -557,7 +571,7 @@ func TestLedgerRepository_Precision_CalculateBalanceFromEntries(t *testing.T) {
 					DebitCredit:   ledger.Credit,
 					EntryType:     ledger.EntryTypeIncome,
 					Amount:        new(big.Int).Set(amount),
-					AssetID:       "BTC",
+					AssetID:       assetBTC,
 					USDRate:       big.NewInt(5000000000000),
 					USDValue:      big.NewInt(0),
 					OccurredAt:    now.Add(-time.Duration(numTransactions-i) * time.Hour),
@@ -572,7 +586,7 @@ func TestLedgerRepository_Precision_CalculateBalanceFromEntries(t *testing.T) {
 	}
 
 	// Calculate balance from entries
-	calculated, err := repo.CalculateBalanceFromEntries(ctx, account.ID, "BTC")
+	calculated, err := repo.CalculateBalanceFromEntries(ctx, account.ID, assetBTC)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, calculated.Cmp(expectedTotal),
@@ -585,6 +599,8 @@ func TestLedgerRepository_Precision_CalculateBalanceFromEntries(t *testing.T) {
 func TestLedgerRepository_Precision_AdditionOverflow(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+
+	assetBTC := seedAssetTicker(t, "BTC")
 
 	repo := NewLedgerRepository(testDB.Pool)
 	userID := createPrecisionTestUser(t, ctx)
@@ -599,7 +615,7 @@ func TestLedgerRepository_Precision_AdditionOverflow(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".BTC",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  map[string]interface{}{},
@@ -609,7 +625,7 @@ func TestLedgerRepository_Precision_AdditionOverflow(t *testing.T) {
 	// Create initial balance
 	balance := &ledger.AccountBalance{
 		AccountID:   account.ID,
-		AssetID:     "BTC",
+		AssetID:     assetBTC,
 		Balance:     new(big.Int).Set(halfMax),
 		USDValue:    big.NewInt(0),
 		LastUpdated: time.Now(),
@@ -622,7 +638,7 @@ func TestLedgerRepository_Precision_AdditionOverflow(t *testing.T) {
 	require.NoError(t, repo.UpsertAccountBalance(ctx, balance))
 
 	// Retrieve and verify
-	retrieved, err := repo.GetAccountBalance(ctx, account.ID, "BTC")
+	retrieved, err := repo.GetAccountBalance(ctx, account.ID, assetBTC)
 	require.NoError(t, err)
 
 	expected := new(big.Int).Mul(halfMax, big.NewInt(2))
@@ -635,6 +651,8 @@ func TestLedgerRepository_Precision_AdditionOverflow(t *testing.T) {
 func TestLedgerRepository_Precision_SpecificBitcoinAmount(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+
+	assetBTC := seedAssetTicker(t, "BTC")
 
 	repo := NewLedgerRepository(testDB.Pool)
 	userID := createPrecisionTestUser(t, ctx)
@@ -650,7 +668,7 @@ func TestLedgerRepository_Precision_SpecificBitcoinAmount(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".BTC",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "BTC",
+		AssetID:   assetBTC,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  map[string]interface{}{},
@@ -660,7 +678,7 @@ func TestLedgerRepository_Precision_SpecificBitcoinAmount(t *testing.T) {
 	// Create balance with max Bitcoin supply
 	balance := &ledger.AccountBalance{
 		AccountID:   account.ID,
-		AssetID:     "BTC",
+		AssetID:     assetBTC,
 		Balance:     new(big.Int).Set(maxBitcoinInSatoshi),
 		USDValue:    big.NewInt(0),
 		LastUpdated: time.Now(),
@@ -668,7 +686,7 @@ func TestLedgerRepository_Precision_SpecificBitcoinAmount(t *testing.T) {
 	require.NoError(t, repo.UpsertAccountBalance(ctx, balance))
 
 	// Retrieve and verify
-	retrieved, err := repo.GetAccountBalance(ctx, account.ID, "BTC")
+	retrieved, err := repo.GetAccountBalance(ctx, account.ID, assetBTC)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, retrieved.Balance.Cmp(maxBitcoinInSatoshi),
@@ -680,6 +698,8 @@ func TestLedgerRepository_Precision_SpecificBitcoinAmount(t *testing.T) {
 func TestLedgerRepository_Precision_SpecificEthereumAmount(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+
+	assetETH := seedAssetTicker(t, "ETH")
 
 	repo := NewLedgerRepository(testDB.Pool)
 	userID := createPrecisionTestUser(t, ctx)
@@ -695,7 +715,7 @@ func TestLedgerRepository_Precision_SpecificEthereumAmount(t *testing.T) {
 		ID:        uuid.New(),
 		Code:      "wallet." + walletID.String() + ".ETH",
 		Type:      ledger.AccountTypeCryptoWallet,
-		AssetID:   "ETH",
+		AssetID:   assetETH,
 		WalletID:  &walletID,
 		CreatedAt: time.Now(),
 		Metadata:  map[string]interface{}{},
@@ -705,7 +725,7 @@ func TestLedgerRepository_Precision_SpecificEthereumAmount(t *testing.T) {
 	// Create balance with large ETH amount
 	balance := &ledger.AccountBalance{
 		AccountID:   account.ID,
-		AssetID:     "ETH",
+		AssetID:     assetETH,
 		Balance:     new(big.Int).Set(maxEthInWei),
 		USDValue:    big.NewInt(0),
 		LastUpdated: time.Now(),
@@ -713,7 +733,7 @@ func TestLedgerRepository_Precision_SpecificEthereumAmount(t *testing.T) {
 	require.NoError(t, repo.UpsertAccountBalance(ctx, balance))
 
 	// Retrieve and verify
-	retrieved, err := repo.GetAccountBalance(ctx, account.ID, "ETH")
+	retrieved, err := repo.GetAccountBalance(ctx, account.ID, assetETH)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, retrieved.Balance.Cmp(maxEthInWei),

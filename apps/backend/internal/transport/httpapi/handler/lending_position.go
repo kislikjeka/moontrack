@@ -31,15 +31,17 @@ func NewLendingPositionHandler(svc LendingPositionServiceInterface) *LendingPosi
 
 // LendingPositionAssetResponse represents a lending position asset in the API response
 type LendingPositionAssetResponse struct {
-	ID       string `json:"id"`
-	Side     string `json:"side"`
-	Asset    string `json:"asset"`
-	Amount   string `json:"amount"`
-	Decimals int    `json:"decimals"`
-	Contract string `json:"contract,omitempty"`
+	ID   string `json:"id"`
+	Side string `json:"side"`
+	// AssetID is the asset_registry id (#59). Decimals and contract were
+	// denormalized copies of registry columns and are gone with them; the ticker
+	// is likewise a registry attribute. Resolving the id to those for the API
+	// response is #42's work.
+	AssetID string `json:"asset_id"`
+	Amount  string `json:"amount"`
 
-	TotalIn    string `json:"total_in"`
-	TotalOut   string `json:"total_out"`
+	TotalIn     string `json:"total_in"`
+	TotalOut    string `json:"total_out"`
 	TotalInUSD  string `json:"total_in_usd"`
 	TotalOutUSD string `json:"total_out_usd"`
 }
@@ -137,10 +139,8 @@ func toLendingPositionResponse(pos *lendingposition.LendingPosition) LendingPosi
 		assets[i] = LendingPositionAssetResponse{
 			ID:          a.ID.String(),
 			Side:        a.Side,
-			Asset:       a.Asset,
+			AssetID:     a.Asset.String(),
 			Amount:      bigIntStr(a.Amount),
-			Decimals:    a.Decimals,
-			Contract:    a.Contract,
 			TotalIn:     bigIntStr(a.TotalIn),
 			TotalOut:    bigIntStr(a.TotalOut),
 			TotalInUSD:  money.FormatUSD(a.TotalInUSD),

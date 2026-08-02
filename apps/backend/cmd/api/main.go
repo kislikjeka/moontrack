@@ -27,7 +27,6 @@ import (
 	"github.com/kislikjeka/moontrack/internal/module/swap"
 	"github.com/kislikjeka/moontrack/internal/module/transactions"
 	"github.com/kislikjeka/moontrack/internal/module/transfer"
-	"github.com/kislikjeka/moontrack/internal/platform/asset"
 	"github.com/kislikjeka/moontrack/internal/platform/lendingposition"
 	"github.com/kislikjeka/moontrack/internal/platform/lpposition"
 	"github.com/kislikjeka/moontrack/internal/platform/price"
@@ -95,16 +94,44 @@ func main() {
 	}
 	log.Info("Redis connection established")
 
-	// Initialize pricing components
+	// Initialize pricing components.
+	//
+	// The asset.Service that used to sit here is gone with the `assets` table
+	// (#59). It was the symbol-keyed asset registry plus a price cache in front
+	// of CoinGecko; identity now lives in asset_registry, and the surfaces that
+	// only ever wanted a spot price talk to the CoinGecko client directly.
 	coinGeckoClient := coingecko.NewClient(cfg.CoinGeckoAPIKey, log)
-	priceCache := infraRedis.NewCache(redisClient, log)
-
-	// Initialize Asset components (unified asset + price service)
-	assetRepo := postgres.NewAssetRepository(db.Pool)
 	priceHistoryRepo := postgres.NewPriceRepository(db.Pool)
-	priceProvider := coingecko.NewPriceProviderAdapter(coinGeckoClient)
-	assetSvc := asset.NewService(assetRepo, priceHistoryRepo, priceCache, priceProvider, log)
-	log.Info("Asset service initialized")
+
+	// The asset registry, keyed on (chain, contract) (#56), is now the ONE store
+	// of asset identity (#59). It is constructed here rather than inside the sync
+	// block it used to live in: sync resolves identities into it, but the price
+	// backfill worker and the manual-transaction endpoint read out of it, and
+	// those run whether or not blockchain sync is configured.
+	assetRegistryRepo := postgres.NewAssetRegistryRepository(db.Pool)
+
+	// The priority-ordered reader over price_history. It is the ONE read path
+	// for recorded prices after #59: the /assets price endpoints used to read
+	// through asset.Service's cache-then-CoinGecko cascade, which could answer
+	// with a live quote that was never recorded, so the price the UI showed and
+	// the price the ledger costed against came from different places.
+	//
+	// Priority is most-preferred-first. The provider entries mirror the order
+	// the backfill worker resolves in, so a reader and a writer disagreeing
+	// about which source wins is not possible.
+	//
+	// Manual ranks FIRST. Nothing writes a manual row to price_history today —
+	// user overrides live on the tax lot, set through /lots/{id}/manual-price —
+	// but a human's stated price must outrank a provider's guess the moment one
+	// does, and a priority list is read top-down: an entry that is wrong only
+	// when it is used is far cheaper to get right now than to discover later.
+	priceReader := postgres.NewPriceReader(db.Pool, []price.Source{
+		price.SourceManual,
+		price.SourceCoinGecko,
+		price.SourceDefiLlama,
+		price.SourceGeckoTerminal,
+		price.SourceZerion,
+	})
 
 	// Initialize repositories
 	userRepo := postgres.NewUserRepository(db.Pool)
@@ -127,7 +154,10 @@ func main() {
 	log.Info("TaxLot hook registered")
 
 	// Initialize tax lot service (cost basis API)
-	taxLotSvc := taxlot.NewService(taxLotRepo, ledgerRepo, walletRepo, log)
+	// assetRegistryRepo supplies decimals keyed on the lot's registry id, which
+	// is what realized-PnL arithmetic needs now that a lot names its asset by
+	// UUID (#59).
+	taxLotSvc := taxlot.NewService(taxLotRepo, ledgerRepo, walletRepo, assetRegistryRepo, log)
 
 	// Register transaction handlers with the registry
 
@@ -212,18 +242,24 @@ func main() {
 	lendingPositionSvc := lendingposition.NewService(lendingPositionRepo, log)
 	log.Info("Lending Position service initialized")
 
-	// Initialize decimal resolver (cascading: assets table → sync asset store → hardcoded)
-	syncAssetRepo := postgres.NewSyncAssetRepository(db.Pool)
-	assetDecimalSrc := asset.NewDecimalSource(assetRepo)
-	syncDecimalSrc := sync.NewDecimalSource(syncAssetRepo)
-	decimalResolver := money.NewDecimalResolver(assetDecimalSrc, syncDecimalSrc)
+	// Initialize decimal resolver (asset_registry → hardcoded fallback).
+	//
+	// This was a two-source cascade over `assets` then `chain_assets` (#59). Both
+	// tables are gone and, with them, the disagreement the cascade existed to
+	// arbitrate: decimals now live in exactly one place.
+	registryDecimalSrc := postgres.NewRegistryDecimalSource(db.Pool)
+	decimalResolver := money.NewDecimalResolver(registryDecimalSrc)
 	log.Info("Decimal resolver initialized")
 
 	// Initialize portfolio service (using price adapter for symbol→CoinGecko resolution)
 	walletAdapter := portfolio.NewWalletRepositoryAdapter(walletRepo)
-	portfolioPriceAdapter := portfolio.NewPortfolioPriceAdapter(assetSvc)
+	portfolioPriceAdapter := portfolio.NewPortfolioPriceAdapter(coinGeckoClient)
 	wacAdapter := portfolio.NewWACAdapter(taxLotSvc)
+	// The registry lookup gives every holding its display ticker and its scale
+	// from one registry row (#59) — the ledger balance itself carries only a UUID.
+	portfolioAssetLookup := portfolio.NewAssetRegistryLookup(assetRegistryRepo)
 	portfolioSvc := portfolio.NewPortfolioService(ledgerRepo, walletAdapter, portfolioPriceAdapter, wacAdapter, decimalResolver).
+		WithAssetLookup(portfolioAssetLookup).
 		WithLotStatusCounter(taxLotRepo)
 	log.Info("Portfolio service initialized")
 
@@ -240,7 +276,6 @@ func main() {
 			InitialSyncLookback: 0, // fetch all available history
 			Enabled:             true,
 		}
-		syncAssetAdapter := sync.NewSyncAssetAdapter(assetSvc)
 
 		// The Noves adapter implements both provider ports: decoded transactions
 		// (TransactionDataProvider) and on-chain balances (PositionDataProvider).
@@ -251,12 +286,6 @@ func main() {
 		rawTxRepo := postgres.NewRawTransactionRepository(db.Pool)
 
 		priceBackfillJobRepo := postgres.NewPriceBackfillJobRepository(db.Pool)
-
-		// The asset registry, keyed on (chain, contract) (issue #56). It runs
-		// alongside the legacy assets / chain_assets stores during the expand
-		// phase: sync resolves every leg's identity into it, while the ledger
-		// still addresses assets by symbol.
-		assetRegistryRepo := postgres.NewAssetRegistryRepository(db.Pool)
 
 		// The known-asset filter (issue #58): an asset that is not known does
 		// not enter the ledger at all. Three levels, in order — the compiled-in
@@ -270,7 +299,7 @@ func main() {
 		knownnessRepo := postgres.NewAssetKnownnessRepository(db.Pool)
 		knownFilter := sync.NewKnownAssetFilter(knownnessRepo)
 
-		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, novesAdapter, novesAdapter, rawTxRepo, syncAssetRepo, lpPositionSvc, lendingPositionSvc, assetSvc, priceBackfillJobRepo, assetRegistryRepo, knownFilter)
+		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, log, novesAdapter, novesAdapter, rawTxRepo, lpPositionSvc, lendingPositionSvc, priceBackfillJobRepo, assetRegistryRepo, knownFilter)
 		log.Info("Sync service initialized",
 			"poll_interval", cfg.SyncPollInterval,
 			"provider", "noves",
@@ -322,12 +351,15 @@ func main() {
 		walletSyncSvc = syncSvc
 	}
 	walletHandler := handler.NewWalletHandler(walletSvc, walletSyncSvc)
-	transactionHandler := handler.NewTransactionHandler(ledgerSvc, transactionSvc, assetSvc)
+	transactionHandler := handler.NewTransactionHandler(ledgerSvc, transactionSvc, assetRegistryRepo)
 	portfolioHandler := handler.NewPortfolioHandler(portfolioSvc)
-	assetHandler := handler.NewAssetHandler(assetSvc)
-	taxLotHandler := handler.NewTaxLotHandler(taxLotSvc, decimalResolver)
-	lotsSvc := lots.NewService(taxLotRepo, ledgerRepo, walletRepo, assetSvc, log)
+	taxLotHandler := handler.NewTaxLotHandler(taxLotSvc, assetRegistryRepo, decimalResolver)
+	lotsSvc := lots.NewService(taxLotRepo, ledgerRepo, walletRepo, log)
 	lotsHandler := lots.NewHandler(lotsSvc)
+	// The /assets endpoints, re-pointed at the registry (#59). They are
+	// user-facing and out of scope for the identity cutover; the shape of what
+	// they return is #42's to settle.
+	assetHandler := handler.NewAssetHandler(assetRegistryRepo, priceReader)
 	lpPositionHTTPHandler := handler.NewLPPositionHandler(lpPositionSvc)
 	lendingPositionHTTPHandler := handler.NewLendingPositionHandler(lendingPositionSvc)
 	docsHandler := handler.NewDocsHandler(openAPISpec)
@@ -427,7 +459,7 @@ func main() {
 		// burned an attempt on every job, pushing lots toward terminal
 		// "unpriceable". DeFi-token coverage is DefiLlama's job (#39).
 		providers := []price.Provider{
-			price.NewCoinGeckoProvider(assetSvc),
+			price.NewCoinGeckoProvider(coinGeckoClient),
 			price.NewDefiLlamaProvider(dlClient),
 		}
 		resolver := price.NewResolver(providers, priceHistCache, log)
@@ -438,7 +470,7 @@ func main() {
 		backfillWorker := price.NewBackfillWorker(price.WorkerDeps{
 			Jobs:          priceBackfillJobRepo,
 			Resolver:      resolver,
-			AssetLookup:   assetSvc,
+			AssetLookup:   assetRegistryRepo,
 			PriceRecorder: priceHistoryRepo,
 			OnResolved:    price.OnPriceResolvedFunc(resolvedHook),
 			Logger:        log,
@@ -463,20 +495,20 @@ func main() {
 		)
 	}
 
-	// Start background price refresh job using Asset PriceUpdater
-	priceUpdater := asset.NewPriceUpdater(
-		assetRepo,
-		priceHistoryRepo,
-		priceCache,
-		priceProvider,
-		&asset.PriceUpdaterConfig{
-			Interval:  5 * time.Minute,
-			BatchSize: 50,
-			Logger:    log,
-		},
-	)
-	go priceUpdater.Run(ctx)
-	log.Info("Price updater started (5 minute interval)")
+	// The background PriceUpdater is gone with the `assets` table (#59).
+	//
+	// It swept assets.GetActiveAssets() every 5 minutes and wrote a spot point
+	// per asset. Both halves died with the table: there is no "active assets"
+	// set in asset_registry (a row is an identity someone actually held, not a
+	// catalogue entry with an is_active flag), and the rows it produced were
+	// SPOT points, which price_window.go already refuses to answer historical
+	// lookups with — GranularitySpot has a zero-width tolerance window precisely
+	// so a stale "now" price can never stand in for a point-in-time one.
+	//
+	// What that leaves is the backfill worker above, which prices the exact
+	// (asset, moment) pairs the ledger actually asks about, keyed on the registry
+	// UUID. Reinstating a catalogue-wide sweep belongs with the API contract work
+	// (#42), which is what decides which registry rows are worth polling.
 
 	// Start blockchain sync service (if initialized)
 	if syncSvc != nil {

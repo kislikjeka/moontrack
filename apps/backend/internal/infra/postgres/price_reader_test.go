@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/kislikjeka/moontrack/internal/platform/asset"
 	"github.com/kislikjeka/moontrack/internal/platform/price"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,13 +27,13 @@ func seedPrice(t *testing.T, assetID uuid.UUID, ts time.Time, valueScaled int64,
 	t.Helper()
 	ctx := context.Background()
 	repo := NewPriceRepository(testDB.Pool)
-	pp := &asset.PricePoint{
+	pp := &price.PricePoint{
 		AssetID:  assetID,
 		Time:     ts,
 		PriceUSD: big.NewInt(valueScaled),
-		Source:   asset.PriceSource(src),
+		Source:   src,
 	}
-	require.NoError(t, repo.RecordPrice(ctx, pp))
+	require.NoError(t, repo.RecordPricePoint(ctx, pp))
 }
 
 // TestPriceReader_CurrentPrefersCoinGeckoOverOthers verifies that when a

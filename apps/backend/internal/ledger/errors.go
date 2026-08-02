@@ -50,7 +50,7 @@ var (
 // (e.g. sync service) to programmatically create genesis balances.
 type NegativeBalanceError struct {
 	AccountID uuid.UUID
-	AssetID   string
+	AssetID   uuid.UUID
 	Current   *big.Int
 	Change    *big.Int
 	NewBal    *big.Int // the would-be negative balance

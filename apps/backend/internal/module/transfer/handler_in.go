@@ -126,8 +126,8 @@ func (h *TransferInHandler) collectItems(txn *TransferInTransaction) []TransferI
 	return []TransferItem{{
 		AssetID:         txn.AssetID,
 		Decimals:        txn.Decimals,
-		Amount:           txn.Amount,
-		USDRate:          txn.USDRate,
+		Amount:          txn.Amount,
+		USDRate:         txn.USDRate,
 		ContractAddress: txn.ContractAddress,
 		FromAddress:     txn.FromAddress,
 		Direction:       "in",
@@ -163,7 +163,7 @@ func (h *TransferInHandler) entriesForItem(txn *TransferInTransaction, item *Tra
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":        txn.WalletID.String(),
-				"account_code":     accountcode.WalletCode(txn.WalletID, txn.ChainID, item.AssetID),
+				"account_code":     accountcode.WalletCode(txn.WalletID, txn.ChainID, item.AssetID.String()),
 				"tx_hash":          txn.TxHash,
 				"block_number":     txn.BlockNumber,
 				"chain_id":         txn.ChainID,
@@ -185,7 +185,7 @@ func (h *TransferInHandler) entriesForItem(txn *TransferInTransaction, item *Tra
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code":     accountcode.IncomeCode(txn.ChainID, item.AssetID),
+				"account_code":     accountcode.IncomeCode(txn.ChainID, item.AssetID.String()),
 				"tx_hash":          txn.TxHash,
 				"block_number":     txn.BlockNumber,
 				"chain_id":         txn.ChainID,

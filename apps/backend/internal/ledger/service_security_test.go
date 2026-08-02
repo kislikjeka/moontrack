@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kislikjeka/moontrack/internal/infra/postgres"
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -51,6 +52,7 @@ func (h *testSecurityHandler) SetValidateError(err error) {
 func TestLedgerService_RecordTransaction_ZeroAmount(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	handler := newTestSecurityHandler()
 	registry := ledger.NewRegistry()
@@ -69,7 +71,7 @@ func TestLedgerService_RecordTransaction_ZeroAmount(t *testing.T) {
 			DebitCredit: ledger.Debit,
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      big.NewInt(0), // Zero amount
-			AssetID:     "BTC",
+			AssetID:     testasset.BTC,
 			USDRate:     big.NewInt(5000000000000),
 			USDValue:    big.NewInt(0),
 			OccurredAt:  now,
@@ -84,7 +86,7 @@ func TestLedgerService_RecordTransaction_ZeroAmount(t *testing.T) {
 			DebitCredit: ledger.Credit,
 			EntryType:   ledger.EntryTypeIncome,
 			Amount:      big.NewInt(0), // Zero amount
-			AssetID:     "BTC",
+			AssetID:     testasset.BTC,
 			USDRate:     big.NewInt(5000000000000),
 			USDValue:    big.NewInt(0),
 			OccurredAt:  now,
@@ -119,6 +121,7 @@ func TestLedgerService_RecordTransaction_ZeroAmount(t *testing.T) {
 func TestLedgerService_RecordTransaction_NegativeAmount(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	handler := newTestSecurityHandler()
 	registry := ledger.NewRegistry()
@@ -137,7 +140,7 @@ func TestLedgerService_RecordTransaction_NegativeAmount(t *testing.T) {
 			DebitCredit: ledger.Debit,
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      big.NewInt(-100), // Negative amount
-			AssetID:     "BTC",
+			AssetID:     testasset.BTC,
 			USDRate:     big.NewInt(5000000000000),
 			USDValue:    big.NewInt(-5000),
 			OccurredAt:  now,
@@ -152,7 +155,7 @@ func TestLedgerService_RecordTransaction_NegativeAmount(t *testing.T) {
 			DebitCredit: ledger.Credit,
 			EntryType:   ledger.EntryTypeIncome,
 			Amount:      big.NewInt(-100), // Negative amount
-			AssetID:     "BTC",
+			AssetID:     testasset.BTC,
 			USDRate:     big.NewInt(5000000000000),
 			USDValue:    big.NewInt(-5000),
 			OccurredAt:  now,
@@ -188,6 +191,7 @@ func TestLedgerService_RecordTransaction_NegativeAmount(t *testing.T) {
 func TestLedgerService_RecordTransaction_InvalidUUID(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	handler := newTestSecurityHandler()
 	registry := ledger.NewRegistry()
@@ -203,7 +207,7 @@ func TestLedgerService_RecordTransaction_InvalidUUID(t *testing.T) {
 			DebitCredit: ledger.Debit,
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      big.NewInt(100),
-			AssetID:     "BTC",
+			AssetID:     testasset.BTC,
 			USDRate:     big.NewInt(5000000000000),
 			USDValue:    big.NewInt(5000),
 			OccurredAt:  now,
@@ -218,7 +222,7 @@ func TestLedgerService_RecordTransaction_InvalidUUID(t *testing.T) {
 			DebitCredit: ledger.Credit,
 			EntryType:   ledger.EntryTypeIncome,
 			Amount:      big.NewInt(100),
-			AssetID:     "BTC",
+			AssetID:     testasset.BTC,
 			USDRate:     big.NewInt(5000000000000),
 			USDValue:    big.NewInt(5000),
 			OccurredAt:  now,
@@ -253,6 +257,7 @@ func TestLedgerService_RecordTransaction_InvalidUUID(t *testing.T) {
 func TestLedgerService_RecordTransaction_EmptyAssetID(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	handler := newTestSecurityHandler()
 	registry := ledger.NewRegistry()
@@ -271,7 +276,7 @@ func TestLedgerService_RecordTransaction_EmptyAssetID(t *testing.T) {
 			DebitCredit: ledger.Debit,
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      big.NewInt(100),
-			AssetID:     "", // Empty asset ID
+			AssetID:     uuid.Nil, // Empty asset ID
 			USDRate:     big.NewInt(5000000000000),
 			USDValue:    big.NewInt(5000),
 			OccurredAt:  now,
@@ -286,7 +291,7 @@ func TestLedgerService_RecordTransaction_EmptyAssetID(t *testing.T) {
 			DebitCredit: ledger.Credit,
 			EntryType:   ledger.EntryTypeIncome,
 			Amount:      big.NewInt(100),
-			AssetID:     "", // Empty asset ID
+			AssetID:     uuid.Nil, // Empty asset ID
 			USDRate:     big.NewInt(5000000000000),
 			USDValue:    big.NewInt(5000),
 			OccurredAt:  now,
@@ -321,6 +326,7 @@ func TestLedgerService_RecordTransaction_EmptyAssetID(t *testing.T) {
 func TestLedgerService_RecordTransaction_FutureDate(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	handler := newTestSecurityHandler()
 	registry := ledger.NewRegistry()
@@ -339,7 +345,7 @@ func TestLedgerService_RecordTransaction_FutureDate(t *testing.T) {
 			DebitCredit: ledger.Debit,
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      big.NewInt(100),
-			AssetID:     "BTC",
+			AssetID:     testasset.BTC,
 			USDRate:     big.NewInt(5000000000000),
 			USDValue:    big.NewInt(5000),
 			OccurredAt:  futureTime,
@@ -354,7 +360,7 @@ func TestLedgerService_RecordTransaction_FutureDate(t *testing.T) {
 			DebitCredit: ledger.Credit,
 			EntryType:   ledger.EntryTypeIncome,
 			Amount:      big.NewInt(100),
-			AssetID:     "BTC",
+			AssetID:     testasset.BTC,
 			USDRate:     big.NewInt(5000000000000),
 			USDValue:    big.NewInt(5000),
 			OccurredAt:  futureTime,
@@ -390,6 +396,7 @@ func TestLedgerService_RecordTransaction_FutureDate(t *testing.T) {
 func TestLedgerService_RecordTransaction_NilUSDRate(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	handler := newTestSecurityHandler()
 	registry := ledger.NewRegistry()
@@ -408,7 +415,7 @@ func TestLedgerService_RecordTransaction_NilUSDRate(t *testing.T) {
 			DebitCredit: ledger.Debit,
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      big.NewInt(100),
-			AssetID:     "BTC",
+			AssetID:     testasset.BTC,
 			USDRate:     nil, // Nil USD rate
 			USDValue:    big.NewInt(0),
 			OccurredAt:  now,
@@ -423,7 +430,7 @@ func TestLedgerService_RecordTransaction_NilUSDRate(t *testing.T) {
 			DebitCredit: ledger.Credit,
 			EntryType:   ledger.EntryTypeIncome,
 			Amount:      big.NewInt(100),
-			AssetID:     "BTC",
+			AssetID:     testasset.BTC,
 			USDRate:     nil, // Nil USD rate
 			USDValue:    big.NewInt(0),
 			OccurredAt:  now,
@@ -458,6 +465,7 @@ func TestLedgerService_RecordTransaction_NilUSDRate(t *testing.T) {
 func TestLedgerService_RecordTransaction_NegativeUSDRate(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	handler := newTestSecurityHandler()
 	registry := ledger.NewRegistry()
@@ -476,7 +484,7 @@ func TestLedgerService_RecordTransaction_NegativeUSDRate(t *testing.T) {
 			DebitCredit: ledger.Debit,
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      big.NewInt(100),
-			AssetID:     "BTC",
+			AssetID:     testasset.BTC,
 			USDRate:     big.NewInt(-5000000000000), // Negative USD rate
 			USDValue:    big.NewInt(-5000),
 			OccurredAt:  now,
@@ -491,7 +499,7 @@ func TestLedgerService_RecordTransaction_NegativeUSDRate(t *testing.T) {
 			DebitCredit: ledger.Credit,
 			EntryType:   ledger.EntryTypeIncome,
 			Amount:      big.NewInt(100),
-			AssetID:     "BTC",
+			AssetID:     testasset.BTC,
 			USDRate:     big.NewInt(-5000000000000), // Negative USD rate
 			USDValue:    big.NewInt(-5000),
 			OccurredAt:  now,
@@ -527,6 +535,7 @@ func TestLedgerService_RecordTransaction_NegativeUSDRate(t *testing.T) {
 func TestLedgerService_RecordTransaction_UnbalancedEntries(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	handler := newTestSecurityHandler()
 	registry := ledger.NewRegistry()
@@ -545,7 +554,7 @@ func TestLedgerService_RecordTransaction_UnbalancedEntries(t *testing.T) {
 			DebitCredit: ledger.Debit,
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      big.NewInt(100),
-			AssetID:     "BTC",
+			AssetID:     testasset.BTC,
 			USDRate:     big.NewInt(5000000000000),
 			USDValue:    big.NewInt(5000),
 			OccurredAt:  now,
@@ -560,7 +569,7 @@ func TestLedgerService_RecordTransaction_UnbalancedEntries(t *testing.T) {
 			DebitCredit: ledger.Credit,
 			EntryType:   ledger.EntryTypeIncome,
 			Amount:      big.NewInt(50), // Different amount - unbalanced!
-			AssetID:     "BTC",
+			AssetID:     testasset.BTC,
 			USDRate:     big.NewInt(5000000000000),
 			USDValue:    big.NewInt(2500),
 			OccurredAt:  now,
@@ -596,6 +605,7 @@ func TestLedgerService_RecordTransaction_UnbalancedEntries(t *testing.T) {
 func TestLedgerService_RecordTransaction_InvalidTransactionType(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	registry := ledger.NewRegistry()
 	repo := newTestRepo()
@@ -623,6 +633,7 @@ func TestLedgerService_RecordTransaction_InvalidTransactionType(t *testing.T) {
 func TestLedgerService_RecordTransaction_MissingAccountCode(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	handler := newTestSecurityHandler()
 	registry := ledger.NewRegistry()
@@ -638,7 +649,7 @@ func TestLedgerService_RecordTransaction_MissingAccountCode(t *testing.T) {
 			DebitCredit: ledger.Debit,
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      big.NewInt(100),
-			AssetID:     "BTC",
+			AssetID:     testasset.BTC,
 			USDRate:     big.NewInt(5000000000000),
 			USDValue:    big.NewInt(5000),
 			OccurredAt:  now,
@@ -650,7 +661,7 @@ func TestLedgerService_RecordTransaction_MissingAccountCode(t *testing.T) {
 			DebitCredit: ledger.Credit,
 			EntryType:   ledger.EntryTypeIncome,
 			Amount:      big.NewInt(100),
-			AssetID:     "BTC",
+			AssetID:     testasset.BTC,
 			USDRate:     big.NewInt(5000000000000),
 			USDValue:    big.NewInt(5000),
 			OccurredAt:  now,

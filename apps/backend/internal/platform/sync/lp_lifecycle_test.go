@@ -51,12 +51,8 @@ func (m *MockLPPositionService) FindOrCreate(ctx context.Context, userID, wallet
 		NFTTokenID:      nftTokenID,
 		ContractAddress: contractAddress,
 
-		Token0Symbol:   token0.Symbol,
-		Token1Symbol:   token1.Symbol,
-		Token0Contract: token0.Contract,
-		Token0Decimals: token0.Decimals,
-		Token1Contract: token1.Contract,
-		Token1Decimals: token1.Decimals,
+		Token0AssetID: token0.AssetID,
+		Token1AssetID: token1.AssetID,
 
 		TotalDepositedUSD:    big.NewInt(0),
 		TotalWithdrawnUSD:    big.NewInt(0),
@@ -77,10 +73,13 @@ func (m *MockLPPositionService) FindOrCreate(ctx context.Context, userID, wallet
 	return pos, nil
 }
 
-func (m *MockLPPositionService) FindOpenByTokenPair(ctx context.Context, walletID uuid.UUID, chainID, protocol, token0, token1 string) (*lpposition.LPPosition, error) {
+// FindOpenByTokenPair matches on the pair's registry ids. The pair is unordered
+// — a provider may report either token first — so both orientations match, as
+// they did when the pair was two symbols.
+func (m *MockLPPositionService) FindOpenByTokenPair(ctx context.Context, walletID uuid.UUID, chainID, protocol string, token0, token1 uuid.UUID) (*lpposition.LPPosition, error) {
 	for _, pos := range m.positions {
 		if pos.WalletID == walletID && pos.ChainID == chainID && pos.Protocol == protocol && pos.Status == lpposition.StatusOpen {
-			if (pos.Token0Symbol == token0 && pos.Token1Symbol == token1) || (pos.Token0Symbol == token1 && pos.Token1Symbol == token0) {
+			if (pos.Token0AssetID == token0 && pos.Token1AssetID == token1) || (pos.Token0AssetID == token1 && pos.Token1AssetID == token0) {
 				return pos, nil
 			}
 		}
@@ -136,13 +135,17 @@ func TestSync_LP_FullLifecycle(t *testing.T) {
 	walletRepo := new(MockWalletRepository)
 	ledgerSvc := new(MockLedgerService)
 	lpSvc := newMockLPPositionService()
+	// The pair is two registry ids now, so the builder needs a registry for the
+	// position to be identified by anything at all — with none wired both halves
+	// of the pair would be uuid.Nil and indistinguishable.
+	registry := newFakeAssetRegistry()
 	log := logger.New("test", os.Stdout)
 
 	// Accept all LP transaction types
 	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil, nil, nil)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, registry, nil)
 	w := newTestWallet(userID, walletAddr)
 
 	// ─── Step 1: LP Deposit ───────────────────────────────────────────────
@@ -194,8 +197,11 @@ func TestSync_LP_FullLifecycle(t *testing.T) {
 		for _, p := range lpSvc.positions {
 			pos = p
 		}
-		assert.Equal(t, "ETH", pos.Token0Symbol)
-		assert.Equal(t, "USDC", pos.Token1Symbol)
+		// The pair is identified by registry id, not by ticker. ETH is the
+		// chain's native coin, so its identity is (ethereum, native) — the case
+		// the old symbol pair could not tell apart from any other chain's ETH.
+		assert.Equal(t, registry.idFor(t, "ethereum", sync.NativeContract), pos.Token0AssetID)
+		assert.Equal(t, registry.idFor(t, "ethereum", "0xusdc"), pos.Token1AssetID)
 		assert.Equal(t, nftTokenID, pos.NFTTokenID)
 		assert.Equal(t, lpposition.StatusOpen, pos.Status)
 		assert.True(t, pos.TotalDepositedToken0.Cmp(big.NewInt(1e18)) == 0, "deposited token0 should be 1 ETH")
@@ -338,12 +344,16 @@ func TestSync_LP_UniV3Mint_ClassifiesAsDeposit(t *testing.T) {
 	walletRepo := new(MockWalletRepository)
 	ledgerSvc := new(MockLedgerService)
 	lpSvc := newMockLPPositionService()
+	// The pair is two registry ids now, so the builder needs a registry for the
+	// position to be identified by anything at all — with none wired both halves
+	// of the pair would be uuid.Nil and indistinguishable.
+	registry := newFakeAssetRegistry()
 	log := logger.New("test", os.Stdout)
 
 	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil, nil, nil)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, registry, nil)
 	w := newTestWallet(userID, walletAddr)
 
 	// Mint operation on Uniswap V3 should classify as lp_deposit
@@ -385,12 +395,16 @@ func TestSync_LP_AaveDeposit_IsLendingSupply(t *testing.T) {
 	walletRepo := new(MockWalletRepository)
 	ledgerSvc := new(MockLedgerService)
 	lpSvc := newMockLPPositionService()
+	// The pair is two registry ids now, so the builder needs a registry for the
+	// position to be identified by anything at all — with none wired both halves
+	// of the pair would be uuid.Nil and indistinguishable.
+	registry := newFakeAssetRegistry()
 	log := logger.New("test", os.Stdout)
 
 	ledgerSvc.On("RecordTransaction", ctx, mock.Anything, "noves", mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, nil, nil, nil)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, lpSvc, nil, log, nil, registry, nil)
 	w := newTestWallet(userID, walletAddr)
 
 	// Aave deposit should be classified as lending_supply, not defi_deposit or lp_deposit

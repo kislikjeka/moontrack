@@ -47,12 +47,26 @@ type LotStatusCounter interface {
 	CountLotsByPriceStatus(ctx context.Context, userID uuid.UUID) (pending, unpriceable int, err error)
 }
 
+// AssetLookup resolves a registry UUID to the attributes the portfolio needs
+// for presentation: the ticker to show and the decimals to scale by (#59).
+//
+// The portfolio only ever holds a UUID now — the ledger balances it sums carry
+// nothing else — so both the display symbol and the scale have to be looked up
+// rather than assumed. They come from one call because they come from one
+// registry row: reading decimals from a ticker table while reading the ticker
+// from the registry is how the two used to disagree.
+type AssetLookup interface {
+	// Describe returns the symbol and decimals for a registry id.
+	// A miss returns ok=false and the caller degrades rather than guessing.
+	Describe(ctx context.Context, assetID uuid.UUID) (symbol string, decimals int, ok bool)
+}
+
 // WACPosition represents a single WAC data point (per-chain or aggregated).
 type WACPosition struct {
 	WalletID        uuid.UUID
 	AccountID       uuid.UUID
 	ChainID         string
-	Asset           string
+	Asset           uuid.UUID
 	TotalQuantity   *big.Int
 	WeightedAvgCost *big.Int
 	IsAggregated    bool
@@ -60,13 +74,17 @@ type WACPosition struct {
 
 // HoldingGroup represents a single asset across all chains in a wallet.
 type HoldingGroup struct {
-	AssetID       string          `json:"asset_id"`
-	TotalAmount   *big.Int        `json:"total_amount"`
-	TotalUSDValue *big.Int        `json:"total_usd_value"`
-	Price         *big.Int        `json:"price"`
-	AggregatedWAC *big.Int        `json:"aggregated_wac"` // nullable
-	Decimals      int             `json:"decimals"`
-	Chains        []ChainHolding  `json:"chains"`
+	// AssetID is the registry UUID; AssetSymbol is the ticker to render (#59).
+	// Both ship because the frontend needs a stable key AND a human label, and
+	// the old single field could not be both.
+	AssetID       uuid.UUID      `json:"asset_id"`
+	AssetSymbol   string         `json:"asset_symbol"`
+	TotalAmount   *big.Int       `json:"total_amount"`
+	TotalUSDValue *big.Int       `json:"total_usd_value"`
+	Price         *big.Int       `json:"price"`
+	AggregatedWAC *big.Int       `json:"aggregated_wac"` // nullable
+	Decimals      int            `json:"decimals"`
+	Chains        []ChainHolding `json:"chains"`
 }
 
 // ChainHolding represents one asset on one chain within a wallet.
@@ -79,12 +97,13 @@ type ChainHolding struct {
 
 // PortfolioService aggregates portfolio data from the ledger
 type PortfolioService struct {
-	ledgerRepo      LedgerRepository
-	walletRepo      WalletRepository
-	priceService    PriceService
-	wacProvider     WACProvider             // nilable — WAC enrichment is optional
+	ledgerRepo       LedgerRepository
+	walletRepo       WalletRepository
+	priceService     PriceService
+	wacProvider      WACProvider            // nilable — WAC enrichment is optional
 	lotStatusCounter LotStatusCounter       // nilable — lot-count enrichment is optional
-	resolver        *money.DecimalResolver  // nilable — falls back to money.GetDecimals
+	resolver         *money.DecimalResolver // nilable — falls back to money.GetDecimals
+	assets           AssetLookup            // nilable — see describeAsset
 }
 
 // NewPortfolioService creates a new portfolio service
@@ -104,6 +123,13 @@ func NewPortfolioService(
 	}
 }
 
+// WithAssetLookup attaches a registry-backed asset lookup, enabling display
+// symbols and per-asset decimals on every holding (#59).
+func (s *PortfolioService) WithAssetLookup(a AssetLookup) *PortfolioService {
+	s.assets = a
+	return s
+}
+
 // WithLotStatusCounter attaches a LotStatusCounter to the service, enabling
 // PnLIsPartial / pending and unpriceable lot count fields in PortfolioSummary.
 func (s *PortfolioService) WithLotStatusCounter(c LotStatusCounter) *PortfolioService {
@@ -113,7 +139,8 @@ func (s *PortfolioService) WithLotStatusCounter(c LotStatusCounter) *PortfolioSe
 
 // AssetHolding represents a single asset holding across all wallets
 type AssetHolding struct {
-	AssetID string `json:"asset_id"`
+	AssetID     uuid.UUID `json:"asset_id"`
+	AssetSymbol string    `json:"asset_symbol"` // display only — see HoldingGroup
 	// ChainID scopes the holding. Holdings are per (asset, chain) rather than
 	// per symbol because base-unit amounts are only comparable within one
 	// chain's decimals — the same ticker can carry different decimals on
@@ -136,24 +163,25 @@ type WalletBalance struct {
 
 // AssetBalance represents balance for a single asset in a wallet
 type AssetBalance struct {
-	AssetID  string   `json:"asset_id"`
-	ChainID  string   `json:"chain_id,omitempty"` // Zerion chain name, e.g. "ethereum", "base"
-	Amount   *big.Int `json:"amount"`             // Amount in base units
-	USDValue *big.Int `json:"usd_value"`          // USD value (scaled by 10^8)
-	Price    *big.Int `json:"price"`              // Price per unit (scaled by 10^8)
-	Decimals int      `json:"decimals"`           // Asset decimal places for display conversion
+	AssetID     uuid.UUID `json:"asset_id"`
+	AssetSymbol string    `json:"asset_symbol"`       // display only — see HoldingGroup
+	ChainID     string    `json:"chain_id,omitempty"` // Zerion chain name, e.g. "ethereum", "base"
+	Amount      *big.Int  `json:"amount"`             // Amount in base units
+	USDValue    *big.Int  `json:"usd_value"`          // USD value (scaled by 10^8)
+	Price       *big.Int  `json:"price"`              // Price per unit (scaled by 10^8)
+	Decimals    int       `json:"decimals"`           // Asset decimal places for display conversion
 }
 
 // PortfolioSummary represents the complete portfolio overview
 type PortfolioSummary struct {
-	TotalUSDValue       *big.Int        `json:"total_usd_value"`        // Total portfolio value in USD (scaled by 10^8)
-	TotalAssets         int             `json:"total_assets"`           // Number of unique assets
-	AssetHoldings       []AssetHolding  `json:"asset_holdings"`         // Aggregated holdings by asset
-	WalletBalances      []WalletBalance `json:"wallet_balances"`        // Balances per wallet
-	LastUpdated         string          `json:"last_updated"`           // ISO 8601 timestamp
-	PnLIsPartial        bool            `json:"pnl_is_partial"`         // True when ≥1 lot has pending price — PnL figures are incomplete
-	PendingLotCount     int             `json:"pending_lot_count"`      // Number of lots still awaiting price resolution
-	UnpriceableLotCount int             `json:"unpriceable_lot_count"`  // Number of lots that could not be priced
+	TotalUSDValue       *big.Int        `json:"total_usd_value"`       // Total portfolio value in USD (scaled by 10^8)
+	TotalAssets         int             `json:"total_assets"`          // Number of unique assets
+	AssetHoldings       []AssetHolding  `json:"asset_holdings"`        // Aggregated holdings by asset
+	WalletBalances      []WalletBalance `json:"wallet_balances"`       // Balances per wallet
+	LastUpdated         string          `json:"last_updated"`          // ISO 8601 timestamp
+	PnLIsPartial        bool            `json:"pnl_is_partial"`        // True when ≥1 lot has pending price — PnL figures are incomplete
+	PendingLotCount     int             `json:"pending_lot_count"`     // Number of lots still awaiting price resolution
+	UnpriceableLotCount int             `json:"unpriceable_lot_count"` // Number of lots that could not be priced
 }
 
 // GetPortfolioSummary returns the complete portfolio summary for a user
@@ -176,7 +204,7 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 
 	// walletAssetEntry tracks amount and chain for a wallet+asset+chain combination
 	type walletAssetEntry struct {
-		AssetID string
+		AssetID uuid.UUID
 		ChainID string
 		Amount  *big.Int
 	}
@@ -212,7 +240,9 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 
 		for _, balance := range balances {
 			// Add to wallet-specific tracking keyed by assetID:chainID
-			key := balance.AssetID + ":" + chainID
+			// The map key is the UUID's string form. It is a key, not an
+			// identifier anyone reads — the AssetID beside it stays typed.
+			key := balance.AssetID.String() + ":" + chainID
 
 			// Add to cross-wallet totals under the same asset+chain key, so the
 			// decimals used to value it are the ones this balance is scaled in.
@@ -242,7 +272,7 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 	// Fetch current prices for all assets and calculate USD values
 	assetHoldings := make([]AssetHolding, 0, len(assetTotals))
 	totalUSD := big.NewInt(0)
-	prices := make(map[string]*big.Int) // cache prices for wallet balance calculation
+	prices := make(map[uuid.UUID]*big.Int) // cache prices per registry asset
 
 	for key, amount := range assetTotals {
 		// Skip if balance is zero
@@ -253,8 +283,16 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 		pair := assetTotalKeys[key]
 		assetID := pair.AssetID
 
-		// Get current price (adapter resolves symbol → CoinGecko ID)
-		price, err := s.priceService.GetPriceBySymbol(ctx, assetID)
+		// One registry read gives both the label and the scale (#59).
+		symbol, decimals := s.describeAsset(ctx, assetID, pair.ChainID)
+
+		// Price is still keyed on the ticker: the only price source wired here
+		// resolves a symbol to a CoinGecko slug. An asset with no resolvable
+		// symbol therefore values at zero, which is this adapter's existing
+		// convention for "no price" (see PortfolioPriceAdapter). Valuing by
+		// registry identity is #42's registry-keyed price pipeline, not a
+		// ticker guess reinstated here.
+		price, err := s.priceService.GetPriceBySymbol(ctx, symbol)
 		if err != nil {
 			price = big.NewInt(0)
 		}
@@ -262,11 +300,11 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 
 		// Calculate USD value: (amount * price) / 10^decimals, with the
 		// decimals of THIS chain's contract — see the keying note above.
-		decimals := s.resolveDecimals(ctx, assetID, pair.ChainID)
 		usdValue := money.CalcUSDValue(amount, price, decimals)
 
 		assetHoldings = append(assetHoldings, AssetHolding{
 			AssetID:      assetID,
+			AssetSymbol:  symbol,
 			ChainID:      pair.ChainID,
 			TotalAmount:  new(big.Int).Set(amount),
 			USDValue:     usdValue,
@@ -294,16 +332,17 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 			if price == nil {
 				price = big.NewInt(0)
 			}
-			decimals := s.resolveDecimals(ctx, entry.AssetID, entry.ChainID)
+			symbol, decimals := s.describeAsset(ctx, entry.AssetID, entry.ChainID)
 			usdValue := money.CalcUSDValue(entry.Amount, price, decimals)
 			walletTotalUSD.Add(walletTotalUSD, usdValue)
 			assetBalances = append(assetBalances, AssetBalance{
-				AssetID:  entry.AssetID,
-				ChainID:  entry.ChainID,
-				Amount:   new(big.Int).Set(entry.Amount),
-				USDValue: usdValue,
-				Price:    new(big.Int).Set(price),
-				Decimals: decimals,
+				AssetID:     entry.AssetID,
+				AssetSymbol: symbol,
+				ChainID:     entry.ChainID,
+				Amount:      new(big.Int).Set(entry.Amount),
+				USDValue:    usdValue,
+				Price:       new(big.Int).Set(price),
+				Decimals:    decimals,
 			})
 		}
 		if len(assetBalances) == 0 {
@@ -349,21 +388,23 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, userID uuid.
 func (s *PortfolioService) buildHoldings(ctx context.Context, userID uuid.UUID, wb *WalletBalance) []HoldingGroup {
 	// Group assets by asset_id
 	type groupEntry struct {
-		assetID  string
+		assetID  uuid.UUID
+		symbol   string
 		total    *big.Int
 		value    *big.Int
 		price    *big.Int
 		decimals int
 		chains   []ChainHolding
 	}
-	groupMap := make(map[string]*groupEntry)
-	var order []string // preserve insertion order
+	groupMap := make(map[uuid.UUID]*groupEntry)
+	var order []uuid.UUID // preserve insertion order
 
 	for _, ab := range wb.Assets {
 		g, ok := groupMap[ab.AssetID]
 		if !ok {
 			g = &groupEntry{
 				assetID:  ab.AssetID,
+				symbol:   ab.AssetSymbol,
 				total:    new(big.Int),
 				value:    new(big.Int),
 				price:    new(big.Int).Set(ab.Price),
@@ -396,10 +437,10 @@ func (s *PortfolioService) buildHoldings(ctx context.Context, userID uuid.UUID, 
 
 	// Build WAC lookup maps
 	type wacKey struct {
-		asset   string
+		asset   uuid.UUID
 		chainID string
 	}
-	aggWACMap := make(map[string]*big.Int)   // asset → aggregated WAC
+	aggWACMap := make(map[uuid.UUID]*big.Int) // asset → aggregated WAC
 	chainWACMap := make(map[wacKey]*big.Int)  // (asset, chainID) → per-chain WAC
 
 	for _, p := range wacPositions {
@@ -424,6 +465,7 @@ func (s *PortfolioService) buildHoldings(ctx context.Context, userID uuid.UUID, 
 
 		hg := HoldingGroup{
 			AssetID:       assetID,
+			AssetSymbol:   g.symbol,
 			TotalAmount:   g.total,
 			TotalUSDValue: g.value,
 			Price:         g.price,
@@ -447,7 +489,9 @@ func (s *PortfolioService) buildHoldings(ctx context.Context, userID uuid.UUID, 
 }
 
 // GetAssetBreakdown returns detailed breakdown of a specific asset across all wallets
-func (s *PortfolioService) GetAssetBreakdown(ctx context.Context, userID uuid.UUID, assetID string) ([]WalletBalance, error) {
+// assetID is a registry UUID (#59); the endpoint that calls this parses it from
+// the request path and rejects a malformed one before reaching here.
+func (s *PortfolioService) GetAssetBreakdown(ctx context.Context, userID uuid.UUID, assetID uuid.UUID) ([]WalletBalance, error) {
 	// Get all wallets for the user
 	wallets, err := s.walletRepo.GetByUserID(ctx, userID)
 	if err != nil {
@@ -482,31 +526,32 @@ func (s *PortfolioService) GetAssetBreakdown(ctx context.Context, userID uuid.UU
 				continue
 			}
 
-			// Get current price (adapter resolves symbol → CoinGecko ID)
-			price, err := s.priceService.GetPriceBySymbol(ctx, assetID)
-			if err != nil {
-				price = big.NewInt(0)
-			}
-
 			chainID := ""
 			if account.ChainID != nil {
 				chainID = *account.ChainID
 			}
 
-			// Calculate USD value with this chain's decimals — the balance is a
-			// base-unit integer scaled by the (asset, chain) contract's
-			// decimals, so resolving without the chain can pick another
-			// chain's scale for the same ticker.
-			decimals := s.resolveDecimals(ctx, assetID, chainID)
+			// Symbol and this chain's decimals from the registry row; the
+			// balance is a base-unit integer scaled by the (asset, chain)
+			// contract's decimals.
+			symbol, decimals := s.describeAsset(ctx, assetID, chainID)
+
+			// Price is symbol-keyed — see the note in GetPortfolioSummary.
+			price, err := s.priceService.GetPriceBySymbol(ctx, symbol)
+			if err != nil {
+				price = big.NewInt(0)
+			}
+
 			usdValue := money.CalcUSDValue(balance.Balance, price, decimals)
 
 			assetBalance := AssetBalance{
-				AssetID:  assetID,
-				ChainID:  chainID,
-				Amount:   new(big.Int).Set(balance.Balance),
-				USDValue: usdValue,
-				Price:    price,
-				Decimals: decimals,
+				AssetID:     assetID,
+				AssetSymbol: symbol,
+				ChainID:     chainID,
+				Amount:      new(big.Int).Set(balance.Balance),
+				USDValue:    usdValue,
+				Price:       price,
+				Decimals:    decimals,
 			}
 
 			// TODO: Fetch wallet details
@@ -521,6 +566,23 @@ func (s *PortfolioService) GetAssetBreakdown(ctx context.Context, userID uuid.UU
 	}
 
 	return walletBalances, nil
+}
+
+// describeAsset resolves a registry id to (symbol, decimals) for presentation.
+//
+// With a lookup wired, both come from the one registry row the id names. Without
+// one — the wiring is optional so tests can construct a bare service — the
+// symbol is left EMPTY rather than filled with the UUID's string form: a UUID
+// where a ticker belongs is worse than a blank, because it reads as data. The
+// scale then falls back to the symbol-keyed resolver, which with no symbol
+// yields the hardcoded default. #42 finalises the API shape here.
+func (s *PortfolioService) describeAsset(ctx context.Context, assetID uuid.UUID, chainID string) (string, int) {
+	if s.assets != nil {
+		if symbol, decimals, ok := s.assets.Describe(ctx, assetID); ok {
+			return symbol, decimals
+		}
+	}
+	return "", s.resolveDecimals(ctx, "", chainID)
 }
 
 // resolveDecimals uses the resolver if available, otherwise falls back to hardcoded map.

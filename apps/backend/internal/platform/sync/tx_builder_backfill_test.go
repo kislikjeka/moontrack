@@ -2,7 +2,6 @@ package sync_test
 
 import (
 	"context"
-	"fmt"
 	"math/big"
 	"os"
 	"testing"
@@ -14,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
-	"github.com/kislikjeka/moontrack/internal/platform/asset"
 	"github.com/kislikjeka/moontrack/internal/platform/price"
 	"github.com/kislikjeka/moontrack/internal/platform/sync"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
@@ -24,27 +22,6 @@ import (
 // =============================================================================
 // Fakes for backfill test
 // =============================================================================
-
-type fakeAssetUpserter struct {
-	calls []assetUpsertCall
-	asset *asset.Asset
-	// err, when set, is returned from UpsertByOnChainIdentity with asset=nil.
-	err error
-}
-
-type assetUpsertCall struct {
-	chainID         string
-	contractAddress string
-	symbol          string
-}
-
-func (f *fakeAssetUpserter) UpsertByOnChainIdentity(ctx context.Context, chainID, contractAddress, symbol, name string, decimals int) (*asset.Asset, bool, error) {
-	f.calls = append(f.calls, assetUpsertCall{chainID: chainID, contractAddress: contractAddress, symbol: symbol})
-	if f.err != nil {
-		return nil, false, f.err
-	}
-	return f.asset, true, nil
-}
 
 type fakeJobEnqueuer struct {
 	calls []jobEnqueueCall
@@ -60,50 +37,71 @@ func (f *fakeJobEnqueuer) Enqueue(ctx context.Context, assetID uuid.UUID, target
 	return &price.BackfillJob{ID: uuid.New(), AssetID: assetID, TargetTime: targetTime}, nil
 }
 
-// compile-time interface checks
-var _ sync.AssetUpserter = (*fakeAssetUpserter)(nil)
+// assetIDs returns the asset ids of every enqueue call, in call order.
+func (f *fakeJobEnqueuer) assetIDs() []uuid.UUID {
+	ids := make([]uuid.UUID, 0, len(f.calls))
+	for _, c := range f.calls {
+		ids = append(ids, c.assetID)
+	}
+	return ids
+}
+
+// compile-time interface check
 var _ sync.JobEnqueuer = (*fakeJobEnqueuer)(nil)
+
+// newBackfillTestBuilder wires a TxBuilder with a registry and an enqueuer,
+// which after #59 is the whole of the backfill path: the registry mints the
+// identity and the enqueuer is keyed on it. There is no third participant —
+// the legacy `assets`-table upserter that used to sit between them is gone
+// along with its table.
+func newBackfillTestBuilder(t *testing.T) (*sync.TxBuilder, *fakeAssetRegistry, *fakeJobEnqueuer, *MockLedgerService) {
+	t.Helper()
+	log := logger.New("test", os.Stdout)
+
+	registry := newFakeAssetRegistry()
+	enqueuer := &fakeJobEnqueuer{}
+
+	walletRepo := new(MockWalletRepository)
+	// Counterparties in these fixtures are outside addresses, so the
+	// internal-transfer probe finds nothing.
+	walletRepo.On("GetWalletsByAddressAndUserID", mock.Anything, mock.Anything, mock.Anything).
+		Return([]*wallet.Wallet{}, nil).Maybe()
+
+	ledgerSvc := new(MockLedgerService)
+	ledgerSvc.On("RecordTransaction", mock.Anything, mock.Anything, "noves",
+		mock.Anything, mock.Anything, mock.Anything).
+		Return(&ledger.Transaction{ID: uuid.New()}, nil)
+
+	builder := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, enqueuer, registry, nil)
+	return builder, registry, enqueuer, ledgerSvc
+}
 
 // =============================================================================
 // Tests
 // =============================================================================
 
-// TestTxBuilder_MissingPrice_UpsertAndEnqueue verifies that when a decoded
-// transfer has no USD price but has an on-chain contract address, the processor:
-//  1. Calls AssetUpserter.UpsertByOnChainIdentity with the correct chain + contract.
-//  2. Calls JobEnqueuer.Enqueue with the resulting asset UUID and the tx timestamp.
+// TestTxBuilder_MissingPrice_ResolvesAndEnqueues verifies that when a decoded
+// transfer has no USD price, the builder:
+//  1. Resolves the leg to a registry UUID keyed on (chain, contract).
+//  2. Calls JobEnqueuer.Enqueue with THAT UUID and the tx timestamp.
 //  3. Omits "usd_price" from the built transfer map so downstream readers treat
 //     the transfer as pending (USDRate = nil).
-func TestTxBuilder_MissingPrice_UpsertAndEnqueue(t *testing.T) {
+//
+// Step 1 used to be an upsert into the `assets` table keyed on the contract
+// alone; the job now rides the same registry id the ledger entry carries, so a
+// job cannot name an asset the ledger does not know (#59).
+func TestTxBuilder_MissingPrice_ResolvesAndEnqueues(t *testing.T) {
 	ctx := context.Background()
-	log := logger.New("test", os.Stdout)
 
-	assetID := uuid.New()
 	contractAddr := "0xabc1234567890123456789012345678901234567"
 	txTime := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
 
-	upsert := &fakeAssetUpserter{
-		asset: &asset.Asset{
-			ID:     assetID,
-			Symbol: "FOO",
-			Name:   "Foo Token",
-		},
-	}
-	enqueuer := &fakeJobEnqueuer{}
-
-	walletRepo := new(MockWalletRepository)
-	ledgerSvc := new(MockLedgerService)
-
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeSwap, "noves",
-		mock.Anything, mock.Anything, mock.Anything).
-		Return(&ledger.Transaction{ID: uuid.New()}, nil)
-
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil, nil)
+	processor, registry, enqueuer, ledgerSvc := newBackfillTestBuilder(t)
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
 	w := newTestWallet(userID, walletAddr)
 
-	// Build a swap with one OUT transfer (priced) and one IN transfer (no price, has contract).
+	// Build a swap with one OUT transfer (priced) and one IN transfer (no price).
 	tx := sync.DecodedTransaction{
 		ID:            "ext-tx-backfill-test",
 		TxHash:        "0xdeadbeef",
@@ -138,15 +136,11 @@ func TestTxBuilder_MissingPrice_UpsertAndEnqueue(t *testing.T) {
 	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
 
-	// 1. AssetUpserter must have been called with correct chain + contract
-	require.Len(t, upsert.calls, 1, "UpsertByOnChainIdentity should be called once")
-	assert.Equal(t, "ethereum", upsert.calls[0].chainID)
-	assert.Equal(t, contractAddr, upsert.calls[0].contractAddress)
-	assert.Equal(t, "FOO", upsert.calls[0].symbol)
-
-	// 2. JobEnqueuer must have been called with the asset UUID and tx timestamp
-	require.Len(t, enqueuer.calls, 1, "Enqueue should be called once")
-	assert.Equal(t, assetID, enqueuer.calls[0].assetID)
+	// 1 + 2. The job must carry the registry id minted for (ethereum, FOO's
+	// contract) — not a fresh id and not the priced ETH leg's.
+	fooID := registry.idFor(t, "ethereum", contractAddr)
+	require.Len(t, enqueuer.calls, 1, "Enqueue should be called once, for the unpriced leg")
+	assert.Equal(t, fooID, enqueuer.calls[0].assetID)
 	assert.Equal(t, txTime, enqueuer.calls[0].targetTime)
 
 	// 3. The transfer map for FOO must omit usd_price entirely so downstream
@@ -157,39 +151,29 @@ func TestTxBuilder_MissingPrice_UpsertAndEnqueue(t *testing.T) {
 	require.Len(t, transfersIn, 1)
 	fooTransfer := transfersIn[0]
 	assert.Equal(t, "FOO", fooTransfer["asset_symbol"])
+	assert.Equal(t, fooID.String(), fooTransfer["asset_id"],
+		"the leg's identity must travel as the registry UUID")
 	_, hasPrice := fooTransfer["usd_price"]
 	assert.False(t, hasPrice, "usd_price key should be absent when no price available")
 }
 
-// TestTxBuilder_MissingPrice_NativeToken verifies that an unpriced native leg
-// does NOT reach the LEGACY asset upserter, which writes to the `assets` table
-// and is keyed on a real contract address.
+// TestTxBuilder_MissingPrice_NativeToken_EnqueuesJob pins the INVERSION made by
+// issue #59 (decision #39): an unpriced NATIVE leg now gets a backfill job.
 //
-// The leg now carries the native sentinel rather than an empty string (#56), so
-// this pins the skip against the value that actually arrives. Passing the
-// sentinel through would fail the EVM address shape check and emit a spurious
-// "invalid contract address" WARN on every native leg.
+// This assertion used to read the other way — "Enqueue should NOT be called for
+// native coins" — and that was not a policy, it was a limitation leaking into
+// the test. The old path upserted into the `assets` table, whose partial unique
+// index could not represent a coin with no contract, so it returned early and
+// the native leg was skipped. The consequence was that gas, and the largest
+// position in most wallets, could never be priced, and the resulting zero flowed
+// into cost basis and PnL.
 //
-// Native coins are not left without an identity by this skip: the (chain,
-// contract) registry resolves them, which TestTxBuilder_ResolvesEveryLeg_Native
-// covers.
-func TestTxBuilder_MissingPrice_NativeToken(t *testing.T) {
+// The registry keys a native coin as (chain, 'native') like any other asset, so
+// the skip has nothing left to protect and is gone.
+func TestTxBuilder_MissingPrice_NativeToken_EnqueuesJob(t *testing.T) {
 	ctx := context.Background()
-	log := logger.New("test", os.Stdout)
 
-	upsert := &fakeAssetUpserter{
-		asset: &asset.Asset{ID: uuid.New(), Symbol: "ETH", Name: "Ethereum"},
-	}
-	enqueuer := &fakeJobEnqueuer{}
-
-	walletRepo := new(MockWalletRepository)
-	ledgerSvc := new(MockLedgerService)
-
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeSwap, "noves",
-		mock.Anything, mock.Anything, mock.Anything).
-		Return(&ledger.Transaction{ID: uuid.New()}, nil)
-
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil, nil)
+	processor, registry, enqueuer, _ := newBackfillTestBuilder(t)
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
 	w := newTestWallet(userID, walletAddr)
@@ -202,7 +186,7 @@ func TestTxBuilder_MissingPrice_NativeToken(t *testing.T) {
 		Transfers: []sync.DecodedTransfer{
 			{
 				AssetSymbol:     "USDC",
-				ContractAddress: "0xusdc",
+				ContractAddress: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
 				Decimals:        6,
 				Amount:          big.NewInt(2000000000),
 				Direction:       sync.DirectionOut,
@@ -228,9 +212,10 @@ func TestTxBuilder_MissingPrice_NativeToken(t *testing.T) {
 	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
 
-	// No upsert/enqueue for native tokens without contract address
-	assert.Len(t, upsert.calls, 0, "UpsertByOnChainIdentity should NOT be called for native coins")
-	assert.Len(t, enqueuer.calls, 0, "Enqueue should NOT be called for native coins")
+	nativeID := registry.idFor(t, "ethereum", sync.NativeContract)
+	require.Len(t, enqueuer.calls, 1,
+		"a native coin must get a backfill job like any other asset (#59)")
+	assert.Equal(t, nativeID, enqueuer.calls[0].assetID)
 }
 
 // TestTxBuilder_OutgoingOnly_MissingPrice_EnqueuesJob verifies that a
@@ -241,31 +226,11 @@ func TestTxBuilder_MissingPrice_NativeToken(t *testing.T) {
 // was stuck at proceeds_status='pending' indefinitely.
 func TestTxBuilder_OutgoingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 	ctx := context.Background()
-	log := logger.New("test", os.Stdout)
 
-	assetID := uuid.New()
 	contractAddr := "0xbad1234567890123456789012345678901234567"
 	txTime := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
 
-	upsert := &fakeAssetUpserter{
-		asset: &asset.Asset{ID: assetID, Symbol: "BAD", Name: "Bad Token"},
-	}
-	enqueuer := &fakeJobEnqueuer{}
-
-	walletRepo := new(MockWalletRepository)
-	ledgerSvc := new(MockLedgerService)
-
-	// detectInternalTransfer calls GetWalletsByAddressAndUserID for the
-	// counterparty to see if it belongs to the same user. Return empty so
-	// it's treated as an external transfer.
-	walletRepo.On("GetWalletsByAddressAndUserID", ctx, mock.Anything, mock.Anything).
-		Return([]*wallet.Wallet{}, nil)
-
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferOut, "noves",
-		mock.Anything, mock.Anything, mock.Anything).
-		Return(&ledger.Transaction{ID: uuid.New()}, nil)
-
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil, nil)
+	processor, registry, enqueuer, _ := newBackfillTestBuilder(t)
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
 	w := newTestWallet(userID, walletAddr)
@@ -295,15 +260,10 @@ func TestTxBuilder_OutgoingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
 
-	// Upsert must fire so the asset lands in the assets table.
-	require.Len(t, upsert.calls, 1, "UpsertByOnChainIdentity should be called for outgoing unpriced transfer")
-	assert.Equal(t, "ethereum", upsert.calls[0].chainID)
-	assert.Equal(t, contractAddr, upsert.calls[0].contractAddress)
-	assert.Equal(t, "BAD", upsert.calls[0].symbol)
-
-	// Enqueue must fire with the resolved asset UUID and the tx timestamp.
+	// The leg must have been resolved, and the job must carry that identity.
+	badID := registry.idFor(t, "ethereum", contractAddr)
 	require.Len(t, enqueuer.calls, 1, "Enqueue should be called for outgoing unpriced transfer")
-	assert.Equal(t, assetID, enqueuer.calls[0].assetID)
+	assert.Equal(t, badID, enqueuer.calls[0].assetID)
 	assert.Equal(t, txTime, enqueuer.calls[0].targetTime)
 }
 
@@ -313,28 +273,11 @@ func TestTxBuilder_OutgoingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 // registering the asset / enqueuing a job.
 func TestTxBuilder_IncomingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 	ctx := context.Background()
-	log := logger.New("test", os.Stdout)
 
-	assetID := uuid.New()
 	contractAddr := "0xcafe1234567890123456789012345678901234ab"
 	txTime := time.Date(2024, 7, 1, 9, 0, 0, 0, time.UTC)
 
-	upsert := &fakeAssetUpserter{
-		asset: &asset.Asset{ID: assetID, Symbol: "CAFE", Name: "Cafe Token"},
-	}
-	enqueuer := &fakeJobEnqueuer{}
-
-	walletRepo := new(MockWalletRepository)
-	ledgerSvc := new(MockLedgerService)
-
-	walletRepo.On("GetWalletsByAddressAndUserID", ctx, mock.Anything, mock.Anything).
-		Return([]*wallet.Wallet{}, nil)
-
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeTransferIn, "noves",
-		mock.Anything, mock.Anything, mock.Anything).
-		Return(&ledger.Transaction{ID: uuid.New()}, nil)
-
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil, nil)
+	processor, registry, enqueuer, _ := newBackfillTestBuilder(t)
 	userID := uuid.New()
 	walletAddr := "0x2222222222222222222222222222222222222222"
 	w := newTestWallet(userID, walletAddr)
@@ -363,98 +306,68 @@ func TestTxBuilder_IncomingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
 
-	require.Len(t, upsert.calls, 1, "UpsertByOnChainIdentity should be called for incoming unpriced transfer")
+	cafeID := registry.idFor(t, "ethereum", contractAddr)
 	require.Len(t, enqueuer.calls, 1, "Enqueue should be called for incoming unpriced transfer")
-	assert.Equal(t, assetID, enqueuer.calls[0].assetID)
+	assert.Equal(t, cafeID, enqueuer.calls[0].assetID)
 	assert.Equal(t, txTime, enqueuer.calls[0].targetTime)
 }
 
-// TestTxBuilder_InvalidContractAddress_NoEnqueue verifies that when
-// AssetUpserter returns asset.ErrInvalidContractAddress (the provider emitted a
-// malformed/bogus contract address that fails our shape check), the
-// processor:
-//  1. Does NOT enqueue a backfill job (there is no asset row for the worker
-//     to resolve, so a pending lot would be stranded forever).
-//  2. Emits no usd_price key (same reason — downstream treats this like a
-//     native-coin fallback).
-//  3. Still allows the transfer to flow through to the ledger (no panic,
-//     no return error).
-func TestTxBuilder_InvalidContractAddress_NoEnqueue(t *testing.T) {
+// TestTxBuilder_SameAssetTwice_EnqueuesOnePerLeg documents that the enqueue is
+// keyed on the resolved identity, so two unpriced legs of the SAME asset agree
+// on the id they enqueue against.
+//
+// Enqueue is idempotent on (asset_id, target_time), so the duplicate call is
+// harmless; what matters — and what a symbol key could not guarantee — is that
+// both legs name the same asset.
+func TestTxBuilder_SameAssetTwice_EnqueuesOnePerLeg(t *testing.T) {
 	ctx := context.Background()
-	log := logger.New("test", os.Stdout)
 
-	// Upserter returns ErrInvalidContractAddress (wrapped to mirror the real
-	// repository implementation which wraps with %w).
-	upsert := &fakeAssetUpserter{
-		err: fmt.Errorf("normalize: %w", asset.ErrInvalidContractAddress),
-	}
-	enqueuer := &fakeJobEnqueuer{}
+	contractAddr := "0xfeed1234567890123456789012345678901234ab"
+	txTime := time.Date(2024, 8, 1, 9, 0, 0, 0, time.UTC)
 
-	walletRepo := new(MockWalletRepository)
-	ledgerSvc := new(MockLedgerService)
-
-	ledgerSvc.On("RecordTransaction", ctx, ledger.TxTypeSwap, "noves",
-		mock.Anything, mock.Anything, mock.Anything).
-		Return(&ledger.Transaction{ID: uuid.New()}, nil)
-
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil, nil)
+	processor, registry, enqueuer, _ := newBackfillTestBuilder(t)
 	userID := uuid.New()
-	walletAddr := "0x1111111111111111111111111111111111111111"
+	walletAddr := "0x3333333333333333333333333333333333333333"
 	w := newTestWallet(userID, walletAddr)
 
-	// Swap with a bogus contract address that the repo will reject.
 	tx := sync.DecodedTransaction{
-		ID:            "ext-tx-invalid-contract",
-		TxHash:        "0xdeadbeef3",
+		ID:            "ext-tx-same-asset-twice",
+		TxHash:        "0xfeedbeef",
 		ChainID:       "ethereum",
 		OperationType: sync.OpTrade,
 		Transfers: []sync.DecodedTransfer{
 			{
-				AssetSymbol:     "ETH",
-				ContractAddress: "",
+				AssetSymbol:     "FEED",
+				ContractAddress: contractAddr,
 				Decimals:        18,
 				Amount:          big.NewInt(1000000000000000000),
 				Direction:       sync.DirectionOut,
 				Sender:          walletAddr,
 				Recipient:       "0xrouter",
-				USDPrice:        big.NewInt(250000000000),
+				USDPrice:        nil,
 			},
 			{
-				AssetSymbol:     "XYZ",
-				ContractAddress: "0xGHIJ000000000000000000000000000000000000", // invalid (non-hex)
+				AssetSymbol:     "FEED",
+				ContractAddress: contractAddr,
 				Decimals:        18,
-				Amount:          big.NewInt(5000000000000000000),
+				Amount:          big.NewInt(2000000000000000000),
 				Direction:       sync.DirectionIn,
 				Sender:          "0xrouter",
 				Recipient:       walletAddr,
 				USDPrice:        nil,
 			},
 		},
-		MinedAt: time.Now(),
+		MinedAt: txTime,
 		Status:  "confirmed",
 	}
 
-	// Must not panic / error out of the processor.
 	_, err := processor.ProcessTransaction(ctx, w, tx)
 	require.NoError(t, err)
 
-	// Upsert was attempted once...
-	require.Len(t, upsert.calls, 1)
-	// ...but no job was enqueued.
-	assert.Len(t, enqueuer.calls, 0,
-		"Enqueue must NOT be called when upsert returns ErrInvalidContractAddress")
-
-	// The XYZ transfer must emit no usd_price key — the downstream reader
-	// treats the absence as pending/unknown. Since no backfill job was
-	// enqueued (invalid contract), the lot will stay unpriced until the
-	// user supplies a manual price.
-	require.Len(t, ledgerSvc.recordedTransactions, 1)
-	rawData := ledgerSvc.recordedTransactions[0].RawData
-	transfersIn := rawData["transfers_in"].([]map[string]interface{})
-	require.Len(t, transfersIn, 1)
-	xyz := transfersIn[0]
-	assert.Equal(t, "XYZ", xyz["asset_symbol"])
-	_, hasPrice := xyz["usd_price"]
-	assert.False(t, hasPrice,
-		"usd_price must be absent (no price, no asset)")
+	feedID := registry.idFor(t, "ethereum", contractAddr)
+	require.NotEmpty(t, enqueuer.calls, "unpriced legs must enqueue")
+	for _, got := range enqueuer.assetIDs() {
+		assert.Equal(t, feedID, got,
+			"every leg of the same (chain, contract) must enqueue against one identity")
+	}
 }

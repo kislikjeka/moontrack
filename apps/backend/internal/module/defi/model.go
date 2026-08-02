@@ -17,14 +17,21 @@ type DeFiTransaction struct {
 	Protocol      string         `json:"protocol,omitempty"`
 	OperationType string         `json:"operation_type,omitempty"` // "deposit", "mint", "withdraw", "burn", "claim"
 	Transfers     []DeFiTransfer `json:"transfers"`
-	FeeAsset      string         `json:"fee_asset,omitempty"`
-	FeeAmount     *money.BigInt  `json:"fee_amount,omitempty"`
-	FeeDecimals   int            `json:"fee_decimals,omitempty"`
-	FeeUSDPrice   *money.BigInt  `json:"fee_usd_price,omitempty"`
+	// FeeAsset is the registry UUID of the gas token (#59); the symbol beside
+	// it is display only and never keys the gas account.
+	FeeAsset       uuid.UUID     `json:"fee_asset,omitempty"`
+	FeeAssetSymbol string        `json:"fee_asset_symbol,omitempty"`
+	FeeAmount      *money.BigInt `json:"fee_amount,omitempty"`
+	FeeDecimals    int           `json:"fee_decimals,omitempty"`
+	FeeUSDPrice    *money.BigInt `json:"fee_usd_price,omitempty"`
 }
 
-// DeFiTransfer represents a single asset movement within a DeFi transaction
+// DeFiTransfer represents a single asset movement within a DeFi transaction.
+//
+// AssetID is identity (Entry.AssetID plus the wallet/clearing/income account
+// codes); AssetSymbol is the ticker retained for display (#59).
 type DeFiTransfer struct {
+	AssetID         uuid.UUID     `json:"asset_id"`
 	AssetSymbol     string        `json:"asset_symbol"`
 	Amount          *money.BigInt `json:"amount"`
 	Decimals        int           `json:"decimals"`
@@ -99,7 +106,9 @@ func (t *DeFiTransaction) TransfersOut() []DeFiTransfer {
 
 // Validate validates a single DeFi transfer
 func (t *DeFiTransfer) Validate() error {
-	if t.AssetSymbol == "" {
+	// See SwapTransfer.Validate: uuid.Nil is rejected rather than defaulted,
+	// because a Nil-asset entry balances and is still wrong (#59).
+	if t.AssetID == uuid.Nil {
 		return ErrInvalidAssetID
 	}
 	if t.Amount.IsNil() || t.Amount.Sign() <= 0 {

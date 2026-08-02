@@ -157,7 +157,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
 			"wallet_id":        txn.DestWalletID.String(),
-			"account_code":     accountcode.WalletCode(txn.DestWalletID, destChain, txn.AssetID),
+			"account_code":     accountcode.WalletCode(txn.DestWalletID, destChain, txn.AssetID.String()),
 			"tx_hash":          txn.TxHash,
 			"block_number":     txn.BlockNumber,
 			"chain_id":         destChain,
@@ -182,7 +182,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
 			"wallet_id":        txn.SourceWalletID.String(),
-			"account_code":     accountcode.WalletCode(txn.SourceWalletID, sourceChain, txn.AssetID),
+			"account_code":     accountcode.WalletCode(txn.SourceWalletID, sourceChain, txn.AssetID.String()),
 			"tx_hash":          txn.TxHash,
 			"block_number":     txn.BlockNumber,
 			"chain_id":         sourceChain,
@@ -214,11 +214,13 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			gasUSDValue.Div(gasUSDValue, divisor)
 		}
 
-		// Get native asset ID
+		// No default here — see TransferOutHandler for why "ETH" was wrong on
+		// every chain that is not Ethereum (#59).
 		nativeAssetID := txn.NativeAssetID
-		if nativeAssetID == "" {
-			nativeAssetID = "ETH" // Default fallback
+		if nativeAssetID == uuid.Nil {
+			return nil, ErrMissingNativeAsset
 		}
+		nativeAssetSeg := nativeAssetID.String()
 
 		// Entries 3 and 4 both book to the SOURCE chain: gas is burned there,
 		// in that chain's native token, and the destination chain never sees
@@ -237,7 +239,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code": accountcode.GasCode(sourceChain, nativeAssetID),
+				"account_code": accountcode.GasCode(sourceChain, nativeAssetSeg),
 				"tx_hash":      txn.TxHash,
 				"block_number": txn.BlockNumber,
 				"chain_id":     sourceChain,
@@ -258,7 +260,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":    txn.SourceWalletID.String(),
-				"account_code": accountcode.WalletCode(txn.SourceWalletID, sourceChain, nativeAssetID),
+				"account_code": accountcode.WalletCode(txn.SourceWalletID, sourceChain, nativeAssetSeg),
 				"tx_hash":      txn.TxHash,
 				"block_number": txn.BlockNumber,
 				"chain_id":     sourceChain,

@@ -28,6 +28,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/module/transfer"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/pkg/logger"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 )
 
 // Fixed identities. Wallet UUIDs are embedded verbatim in wallet.*,
@@ -94,7 +95,8 @@ func corpus() []corpusCase {
 			handler: transfer.NewTransferInHandler(repo, log),
 			data: map[string]interface{}{
 				"wallet_id":        walletID.String(),
-				"asset_id":         "ETH",
+				"asset_id":         testasset.ETH.String(),
+				"asset_symbol":     "ETH",
 				"decimals":         float64(18),
 				"amount":           "1000000000000000000",
 				"usd_rate":         "250000000000",
@@ -112,13 +114,14 @@ func corpus() []corpusCase {
 			handler: transfer.NewTransferOutHandler(repo, log),
 			data: map[string]interface{}{
 				"wallet_id":       walletID.String(),
-				"asset_id":        "USDC",
+				"asset_id":        testasset.USDC.String(),
+				"asset_symbol":    "USDC",
 				"decimals":        float64(6),
 				"amount":          "1000000",
 				"usd_rate":        "100000000",
 				"gas_amount":      "210000000000000",
 				"gas_usd_rate":    "250000000000",
-				"native_asset_id": "ETH",
+				"native_asset_id": testasset.ETH.String(),
 				"chain_id":        "ethereum",
 				"tx_hash":         "0xaaa2",
 				"block_number":    float64(2),
@@ -134,14 +137,15 @@ func corpus() []corpusCase {
 			data: map[string]interface{}{
 				"source_wallet_id": walletID.String(),
 				"dest_wallet_id":   destWalletID.String(),
-				"asset_id":         "ETH",
+				"asset_id":         testasset.ETH.String(),
+				"asset_symbol":     "ETH",
 				"decimals":         float64(18),
 				"amount":           "500000000000000000",
 				"usd_rate":         "250000000000",
 				"gas_amount":       "210000000000000",
 				"gas_usd_rate":     "250000000000",
 				"gas_decimals":     float64(18),
-				"native_asset_id":  "ETH",
+				"native_asset_id":  testasset.ETH.String(),
 				"chain_id":         "base",
 				"source_chain_id":  "base",
 				"dest_chain_id":    "arbitrum",
@@ -162,6 +166,7 @@ func corpus() []corpusCase {
 				"protocol":    "Uniswap V3",
 				"transfers_out": []interface{}{
 					map[string]interface{}{
+						"asset_id":     testasset.ETH.String(),
 						"asset_symbol": "ETH",
 						"amount":       "1000000000000000000",
 						"decimals":     float64(18),
@@ -170,16 +175,18 @@ func corpus() []corpusCase {
 				},
 				"transfers_in": []interface{}{
 					map[string]interface{}{
+						"asset_id":     testasset.USDC.String(),
 						"asset_symbol": "USDC",
 						"amount":       "2500000000",
 						"decimals":     float64(6),
 						"usd_price":    "100000000",
 					},
 				},
-				"fee_asset":     "ETH",
-				"fee_amount":    "210000000000000",
-				"fee_decimals":  float64(18),
-				"fee_usd_price": "250000000000",
+				"fee_asset":        testasset.ETH.String(),
+				"fee_asset_symbol": "ETH",
+				"fee_amount":       "210000000000000",
+				"fee_decimals":     float64(18),
+				"fee_usd_price":    "250000000000",
 			},
 		},
 		// clearing. + wallet. + gas.  — DeFi deposit.
@@ -195,6 +202,7 @@ func corpus() []corpusCase {
 				"operation_type": "deposit",
 				"transfers": []interface{}{
 					map[string]interface{}{
+						"asset_id":     testasset.USDC.String(),
 						"asset_symbol": "USDC",
 						"amount":       "1000000000",
 						"decimals":     float64(6),
@@ -202,6 +210,7 @@ func corpus() []corpusCase {
 						"direction":    "out",
 					},
 					map[string]interface{}{
+						"asset_id":     testasset.ForTicker("crvUSDC").String(),
 						"asset_symbol": "crvUSDC",
 						"amount":       "990000000",
 						"decimals":     float64(6),
@@ -209,10 +218,11 @@ func corpus() []corpusCase {
 						"direction":    "in",
 					},
 				},
-				"fee_asset":     "ETH",
-				"fee_amount":    "210000000000000",
-				"fee_decimals":  float64(18),
-				"fee_usd_price": "250000000000",
+				"fee_asset":        testasset.ETH.String(),
+				"fee_asset_symbol": "ETH",
+				"fee_amount":       "210000000000000",
+				"fee_decimals":     float64(18),
+				"fee_usd_price":    "250000000000",
 			},
 		},
 		// clearing. + wallet.  — DeFi withdraw (mirror of deposit).
@@ -228,6 +238,7 @@ func corpus() []corpusCase {
 				"operation_type": "withdraw",
 				"transfers": []interface{}{
 					map[string]interface{}{
+						"asset_id":     testasset.ForTicker("crvUSDC").String(),
 						"asset_symbol": "crvUSDC",
 						"amount":       "990000000",
 						"decimals":     float64(6),
@@ -235,6 +246,7 @@ func corpus() []corpusCase {
 						"direction":    "out",
 					},
 					map[string]interface{}{
+						"asset_id":     testasset.USDC.String(),
 						"asset_symbol": "USDC",
 						"amount":       "1000000000",
 						"decimals":     float64(6),
@@ -257,6 +269,7 @@ func corpus() []corpusCase {
 				"operation_type": "claim",
 				"transfers": []interface{}{
 					map[string]interface{}{
+						"asset_id":     testasset.CRV.String(),
 						"asset_symbol": "CRV",
 						"amount":       "5000000000000000000",
 						"decimals":     float64(18),
@@ -278,6 +291,7 @@ func corpus() []corpusCase {
 				"protocol":    "Uniswap V3",
 				"transfers": []interface{}{
 					map[string]interface{}{
+						"asset_id":     testasset.WETH.String(),
 						"asset_symbol": "WETH",
 						"amount":       "1000000000000000000",
 						"decimals":     float64(18),
@@ -285,6 +299,7 @@ func corpus() []corpusCase {
 						"direction":    "out",
 					},
 					map[string]interface{}{
+						"asset_id":     testasset.USDC.String(),
 						"asset_symbol": "USDC",
 						"amount":       "2500000000",
 						"decimals":     float64(6),
@@ -292,10 +307,11 @@ func corpus() []corpusCase {
 						"direction":    "out",
 					},
 				},
-				"fee_asset":     "ETH",
-				"fee_amount":    "210000000000000",
-				"fee_decimals":  float64(18),
-				"fee_usd_price": "250000000000",
+				"fee_asset":        testasset.ETH.String(),
+				"fee_asset_symbol": "ETH",
+				"fee_amount":       "210000000000000",
+				"fee_decimals":     float64(18),
+				"fee_usd_price":    "250000000000",
 			},
 		},
 		// clearing. + wallet.  — LP withdraw.
@@ -310,6 +326,7 @@ func corpus() []corpusCase {
 				"protocol":    "Uniswap V3",
 				"transfers": []interface{}{
 					map[string]interface{}{
+						"asset_id":     testasset.WETH.String(),
 						"asset_symbol": "WETH",
 						"amount":       "1000000000000000000",
 						"decimals":     float64(18),
@@ -331,6 +348,7 @@ func corpus() []corpusCase {
 				"protocol":    "Uniswap V3",
 				"transfers": []interface{}{
 					map[string]interface{}{
+						"asset_id":     testasset.USDC.String(),
 						"asset_symbol": "USDC",
 						"amount":       "1500000",
 						"decimals":     float64(6),
@@ -344,44 +362,45 @@ func corpus() []corpusCase {
 		{
 			name:    "lending_supply",
 			handler: lending.NewLendingSupplyHandler(repo, log),
-			data:    lendingData("0xaab1", "USDC", "1000000000", float64(6), true),
+			data:    lendingData("0xaab1", testasset.USDC, "USDC", "1000000000", float64(6), true),
 		},
 		// collateral. (five segments) + wallet.
 		{
 			name:    "lending_withdraw",
 			handler: lending.NewLendingWithdrawHandler(repo, log),
-			data:    lendingData("0xaab2", "USDC", "1000000000", float64(6), false),
+			data:    lendingData("0xaab2", testasset.USDC, "USDC", "1000000000", float64(6), false),
 		},
 		// liability. (five segments) + wallet.
 		{
 			name:    "lending_borrow",
 			handler: lending.NewLendingBorrowHandler(repo, log),
-			data:    lendingData("0xaab3", "DAI", "1000000000000000000", float64(18), false),
+			data:    lendingData("0xaab3", testasset.DAI, "DAI", "1000000000000000000", float64(18), false),
 		},
 		// liability. (five segments) + wallet.
 		{
 			name:    "lending_repay",
 			handler: lending.NewLendingRepayHandler(repo, log),
-			data:    lendingData("0xaab4", "DAI", "1000000000000000000", float64(18), false),
+			data:    lendingData("0xaab4", testasset.DAI, "DAI", "1000000000000000000", float64(18), false),
 		},
 		// income.lending. variant + wallet.
 		{
 			name:    "lending_claim",
 			handler: lending.NewLendingClaimHandler(repo, log),
-			data:    lendingData("0xaab5", "AAVE", "2000000000000000000", float64(18), false),
+			data:    lendingData("0xaab5", testasset.AAVE, "AAVE", "2000000000000000000", float64(18), false),
 		},
 		// income.genesis. variant + wallet.
 		{
 			name:    "genesis_balance",
 			handler: genesis.NewHandler(log),
 			data: map[string]interface{}{
-				"wallet_id":   walletID.String(),
-				"asset_id":    "BTC",
-				"chain_id":    "bitcoin",
-				"amount":      "100000000",
-				"decimals":    float64(8),
-				"usd_rate":    "6500000000000",
-				"occurred_at": occurredAt.Format(time.RFC3339),
+				"wallet_id":    walletID.String(),
+				"asset_id":     testasset.BTC.String(),
+				"asset_symbol": "BTC",
+				"chain_id":     "bitcoin",
+				"amount":       "100000000",
+				"decimals":     float64(8),
+				"usd_rate":     "6500000000000",
+				"occurred_at":  occurredAt.Format(time.RFC3339),
 			},
 		},
 	}
@@ -389,7 +408,12 @@ func corpus() []corpusCase {
 
 // lendingData builds a single-item lending fixture. withGas adds a fee so that
 // the lending gas branch is covered once without repeating it in all five.
-func lendingData(txHash, asset, amount string, decimals float64, withGas bool) map[string]interface{} {
+//
+// The asset is passed as an (id, ticker) pair rather than a ticker alone: the
+// id is what the account code is built from since #59, and deriving it from the
+// ticker here would give a ticker two identities if any other fixture names the
+// same asset by its testasset constant.
+func lendingData(txHash string, assetID uuid.UUID, symbol, amount string, decimals float64, withGas bool) map[string]interface{} {
 	data := map[string]interface{}{
 		"wallet_id":   walletID.String(),
 		"tx_hash":     txHash,
@@ -401,15 +425,17 @@ func lendingData(txHash, asset, amount string, decimals float64, withGas bool) m
 		// account pair. Setting it would imply a distinction that is not there.
 		"transfers": []interface{}{
 			map[string]interface{}{
-				"asset_id": asset,
-				"decimals": decimals,
-				"amount":   amount,
-				"usd_rate": "100000000",
+				"asset_id":     assetID.String(),
+				"asset_symbol": symbol,
+				"decimals":     decimals,
+				"amount":       amount,
+				"usd_rate":     "100000000",
 			},
 		},
 	}
 	if withGas {
-		data["fee_asset"] = "ETH"
+		data["fee_asset"] = testasset.ETH.String()
+		data["fee_asset_symbol"] = "ETH"
 		data["fee_amount"] = "210000000000000"
 		data["fee_decimals"] = float64(18)
 		data["fee_usd_price"] = "250000000000"

@@ -71,10 +71,13 @@ func (s *Service) FindOrCreate(
 }
 
 // RecordSupply adds to supply totals and current supply balance for a specific asset.
+//
+// assetID is a resolved asset_registry ID: the caller has already decided which
+// concrete (chain, contract) this is, so nothing here has to guess from a ticker.
 func (s *Service) RecordSupply(
 	ctx context.Context,
 	positionID uuid.UUID,
-	asset string, decimals int, contract string,
+	assetID uuid.UUID,
 	amount, usdValue *big.Int,
 ) error {
 	pos, err := s.getPosition(ctx, positionID)
@@ -82,16 +85,14 @@ func (s *Service) RecordSupply(
 		return err
 	}
 
-	a := pos.FindAsset("supply", asset)
+	a := pos.FindAsset("supply", assetID)
 	if a == nil {
 		newAsset := LendingPositionAsset{
 			ID:          uuid.New(),
 			PositionID:  positionID,
 			Side:        "supply",
-			Asset:       asset,
+			Asset:       assetID,
 			Amount:      new(big.Int).Set(amount),
-			Decimals:    decimals,
-			Contract:    contract,
 			TotalIn:     new(big.Int).Set(amount),
 			TotalOut:    big.NewInt(0),
 			TotalInUSD:  new(big.Int).Set(usdValue),
@@ -112,15 +113,15 @@ func (s *Service) RecordSupply(
 }
 
 // RecordWithdraw subtracts from supply balance for a specific asset. May close position.
-func (s *Service) RecordWithdraw(ctx context.Context, positionID uuid.UUID, asset string, amount, usdValue *big.Int) error {
+func (s *Service) RecordWithdraw(ctx context.Context, positionID uuid.UUID, assetID uuid.UUID, amount, usdValue *big.Int) error {
 	pos, err := s.getPosition(ctx, positionID)
 	if err != nil {
 		return err
 	}
 
-	a := pos.FindAsset("supply", asset)
+	a := pos.FindAsset("supply", assetID)
 	if a == nil {
-		return fmt.Errorf("supply asset %s not found on position %s", asset, positionID)
+		return fmt.Errorf("supply asset %s not found on position %s", assetID, positionID)
 	}
 
 	a.Amount.Sub(a.Amount, amount)
@@ -144,7 +145,7 @@ func (s *Service) RecordWithdraw(ctx context.Context, positionID uuid.UUID, asse
 func (s *Service) RecordBorrow(
 	ctx context.Context,
 	positionID uuid.UUID,
-	asset string, decimals int, contract string,
+	assetID uuid.UUID,
 	amount, usdValue *big.Int,
 ) error {
 	pos, err := s.getPosition(ctx, positionID)
@@ -152,16 +153,14 @@ func (s *Service) RecordBorrow(
 		return err
 	}
 
-	a := pos.FindAsset("borrow", asset)
+	a := pos.FindAsset("borrow", assetID)
 	if a == nil {
 		newAsset := LendingPositionAsset{
 			ID:          uuid.New(),
 			PositionID:  positionID,
 			Side:        "borrow",
-			Asset:       asset,
+			Asset:       assetID,
 			Amount:      new(big.Int).Set(amount),
-			Decimals:    decimals,
-			Contract:    contract,
 			TotalIn:     new(big.Int).Set(amount),
 			TotalOut:    big.NewInt(0),
 			TotalInUSD:  new(big.Int).Set(usdValue),
@@ -182,15 +181,15 @@ func (s *Service) RecordBorrow(
 }
 
 // RecordRepay subtracts from borrow balance for a specific asset. May close position.
-func (s *Service) RecordRepay(ctx context.Context, positionID uuid.UUID, asset string, amount, usdValue *big.Int) error {
+func (s *Service) RecordRepay(ctx context.Context, positionID uuid.UUID, assetID uuid.UUID, amount, usdValue *big.Int) error {
 	pos, err := s.getPosition(ctx, positionID)
 	if err != nil {
 		return err
 	}
 
-	a := pos.FindAsset("borrow", asset)
+	a := pos.FindAsset("borrow", assetID)
 	if a == nil {
-		return fmt.Errorf("borrow asset %s not found on position %s", asset, positionID)
+		return fmt.Errorf("borrow asset %s not found on position %s", assetID, positionID)
 	}
 
 	a.Amount.Sub(a.Amount, amount)

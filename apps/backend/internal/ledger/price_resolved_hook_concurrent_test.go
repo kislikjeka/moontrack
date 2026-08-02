@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 )
 
 // TestPriceResolvedHook_ConcurrentResolutions verifies that when two workers
@@ -28,13 +29,13 @@ import (
 func TestPriceResolvedHook_ConcurrentResolutions(t *testing.T) {
 	ctx := context.Background()
 	at := time.Now().UTC().Truncate(time.Minute)
-	assetID := uuid.New()
+	assetID := testasset.ForTicker("TOKEN")
 
 	pendingLot := &TaxLot{
 		ID:                   uuid.New(),
 		TransactionID:        uuid.New(),
 		AccountID:            uuid.New(),
-		Asset:                "TOKEN",
+		Asset:                testasset.ForTicker("TOKEN"),
 		QuantityAcquired:     big.NewInt(1_000),
 		QuantityRemaining:    big.NewInt(1_000),
 		AcquiredAt:           at,
@@ -44,10 +45,7 @@ func TestPriceResolvedHook_ConcurrentResolutions(t *testing.T) {
 		CreatedAt:            time.Now(),
 	}
 
-	repo := &mockTaxLotRepo{
-		lots:        []*TaxLot{pendingLot},
-		lotAssetIDs: map[uuid.UUID]uuid.UUID{pendingLot.ID: assetID},
-	}
+	repo := &mockTaxLotRepo{lots: []*TaxLot{pendingLot}}
 	hook := NewPriceResolvedHook(repo, newTestLogger())
 
 	const price = int64(123_000_000) // $1.23 @ 10^8
@@ -98,35 +96,32 @@ func TestPriceResolvedHook_ConcurrentResolutions(t *testing.T) {
 func TestPriceResolvedHook_PartialBatchFailure(t *testing.T) {
 	ctx := context.Background()
 	at := time.Now().UTC().Truncate(time.Minute)
-	assetID := uuid.New()
+	assetID := testasset.ForTicker("TOKEN")
 
 	// Create 3 pending lots. The mock will return an error on the 2nd
 	// call to ResolvePendingPrice.
 	lot1 := &TaxLot{
 		ID: uuid.New(), TransactionID: uuid.New(), AccountID: uuid.New(),
-		Asset:            "TOKEN",
+		Asset:            testasset.ForTicker("TOKEN"),
 		QuantityAcquired: big.NewInt(100), QuantityRemaining: big.NewInt(100),
 		AcquiredAt: at, PriceStatus: PriceStatusPending, CreatedAt: time.Now(),
 	}
 	lot2 := &TaxLot{
 		ID: uuid.New(), TransactionID: uuid.New(), AccountID: uuid.New(),
-		Asset:            "TOKEN",
+		Asset:            testasset.ForTicker("TOKEN"),
 		QuantityAcquired: big.NewInt(200), QuantityRemaining: big.NewInt(200),
 		AcquiredAt: at, PriceStatus: PriceStatusPending, CreatedAt: time.Now(),
 	}
 	lot3 := &TaxLot{
 		ID: uuid.New(), TransactionID: uuid.New(), AccountID: uuid.New(),
-		Asset:            "TOKEN",
+		Asset:            testasset.ForTicker("TOKEN"),
 		QuantityAcquired: big.NewInt(300), QuantityRemaining: big.NewInt(300),
 		AcquiredAt: at, PriceStatus: PriceStatusPending, CreatedAt: time.Now(),
 	}
 
 	injected := errors.New("simulated resolve failure on lot #2")
 	repo := &mockTaxLotRepo{
-		lots: []*TaxLot{lot1, lot2, lot3},
-		lotAssetIDs: map[uuid.UUID]uuid.UUID{
-			lot1.ID: assetID, lot2.ID: assetID, lot3.ID: assetID,
-		},
+		lots:           []*TaxLot{lot1, lot2, lot3},
 		failResolveOn:  2,
 		failResolveErr: injected,
 	}

@@ -22,12 +22,17 @@ import (
 // matters is the reconciliation report's judgement (#41), not a number here.
 var deltaDustTolerance = big.NewInt(10)
 
-// Reconciler handles Phase 2: comparing transaction flows with on-chain balances
+// Reconciler handles Phase 2: comparing transaction flows with on-chain
+// balances.
+//
+// Like the Collector, it records NO asset metadata (#59). Its former
+// extractAssetsFromPositions wrote every position into chain_assets; that table
+// is gone, and a position observed during reconciliation is not an identity the
+// ledger needs anyway — reconciliation only compares numbers and reports.
 type Reconciler struct {
 	rawTxRepo   RawTransactionRepository
 	posProvider PositionDataProvider
 	walletRepo  WalletRepository
-	assetRepo   SyncAssetRepository
 	knownFilter *KnownAssetFilter
 	logger      *logger.Logger
 }
@@ -40,7 +45,6 @@ func NewReconciler(
 	rawTxRepo RawTransactionRepository,
 	posProvider PositionDataProvider,
 	walletRepo WalletRepository,
-	assetRepo SyncAssetRepository,
 	knownFilter *KnownAssetFilter,
 	log *logger.Logger,
 ) *Reconciler {
@@ -48,7 +52,6 @@ func NewReconciler(
 		rawTxRepo:   rawTxRepo,
 		posProvider: posProvider,
 		walletRepo:  walletRepo,
-		assetRepo:   assetRepo,
 		knownFilter: knownFilter,
 		logger:      log.WithField("component", "reconciler"),
 	}
@@ -166,9 +169,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (Reconcile
 		"wallet_id", w.ID,
 		"chains", len(chainRows),
 		"positions", len(positions))
-
-	// Extract and upsert asset metadata from positions
-	r.extractAssetsFromPositions(ctx, positions)
 
 	flaggedCount := 0
 
@@ -392,32 +392,4 @@ func calculateNetFlows(raws []*RawTransaction) (map[string]*AssetFlow, error) {
 	}
 
 	return flows, nil
-}
-
-// extractAssetsFromPositions upserts asset metadata from on-chain positions
-func (r *Reconciler) extractAssetsFromPositions(ctx context.Context, positions []OnChainPosition) {
-	if r.assetRepo == nil {
-		return
-	}
-
-	for _, pos := range positions {
-		if pos.AssetSymbol == "" {
-			continue
-		}
-		if err := r.assetRepo.Upsert(ctx, &SyncAsset{
-			Symbol:  pos.AssetSymbol,
-			Name:    pos.AssetName,
-			ChainID: pos.ChainID,
-			// Legacy store, legacy spelling of native — see the collector's
-			// matching write and legacyContractAddress (#56).
-			ContractAddress: legacyContractAddress(pos.ContractAddress),
-			Decimals:        pos.Decimals,
-			IconURL:         pos.IconURL,
-		}); err != nil {
-			r.logger.Warn("failed to upsert sync asset from position",
-				"symbol", pos.AssetSymbol,
-				"chain_id", pos.ChainID,
-				"error", err)
-		}
-	}
 }

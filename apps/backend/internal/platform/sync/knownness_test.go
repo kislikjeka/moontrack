@@ -124,7 +124,7 @@ func newFilterTestBuilder(t *testing.T, registry sync.KnownnessRegistry) (*sync.
 	ledgerSvc := &captureLedgerSvc{}
 	filter := sync.NewKnownAssetFilter(registry)
 
-	return sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, nil, filter), ledgerSvc
+	return sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, filter), ledgerSvc
 }
 
 // captureLedgerSvc records every RecordTransaction call verbatim.
@@ -572,7 +572,9 @@ func TestFilter_ZeroDecimalsUnknownSymbol_IsNotNative(t *testing.T) {
 	require.Len(t, ledgerSvc.recorded, 1)
 	legs := transfersOf(t, ledgerSvc.recorded[0].Data)
 	require.Len(t, legs, 1, "the UNKN leg must not be merged with real ETH")
-	assert.Equal(t, "ETH", legs[0]["asset_id"])
+	// Which leg survived is the point; the ticker names it. Identity travels
+	// under asset_id as a UUID, and this builder has no registry wired.
+	assert.Equal(t, "ETH", legs[0]["asset_symbol"])
 }
 
 // =============================================================================

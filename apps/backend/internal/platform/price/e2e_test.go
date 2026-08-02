@@ -17,7 +17,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kislikjeka/moontrack/internal/ledger"
-	"github.com/kislikjeka/moontrack/internal/platform/asset"
 	"github.com/kislikjeka/moontrack/internal/platform/price"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/stretchr/testify/assert"
@@ -29,7 +28,7 @@ import (
 func buildPipeline(
 	t *testing.T,
 	prov price.Provider,
-	a asset.Asset,
+	a price.Asset,
 ) (*price.BackfillWorker, *memJobRepo, *memPriceRecorder, *int) {
 	t.Helper()
 
@@ -45,9 +44,9 @@ func buildPipeline(
 	)
 
 	w := price.NewBackfillWorker(price.WorkerDeps{
-		Jobs:        jr,
-		Resolver:    resolver,
-		AssetLookup: aLookup,
+		Jobs:          jr,
+		Resolver:      resolver,
+		AssetLookup:   aLookup,
 		PriceRecorder: pr,
 		OnResolved: func(_ context.Context, _ uuid.UUID, _ time.Time, _ *big.Int, _ ledger.CostBasisSource) error {
 			calls++
@@ -71,12 +70,12 @@ func TestE2E_FullPipeline_Resolved(t *testing.T) {
 	targetTime := time.Now().UTC().Truncate(time.Minute)
 	chainID := "ethereum"
 	contractAddr := "0xabc"
-	a := asset.Asset{ID: uuid.New(), Symbol: "TKNA", ChainID: &chainID, ContractAddress: &contractAddr}
+	a := price.Asset{ID: uuid.New(), Chain: chainID, Contract: contractAddr}
 
 	prov := &stubProv{
 		hp: &price.HistoricalPrice{
-			PriceUSD:  big.NewInt(77),
-			Timestamp: targetTime,
+			PriceUSD:   big.NewInt(77),
+			Timestamp:  targetTime,
 			Confidence: 1,
 		},
 	}
@@ -109,7 +108,7 @@ func TestE2E_FullPipeline_Resolved(t *testing.T) {
 func TestE2E_FullPipeline_NotFound(t *testing.T) {
 	ctx := context.Background()
 	targetTime := time.Now().UTC().Truncate(time.Minute)
-	a := asset.Asset{ID: uuid.New(), Symbol: "TKNB"}
+	a := price.Asset{ID: uuid.New(), CoinGeckoID: "tknb"}
 
 	w, jr, pr, calls := buildPipeline(t, &stubProv{err: price.ErrNotFound}, a)
 
@@ -135,7 +134,7 @@ func TestE2E_FullPipeline_NotFound(t *testing.T) {
 func TestE2E_FullPipeline_RateLimited(t *testing.T) {
 	ctx := context.Background()
 	targetTime := time.Now().UTC().Truncate(time.Minute)
-	a := asset.Asset{ID: uuid.New(), Symbol: "TKNC"}
+	a := price.Asset{ID: uuid.New(), CoinGeckoID: "tknc"}
 
 	w, jr, pr, calls := buildPipeline(t, &stubProv{err: price.ErrRateLimited}, a)
 

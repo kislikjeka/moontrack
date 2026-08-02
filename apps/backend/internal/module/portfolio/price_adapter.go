@@ -3,48 +3,58 @@ package portfolio
 import (
 	"context"
 	"math/big"
-
-	"github.com/kislikjeka/moontrack/internal/platform/asset"
 )
 
-// AssetServiceInterface defines the asset service methods needed by the price adapter
-type AssetServiceInterface interface {
-	GetAssetsBySymbol(ctx context.Context, symbol string) ([]asset.Asset, error)
-	GetCurrentPriceByCoinGeckoID(ctx context.Context, coinGeckoID string) (*big.Int, error)
+// CoinGeckoPriceClient is the spot-price call this adapter needs, named in
+// CoinGecko's own vocabulary (a slug, not an asset).
+type CoinGeckoPriceClient interface {
+	GetCurrentPrices(ctx context.Context, coinGeckoIDs []string) (map[string]*big.Int, error)
 }
 
-// PortfolioPriceAdapter resolves asset symbols to CoinGecko IDs before price lookup.
+// PortfolioPriceAdapter values a holding from its ticker.
+//
+// It asks CoinGecko directly now (#59). It used to fall back, for any ticker
+// outside the table below, to asset.Service.GetAssetsBySymbol and then take
+// assets[0].CoinGeckoID — the first row of an arbitrarily ordered set of
+// same-ticker assets. On a portfolio that is a live mispricing: two tokens
+// sharing a ticker would both be valued at whichever one the database happened
+// to return first.
+//
+// The fallback is not rebuilt against asset_registry. The registry is keyed on
+// (chain, contract) exactly so a bare ticker cannot name an asset, and reviving
+// a symbol-to-slug guess against it would restore the bug in a new place. What
+// remains is the compiled-in table of unambiguous major coins.
+//
+// Unresolvable tickers value at ZERO, which is this adapter's pre-existing
+// convention for "no price" (every error path already returns big.NewInt(0)) and
+// is what the portfolio service expects. Valuing per-token holdings properly is
+// the job of the registry-keyed price pipeline, not of a symbol guess.
 type PortfolioPriceAdapter struct {
-	assetSvc AssetServiceInterface
+	cg CoinGeckoPriceClient
 }
 
 // NewPortfolioPriceAdapter creates a new portfolio price adapter.
-func NewPortfolioPriceAdapter(assetSvc AssetServiceInterface) *PortfolioPriceAdapter {
-	return &PortfolioPriceAdapter{assetSvc: assetSvc}
+func NewPortfolioPriceAdapter(cg CoinGeckoPriceClient) *PortfolioPriceAdapter {
+	return &PortfolioPriceAdapter{cg: cg}
 }
 
-// GetPriceBySymbol resolves symbol → CoinGecko ID → price.
+// GetPriceBySymbol resolves symbol -> CoinGecko slug -> price, returning zero
+// when the ticker is not one it can resolve unambiguously.
 func (a *PortfolioPriceAdapter) GetPriceBySymbol(ctx context.Context, symbol string) (*big.Int, error) {
 	coinGeckoID := symbolToCoinGeckoID(symbol)
-	if coinGeckoID == "" {
-		// ERC-20 fallback: look up by symbol in asset DB
-		assets, err := a.assetSvc.GetAssetsBySymbol(ctx, symbol)
-		if err != nil || len(assets) == 0 {
-			return big.NewInt(0), nil
-		}
-		coinGeckoID = assets[0].CoinGeckoID
-	}
-
-	if coinGeckoID == "" {
+	if coinGeckoID == "" || a.cg == nil {
 		return big.NewInt(0), nil
 	}
 
-	price, err := a.assetSvc.GetCurrentPriceByCoinGeckoID(ctx, coinGeckoID)
+	prices, err := a.cg.GetCurrentPrices(ctx, []string{coinGeckoID})
 	if err != nil {
 		return big.NewInt(0), nil
 	}
-
-	return price, nil
+	p, ok := prices[coinGeckoID]
+	if !ok || p == nil {
+		return big.NewInt(0), nil
+	}
+	return p, nil
 }
 
 // symbolToCoinGeckoID maps common native asset symbols to CoinGecko IDs.

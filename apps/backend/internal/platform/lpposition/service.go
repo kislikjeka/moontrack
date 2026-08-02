@@ -23,10 +23,14 @@ func NewService(repo Repository, log *logger.Logger) *Service {
 	}
 }
 
+// TokenInfo names one side of an LP pair.
+//
+// It held {Symbol, Contract, Decimals} and now holds only a registry ID, which
+// carries all three. It stays a struct rather than collapsing to a bare
+// uuid.UUID parameter so that FindOrCreate's signature keeps saying "token",
+// not "some UUID" — the call site already passes several unrelated UUIDs.
 type TokenInfo struct {
-	Symbol   string
-	Contract string
-	Decimals int
+	AssetID uuid.UUID
 }
 
 // FindOrCreate looks up an LP position by NFT token ID, or creates a new one.
@@ -50,12 +54,8 @@ func (s *Service) FindOrCreate(ctx context.Context, userID, walletID uuid.UUID, 
 		NFTTokenID:      nftTokenID,
 		ContractAddress: contractAddress,
 
-		Token0Symbol:   token0.Symbol,
-		Token1Symbol:   token1.Symbol,
-		Token0Contract: token0.Contract,
-		Token0Decimals: token0.Decimals,
-		Token1Contract: token1.Contract,
-		Token1Decimals: token1.Decimals,
+		Token0AssetID: token0.AssetID,
+		Token1AssetID: token1.AssetID,
 
 		TotalDepositedUSD:    big.NewInt(0),
 		TotalWithdrawnUSD:    big.NewInt(0),
@@ -81,8 +81,8 @@ func (s *Service) FindOrCreate(ctx context.Context, userID, walletID uuid.UUID, 
 	s.logger.Info("LP position created",
 		"position_id", pos.ID,
 		"nft_token_id", nftTokenID,
-		"token0", token0.Symbol,
-		"token1", token1.Symbol,
+		"token0_asset_id", token0.AssetID,
+		"token1_asset_id", token1.AssetID,
 	)
 
 	return pos, nil
@@ -90,7 +90,7 @@ func (s *Service) FindOrCreate(ctx context.Context, userID, walletID uuid.UUID, 
 
 // FindOpenByTokenPair finds an open LP position by token pair (heuristic for withdraw/claim).
 // Returns the oldest open position if multiple found.
-func (s *Service) FindOpenByTokenPair(ctx context.Context, walletID uuid.UUID, chainID, protocol, token0, token1 string) (*LPPosition, error) {
+func (s *Service) FindOpenByTokenPair(ctx context.Context, walletID uuid.UUID, chainID, protocol string, token0, token1 uuid.UUID) (*LPPosition, error) {
 	positions, err := s.repo.FindOpenByTokenPair(ctx, walletID, chainID, protocol, token0, token1)
 	if err != nil {
 		return nil, fmt.Errorf("find by token pair: %w", err)

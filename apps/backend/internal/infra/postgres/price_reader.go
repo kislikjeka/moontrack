@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/kislikjeka/moontrack/internal/platform/asset"
 	"github.com/kislikjeka/moontrack/internal/platform/price"
 )
 
@@ -96,11 +95,125 @@ func (r *PriceReader) Current(ctx context.Context, assetID uuid.UUID) (*big.Int,
 	return v, price.Source(sourceStr), nil
 }
 
+// CurrentBatch returns the latest price for each of the given assets, applying
+// the same source priority as Current.
+//
+// One query, not one per asset. The pre-#59 batch endpoint issued a single
+// GetBatchPrices read, and looping Current would turn a 100-asset request into
+// 100 round trips. Assets with no price are simply absent from the map, which
+// is what lets the caller tell "not priced yet" from a price of zero.
+func (r *PriceReader) CurrentBatch(ctx context.Context, assetIDs []uuid.UUID) (map[uuid.UUID]price.Quote, error) {
+	out := make(map[uuid.UUID]price.Quote, len(assetIDs))
+	if len(assetIDs) == 0 {
+		return out, nil
+	}
+	priorityCase := r.buildPriorityCase()
+
+	// DISTINCT ON (asset_id) with the priority as the leading ORDER BY term
+	// picks each asset's best row in one pass, mirroring Current's two-step
+	// (latest per source, then best source) without a per-asset subquery.
+	query := fmt.Sprintf(`
+		SELECT DISTINCT ON (asset_id) asset_id, source, price_usd
+		FROM (
+			SELECT DISTINCT ON (asset_id, source) asset_id, source, time, price_usd
+			FROM price_history
+			WHERE asset_id = ANY($1)
+			ORDER BY asset_id, source, time DESC
+		) latest
+		ORDER BY asset_id, %s
+	`, priorityCase)
+
+	rows, err := r.pool.Query(ctx, query, assetIDs)
+	if err != nil {
+		return nil, fmt.Errorf("price_reader: current_batch: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id uuid.UUID
+		var sourceStr, priceStr string
+		if err := rows.Scan(&id, &sourceStr, &priceStr); err != nil {
+			return nil, fmt.Errorf("price_reader: current_batch: %w", err)
+		}
+		v, ok := new(big.Int).SetString(priceStr, 10)
+		if !ok {
+			return nil, fmt.Errorf("price_reader: current_batch: invalid numeric value %q", priceStr)
+		}
+		out[id] = price.Quote{PriceUSD: v, Source: price.Source(sourceStr)}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("price_reader: current_batch: %w", err)
+	}
+	return out, nil
+}
+
+// History returns bucketed price points for an asset over [from, to].
+//
+// It replaces PriceRepository.GetPriceHistory, whose three interval branches
+// each spoke asset.PricePoint and whose daily branch read the price_history_daily
+// continuous aggregate (#59). This reads the raw hypertable for every interval
+// instead: the aggregate is refreshed on a policy that ends an hour in the past
+// and it carries no source column, so a backfilled point could be absent from
+// it while present in price_history, and the daily series would disagree with
+// the current price served beside it.
+//
+// bucketExpr is a fixed string chosen from a closed set by the caller, never
+// user input, so interpolating it cannot inject. last(price_usd, time) picks
+// the closing observation of each bucket, matching what the old hourly and
+// weekly branches did.
+func (r *PriceReader) History(ctx context.Context, assetID uuid.UUID, from, to time.Time, bucket string) ([]price.HistoryPoint, error) {
+	var bucketExpr string
+	switch bucket {
+	case "1h":
+		bucketExpr = "time_bucket('1 hour', time)"
+	case "1d":
+		bucketExpr = "time_bucket('1 day', time)"
+	case "1w":
+		bucketExpr = "time_bucket('1 week', time)"
+	default:
+		return nil, fmt.Errorf("price_reader: history: unsupported interval %q", bucket)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT %s AS bucket,
+		       last(price_usd, time) AS price_usd,
+		       last(source, time) AS source
+		FROM price_history
+		WHERE asset_id = $1 AND time >= $2 AND time <= $3
+		GROUP BY bucket
+		ORDER BY bucket ASC
+	`, bucketExpr)
+
+	rows, err := r.pool.Query(ctx, query, assetID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("price_reader: history: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]price.HistoryPoint, 0)
+	for rows.Next() {
+		var t time.Time
+		var priceStr, sourceStr string
+		if err := rows.Scan(&t, &priceStr, &sourceStr); err != nil {
+			return nil, fmt.Errorf("price_reader: history: %w", err)
+		}
+		v, ok := new(big.Int).SetString(priceStr, 10)
+		if !ok {
+			return nil, fmt.Errorf("price_reader: history: invalid numeric value %q", priceStr)
+		}
+		out = append(out, price.HistoryPoint{Time: t, PriceUSD: v, Source: price.Source(sourceStr)})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("price_reader: history: %w", err)
+	}
+	return out, nil
+}
+
 // Historical returns the best price for ts, choosing the highest-priority
 // source among the rows that actually cover ts.
 //
 // A row covers ts only when ts falls inside the tolerance window implied by
-// that row's own granularity (see asset.PricePointCovers) — otherwise the
+// that row's own granularity (see price.PricePointCovers) — otherwise the
 // nearest-at-or-before row would let an arbitrarily stale spot point stand in
 // for a point-in-time price. Returns price.ErrNotFound when no row covers ts.
 func (r *PriceReader) Historical(ctx context.Context, assetID uuid.UUID, ts time.Time) (*price.HistoricalPrice, price.Source, error) {
@@ -123,7 +236,7 @@ func (r *PriceReader) Historical(ctx context.Context, assetID uuid.UUID, ts time
 		ORDER BY %s, time DESC
 	`, priorityCase)
 
-	rows, err := r.pool.Query(ctx, query, assetID, ts, ts.Add(-asset.GranularityDaily.ToleranceWindow()))
+	rows, err := r.pool.Query(ctx, query, assetID, ts, ts.Add(-price.GranularityDaily.ToleranceWindow()))
 	if err != nil {
 		return nil, "", fmt.Errorf("price_reader: historical: %w", err)
 	}
@@ -136,7 +249,7 @@ func (r *PriceReader) Historical(ctx context.Context, assetID uuid.UUID, ts time
 			return nil, "", fmt.Errorf("price_reader: historical: %w", err)
 		}
 		// Rows arrive in priority order; take the first one that covers ts.
-		if !asset.PricePointCovers(rowTime, ts) {
+		if !price.PricePointCovers(rowTime, ts) {
 			continue
 		}
 		v, ok := new(big.Int).SetString(priceStr, 10)

@@ -21,10 +21,9 @@ func newTestReconciler(
 	rawTxRepo pkgsync.RawTransactionRepository,
 	posProvider pkgsync.PositionDataProvider,
 	walletRepo pkgsync.WalletRepository,
-	assetRepo pkgsync.SyncAssetRepository,
 ) *pkgsync.Reconciler {
 	log := logger.New("test", os.Stdout)
-	return pkgsync.NewReconciler(rawTxRepo, posProvider, walletRepo, assetRepo, nil, log)
+	return pkgsync.NewReconciler(rawTxRepo, posProvider, walletRepo, nil, log)
 }
 
 // buildSendRaw creates a raw transaction with a single outbound transfer of the
@@ -113,7 +112,7 @@ func TestReconcile_DeltaBeyondDust_FlagsChainAndWritesNothing(t *testing.T) {
 		{ChainID: "ethereum", AssetSymbol: "USDC", Decimals: 6, Quantity: big.NewInt(2_000_000)},
 	}, nil)
 
-	r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
+	r := newTestReconciler(rawTxRepo, posProvider, walletRepo)
 	res, err := r.Reconcile(ctx, w)
 	count := res.Flagged
 
@@ -163,7 +162,7 @@ func TestReconcile_DeltaSignSymmetry_SameHandling(t *testing.T) {
 			{ChainID: "ethereum", AssetSymbol: "USDC", Decimals: 6, Quantity: onChain},
 		}, nil)
 
-		r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
+		r := newTestReconciler(rawTxRepo, posProvider, walletRepo)
 		res, err := r.Reconcile(ctx, w)
 		count = res.Flagged
 		require.NoError(t, err)
@@ -242,7 +241,7 @@ func TestReconcile_DeltaWithinDust_NoFlag(t *testing.T) {
 				{ChainID: "ethereum", AssetSymbol: "USDC", Decimals: 6, Quantity: tc.onChain},
 			}, nil)
 
-			r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
+			r := newTestReconciler(rawTxRepo, posProvider, walletRepo)
 			res, err := r.Reconcile(ctx, w)
 			count := res.Flagged
 
@@ -285,7 +284,7 @@ func TestReconcile_FlaggedChainDoesNotStopOtherChains(t *testing.T) {
 		{ChainID: "base", AssetSymbol: "USDC", Decimals: 6, Quantity: big.NewInt(5_000_000)},
 	}, nil)
 
-	r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
+	r := newTestReconciler(rawTxRepo, posProvider, walletRepo)
 	res, err := r.Reconcile(ctx, w)
 	count := res.Flagged
 
@@ -326,7 +325,7 @@ func TestReconcile_DecimalsMismatch_MarksDegraded(t *testing.T) {
 		{ChainID: "ethereum", AssetSymbol: "USDC", Decimals: 6, Quantity: big.NewInt(2_000_000)},
 	}, nil)
 
-	r := newTestReconciler(rawTxRepo, posProvider, walletRepo, nil)
+	r := newTestReconciler(rawTxRepo, posProvider, walletRepo)
 	res, err := r.Reconcile(ctx, w)
 	count := res.Flagged
 

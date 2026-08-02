@@ -40,12 +40,14 @@ type LPPositionResponse struct {
 	NFTTokenID      string `json:"nft_token_id,omitempty"`
 	ContractAddress string `json:"contract_address,omitempty"`
 
-	Token0Symbol   string `json:"token0_symbol"`
-	Token1Symbol   string `json:"token1_symbol"`
-	Token0Contract string `json:"token0_contract,omitempty"`
-	Token1Contract string `json:"token1_contract,omitempty"`
-	Token0Decimals int    `json:"token0_decimals"`
-	Token1Decimals int    `json:"token1_decimals"`
+	// The pair is reported as two asset_registry ids (#59). Symbol, contract
+	// and decimals used to be denormalized onto the position row and are now
+	// attributes of the registry row each id names — a second copy here could
+	// only ever disagree with it, and a native token in a pair was spelled as
+	// an empty contract, which made "which token is this" ambiguous. Resolving
+	// these ids to display attributes for the API response is #42's work.
+	Token0AssetID string `json:"token0_asset_id"`
+	Token1AssetID string `json:"token1_asset_id"`
 
 	TotalDepositedUSD   string `json:"total_deposited_usd"`
 	TotalWithdrawnUSD   string `json:"total_withdrawn_usd"`
@@ -152,12 +154,8 @@ func toLPPositionResponse(pos *lpposition.LPPosition) LPPositionResponse {
 		NFTTokenID:      pos.NFTTokenID,
 		ContractAddress: pos.ContractAddress,
 
-		Token0Symbol:   pos.Token0Symbol,
-		Token1Symbol:   pos.Token1Symbol,
-		Token0Contract: pos.Token0Contract,
-		Token1Contract: pos.Token1Contract,
-		Token0Decimals: pos.Token0Decimals,
-		Token1Decimals: pos.Token1Decimals,
+		Token0AssetID: pos.Token0AssetID.String(),
+		Token1AssetID: pos.Token1AssetID.String(),
 
 		TotalDepositedUSD:   money.FormatUSD(pos.TotalDepositedUSD),
 		TotalWithdrawnUSD:   money.FormatUSD(pos.TotalWithdrawnUSD),

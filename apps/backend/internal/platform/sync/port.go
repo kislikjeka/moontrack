@@ -248,6 +248,20 @@ type DecodedTransfer struct {
 	// Empty for any provider that supplies no per-leg action; such a leg is
 	// treated as principal, so nothing is ever dropped for want of this field.
 	Action string
+
+	// AssetID is the registry UUID this leg's (chain, contract) resolves to —
+	// the identity the ledger records (issue #59, decision #35).
+	//
+	// It is populated by resolveAssetIdentities, which runs once over the whole
+	// transaction before any builder reads it, and it is the ONLY asset identity
+	// the ledger accepts from here on. AssetSymbol travels alongside it as
+	// display metadata and is no longer an identifier: two contracts sharing a
+	// ticker are two UUIDs, and one coin on two chains is likewise two.
+	//
+	// uuid.Nil means unresolved, which is a bug rather than a state — the
+	// resolve fails the transaction rather than emitting a leg with no identity,
+	// so nothing downstream has to decide what an identity-less leg means.
+	AssetID uuid.UUID
 }
 
 // DecodedFee represents the gas fee for a decoded transaction
@@ -258,6 +272,13 @@ type DecodedFee struct {
 	Decimals    int
 	USDPrice    *big.Int // USD price scaled by 1e8, nil if unavailable
 	IconURL     string   // Token icon URL, empty if unavailable
+
+	// AssetID is the registry UUID of the coin the fee was paid in, resolved on
+	// (chain, 'native') — gas is always paid in the chain's native coin. Set by
+	// resolveAssetIdentities alongside every transfer leg, for the same reason:
+	// gas moves value and therefore needs a real identity in the ledger, not a
+	// ticker that happens to read "ETH" on a chain where it is not.
+	AssetID uuid.UUID
 }
 
 // TransactionDataProvider fetches decoded transactions from an external API.
@@ -295,7 +316,7 @@ type TransactionDataProvider interface {
 // LPPositionService manages LP position lifecycle
 type LPPositionService interface {
 	FindOrCreate(ctx context.Context, userID, walletID uuid.UUID, chainID, protocol, nftTokenID, contractAddress string, token0, token1 lpposition.TokenInfo, openedAt time.Time) (*lpposition.LPPosition, error)
-	FindOpenByTokenPair(ctx context.Context, walletID uuid.UUID, chainID, protocol, token0, token1 string) (*lpposition.LPPosition, error)
+	FindOpenByTokenPair(ctx context.Context, walletID uuid.UUID, chainID, protocol string, token0, token1 uuid.UUID) (*lpposition.LPPosition, error)
 	RecordDeposit(ctx context.Context, positionID uuid.UUID, token0Amt, token1Amt, usdValue *big.Int) error
 	RecordWithdraw(ctx context.Context, positionID uuid.UUID, token0Amt, token1Amt, usdValue *big.Int) error
 	RecordClaimFees(ctx context.Context, positionID uuid.UUID, token0Amt, token1Amt, usdValue *big.Int) error
@@ -304,10 +325,10 @@ type LPPositionService interface {
 // LendingPositionService manages lending position lifecycle
 type LendingPositionService interface {
 	FindOrCreate(ctx context.Context, userID, walletID uuid.UUID, protocol, chainID string, openedAt time.Time) (*lendingposition.LendingPosition, error)
-	RecordSupply(ctx context.Context, positionID uuid.UUID, asset string, decimals int, contract string, amount, usdValue *big.Int) error
-	RecordWithdraw(ctx context.Context, positionID uuid.UUID, asset string, amount, usdValue *big.Int) error
-	RecordBorrow(ctx context.Context, positionID uuid.UUID, asset string, decimals int, contract string, amount, usdValue *big.Int) error
-	RecordRepay(ctx context.Context, positionID uuid.UUID, asset string, amount, usdValue *big.Int) error
+	RecordSupply(ctx context.Context, positionID uuid.UUID, assetID uuid.UUID, amount, usdValue *big.Int) error
+	RecordWithdraw(ctx context.Context, positionID uuid.UUID, assetID uuid.UUID, amount, usdValue *big.Int) error
+	RecordBorrow(ctx context.Context, positionID uuid.UUID, assetID uuid.UUID, amount, usdValue *big.Int) error
+	RecordRepay(ctx context.Context, positionID uuid.UUID, assetID uuid.UUID, amount, usdValue *big.Int) error
 	RecordClaim(ctx context.Context, positionID uuid.UUID, usdValue *big.Int) error
 }
 

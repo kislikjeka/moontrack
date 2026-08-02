@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -106,7 +107,7 @@ func TestAccount_Validate_ClearingType(t *testing.T) {
 		ID:      uuid.New(),
 		Code:    "clearing.swap.ETH",
 		Type:    ledger.AccountTypeClearing,
-		AssetID: "ETH",
+		AssetID: testasset.ETH,
 	}
 
 	err := account.Validate()
@@ -120,7 +121,7 @@ func TestAccount_Validate_ClearingType_RejectsWalletID(t *testing.T) {
 		ID:       uuid.New(),
 		Code:     "clearing.swap.ETH",
 		Type:     ledger.AccountTypeClearing,
-		AssetID:  "ETH",
+		AssetID:  testasset.ETH,
 		WalletID: &walletID,
 	}
 
@@ -135,7 +136,7 @@ func TestAccount_Validate_AllTypes(t *testing.T) {
 		ID:       uuid.New(),
 		Code:     "wallet.test.ETH",
 		Type:     ledger.AccountTypeCryptoWallet,
-		AssetID:  "ETH",
+		AssetID:  testasset.ETH,
 		WalletID: &walletID,
 	}
 	assert.NoError(t, walletAccount.Validate())
@@ -154,7 +155,7 @@ func TestAccount_Validate_AllTypes(t *testing.T) {
 				ID:      uuid.New(),
 				Code:    "test." + string(at),
 				Type:    at,
-				AssetID: "ETH",
+				AssetID: testasset.ETH,
 			}
 			assert.NoError(t, account.Validate())
 		})
@@ -166,7 +167,7 @@ func TestAccount_Validate_InvalidType(t *testing.T) {
 		ID:      uuid.New(),
 		Code:    "test.invalid",
 		Type:    ledger.AccountType("INVALID"),
-		AssetID: "ETH",
+		AssetID: testasset.ETH,
 	}
 
 	err := account.Validate()

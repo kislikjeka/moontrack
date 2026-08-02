@@ -80,7 +80,7 @@ func newRegistryTestBuilder(t *testing.T, registry sync.AssetRegistry) (*sync.Tx
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	return sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, registry, nil), ledgerSvc
+	return sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, registry, nil), ledgerSvc
 }
 
 // =============================================================================
@@ -473,11 +473,19 @@ func TestTxBuilder_ResolveDedupesWithinTransaction(t *testing.T) {
 	assert.Len(t, registry.calls, 1, "one identity should resolve once, not once per leg")
 }
 
-// TestTxBuilder_MissingChain_IsNotResolved covers the one way a key can be
-// invalid. NewAssetKey turns a missing contract into the sentinel, so only a
-// missing chain can fail Valid() — a provider defect rather than a native leg,
-// and one that must not mint a half-identity.
-func TestTxBuilder_MissingChain_IsNotResolved(t *testing.T) {
+// TestTxBuilder_MissingChain_IsFatal covers the one way a key can be invalid.
+// NewAssetKey turns a missing contract into the sentinel, so only a missing
+// chain can fail Valid() — a provider defect rather than a native leg, and one
+// that must not mint a half-identity.
+//
+// #59 INVERTED THE OUTCOME. Under #56 the resolve was a side effect on the
+// registry alone, so an unresolvable leg was survivable: the transaction was
+// still recorded, merely without an on-chain identity. Now the resolved UUID IS
+// the asset the ledger entry is booked against, so continuing would book the
+// movement against uuid.Nil. Failing the transaction is the conservative
+// outcome — a sync that stops is recoverable, a ledger booked against a
+// non-asset is not.
+func TestTxBuilder_MissingChain_IsFatal(t *testing.T) {
 	ctx := context.Background()
 	registry := newFakeAssetRegistry()
 	builder, _ := newRegistryTestBuilder(t, registry)
@@ -506,19 +514,22 @@ func TestTxBuilder_MissingChain_IsNotResolved(t *testing.T) {
 	}
 
 	_, err := builder.ProcessTransaction(ctx, w, tx)
-	require.NoError(t, err, "an unresolvable identity must not cost the transaction")
+	require.Error(t, err, "a leg with no resolvable identity must fail the transaction, not be booked against uuid.Nil")
+	assert.Contains(t, err.Error(), "incomplete on-chain identity")
 	assert.Empty(t, registry.calls, "half an identity must not reach the registry")
 }
 
-// TestTxBuilder_LegacyRawDataKeepsEmptyNativeContract pins that the sentinel
-// does NOT leak into the ledger's raw_data.
+// TestTxBuilder_RawDataCarriesNativeSentinel pins how a native leg spells its
+// contract in the ledger's raw_data.
 //
-// The sentinel is the vocabulary of the new registry. raw_data belongs to the
-// pre-existing symbolic path, is round-tripped by platform/rawdata and surfaced
-// by the transactions API, and #56 explicitly leaves that path alone — so a
-// native leg must keep producing the empty contract it always produced. Without
-// this the adapter change would silently alter an API payload.
-func TestTxBuilder_LegacyRawDataKeepsEmptyNativeContract(t *testing.T) {
+// #56 kept the legacy empty string here, because raw_data belonged to the
+// symbolic path that #56 deliberately left alone. #59 removes that path: the
+// leg's identity is a registry UUID travelling under `asset_id`, and
+// `contract_address` is now descriptive rather than identifying. It carries the
+// leg's own contract verbatim, which for a native coin is the sentinel — the
+// same value the registry key uses, so the two views cannot disagree about
+// which asset a native leg names.
+func TestTxBuilder_RawDataCarriesNativeSentinel(t *testing.T) {
 	ctx := context.Background()
 	registry := newFakeAssetRegistry()
 	builder, ledgerSvc := newRegistryTestBuilder(t, registry)
@@ -552,14 +563,19 @@ func TestTxBuilder_LegacyRawDataKeepsEmptyNativeContract(t *testing.T) {
 	require.Len(t, ledgerSvc.recordedTransactions, 1)
 	rawData := ledgerSvc.recordedTransactions[0].RawData
 
-	assert.Equal(t, "", rawData["contract_address"],
-		"the ledger payload keeps the legacy empty-string spelling of native")
+	assert.Equal(t, sync.NativeContract, rawData["contract_address"],
+		"a native leg spells its contract with the sentinel, matching its registry key")
 
 	transfers, ok := rawData["transfers"].([]map[string]interface{})
 	require.True(t, ok, "expected a transfers array")
 	require.Len(t, transfers, 1)
-	assert.Equal(t, "", transfers[0]["contract_address"],
-		"per-leg raw_data keeps the legacy spelling too")
+	assert.Equal(t, sync.NativeContract, transfers[0]["contract_address"],
+		"per-leg raw_data uses the same spelling")
+
+	// Identity travels as the registry UUID, not as the contract string.
+	nativeID := registry.idFor(t, "ethereum", sync.NativeContract)
+	assert.Equal(t, nativeID.String(), rawData["asset_id"],
+		"the leg's identity in raw_data is the registry UUID")
 
 	// The identity still resolved — the legacy spelling is a translation at the
 	// boundary, not a loss of the native identity.

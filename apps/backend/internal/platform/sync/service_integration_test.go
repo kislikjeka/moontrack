@@ -51,7 +51,22 @@ type testEnv struct {
 	ledgerSvc      *ledger.Service
 	ledgerRepo     *postgres.LedgerRepository
 	txProviderMock *mockTxProvider
+	assetRegistry  *postgres.AssetRegistryRepository
+	taxLotRepo     *postgres.TaxLotRepository
 	ctx            context.Context
+}
+
+// assetID returns the registry id the pipeline resolved a leg to.
+//
+// Balances are keyed on that UUID since #59, so a test cannot ask for "the ETH
+// balance" by ticker any more. The chain matters: (ethereum, native) and
+// (arbitrum, native) are two assets, which is the distinction the ticket
+// exists to make.
+func (e *testEnv) assetID(t *testing.T, chain, contract string) uuid.UUID {
+	t.Helper()
+	a, err := e.assetRegistry.Resolve(e.ctx, sync.NewAssetKey(chain, contract), "", "", 18)
+	require.NoError(t, err)
+	return a.ID
 }
 
 func setupIntegrationTest(t *testing.T) *testEnv {
@@ -71,6 +86,11 @@ func setupIntegrationTest(t *testing.T) *testEnv {
 	registry.Register(transfer.NewInternalTransferHandler(walletRepo, log))
 	ledgerSvc := ledger.NewService(ledgerRepo, registry, log)
 
+	// Tax lots are created by a post-balance hook, not by the ledger core, so a
+	// test asserting on lots has to wire it exactly as production does.
+	taxLotRepo := postgres.NewTaxLotRepository(testDB.Pool)
+	ledgerSvc.RegisterPostBalanceHook(ledger.NewTaxLotHook(taxLotRepo, ledgerRepo, log))
+
 	// Create mock transaction data provider
 	txProviderMock := newMockTxProvider()
 
@@ -80,7 +100,6 @@ func setupIntegrationTest(t *testing.T) *testEnv {
 	// asset repo are present, so passing nil here would leave svc.collector nil
 	// and SyncWallet would nil-panic rather than sync anything.
 	rawTxRepo := postgres.NewRawTransactionRepository(testDB.Pool)
-	syncAssetRepo := postgres.NewSyncAssetRepository(testDB.Pool)
 
 	// Create sync config
 	config := &sync.Config{
@@ -91,13 +110,20 @@ func setupIntegrationTest(t *testing.T) *testEnv {
 	}
 
 	// Create sync service
-	syncSvc := sync.NewService(config, walletRepo, ledgerSvc, nil, log, txProviderMock, nil, rawTxRepo, syncAssetRepo, nil, nil, nil, nil, nil, nil)
+	// The registry is real: identity is an asset_registry UUID since #59, and
+	// entries carry an FK into that table, so a nil registry would leave every
+	// leg unresolved and the pipeline would fail rather than book anything.
+	assetRegistry := postgres.NewAssetRegistryRepository(testDB.Pool)
+
+	syncSvc := sync.NewService(config, walletRepo, ledgerSvc, log, txProviderMock, nil, rawTxRepo, nil, nil, nil, assetRegistry, nil)
 
 	return &testEnv{
 		syncSvc:        syncSvc,
 		ledgerSvc:      ledgerSvc,
 		ledgerRepo:     ledgerRepo,
 		txProviderMock: txProviderMock,
+		assetRegistry:  assetRegistry,
+		taxLotRepo:     taxLotRepo,
 		ctx:            ctx,
 	}
 }
@@ -238,11 +264,11 @@ func TestSyncService_SyncWallet_RecordsTransfers(t *testing.T) {
 	assert.Len(t, txs, 1, "Should have 1 transaction recorded")
 
 	// Verify balance
-	accountCode := "wallet." + walletID.String() + ".ethereum.ETH"
+	accountCode := "wallet." + walletID.String() + ".ethereum." + env.assetID(t, "ethereum", sync.NativeContract).String()
 	account, err := env.ledgerRepo.GetAccountByCode(env.ctx, accountCode)
 	require.NoError(t, err)
 
-	balance, err := env.ledgerSvc.GetAccountBalance(env.ctx, account.ID, "ETH")
+	balance, err := env.ledgerSvc.GetAccountBalance(env.ctx, account.ID, env.assetID(t, "ethereum", sync.NativeContract))
 	require.NoError(t, err)
 	assert.Equal(t, 0, balance.Balance.Cmp(big.NewInt(1000000000000000000)), "Balance should be 1 ETH")
 }
@@ -287,11 +313,11 @@ func TestSyncService_SyncWallet_MultipleTransfers(t *testing.T) {
 	assert.Len(t, txs, 5, "Should have 5 transactions recorded")
 
 	// Verify total balance: 5 * 0.1 = 0.5 ETH
-	accountCode := "wallet." + walletID.String() + ".ethereum.ETH"
+	accountCode := "wallet." + walletID.String() + ".ethereum." + env.assetID(t, "ethereum", sync.NativeContract).String()
 	account, err := env.ledgerRepo.GetAccountByCode(env.ctx, accountCode)
 	require.NoError(t, err)
 
-	balance, err := env.ledgerSvc.GetAccountBalance(env.ctx, account.ID, "ETH")
+	balance, err := env.ledgerSvc.GetAccountBalance(env.ctx, account.ID, env.assetID(t, "ethereum", sync.NativeContract))
 	require.NoError(t, err)
 	expectedBalance := big.NewInt(500000000000000000) // 0.5 ETH
 	assert.Equal(t, 0, balance.Balance.Cmp(expectedBalance), "Balance should be 0.5 ETH")
@@ -389,21 +415,21 @@ func TestSyncService_InternalTransfer_RecordedOnce(t *testing.T) {
 
 	// Verify balances
 	// Source wallet: funded with 1 ETH, sent 0.5 away.
-	sourceAccountCode := "wallet." + sourceWalletID.String() + ".ethereum.ETH"
+	sourceAccountCode := "wallet." + sourceWalletID.String() + ".ethereum." + env.assetID(t, "ethereum", sync.NativeContract).String()
 	sourceAccount, err := env.ledgerRepo.GetAccountByCode(env.ctx, sourceAccountCode)
 	require.NoError(t, err)
 
-	sourceBalance, err := env.ledgerSvc.GetAccountBalance(env.ctx, sourceAccount.ID, "ETH")
+	sourceBalance, err := env.ledgerSvc.GetAccountBalance(env.ctx, sourceAccount.ID, env.assetID(t, "ethereum", sync.NativeContract))
 	require.NoError(t, err)
 	expectedSourceBalance := big.NewInt(500000000000000000)
 	assert.Equal(t, 0, sourceBalance.Balance.Cmp(expectedSourceBalance))
 
 	// Dest wallet should have increased
-	destAccountCode := "wallet." + destWalletID.String() + ".ethereum.ETH"
+	destAccountCode := "wallet." + destWalletID.String() + ".ethereum." + env.assetID(t, "ethereum", sync.NativeContract).String()
 	destAccount, err := env.ledgerRepo.GetAccountByCode(env.ctx, destAccountCode)
 	require.NoError(t, err)
 
-	destBalance, err := env.ledgerSvc.GetAccountBalance(env.ctx, destAccount.ID, "ETH")
+	destBalance, err := env.ledgerSvc.GetAccountBalance(env.ctx, destAccount.ID, env.assetID(t, "ethereum", sync.NativeContract))
 	require.NoError(t, err)
 	expectedDestBalance := big.NewInt(500000000000000000)
 	assert.Equal(t, 0, destBalance.Balance.Cmp(expectedDestBalance))
@@ -517,11 +543,11 @@ func TestSyncService_Idempotency_DoubleSyncSameWallet(t *testing.T) {
 	assert.Len(t, txs, 1, "Should have exactly 1 transaction (not duplicated)")
 
 	// Verify balance is correct (not doubled)
-	accountCode := "wallet." + walletID.String() + ".ethereum.ETH"
+	accountCode := "wallet." + walletID.String() + ".ethereum." + env.assetID(t, "ethereum", sync.NativeContract).String()
 	account, err := env.ledgerRepo.GetAccountByCode(env.ctx, accountCode)
 	require.NoError(t, err)
 
-	balance, err := env.ledgerSvc.GetAccountBalance(env.ctx, account.ID, "ETH")
+	balance, err := env.ledgerSvc.GetAccountBalance(env.ctx, account.ID, env.assetID(t, "ethereum", sync.NativeContract))
 	require.NoError(t, err)
 	expectedBalance := big.NewInt(1000000000000000000) // 1 ETH
 	assert.Equal(t, 0, balance.Balance.Cmp(expectedBalance), "Balance should be 1 ETH (not doubled)")
@@ -607,12 +633,96 @@ func TestSyncService_MixedTransfers_InOutExternal(t *testing.T) {
 	assert.Len(t, txs, 3)
 
 	// Verify final balance: 2 - 0.5 + 1 = 2.5 ETH
-	accountCode := "wallet." + walletID.String() + ".ethereum.ETH"
+	accountCode := "wallet." + walletID.String() + ".ethereum." + env.assetID(t, "ethereum", sync.NativeContract).String()
 	account, err := env.ledgerRepo.GetAccountByCode(env.ctx, accountCode)
 	require.NoError(t, err)
 
-	balance, err := env.ledgerSvc.GetAccountBalance(env.ctx, account.ID, "ETH")
+	balance, err := env.ledgerSvc.GetAccountBalance(env.ctx, account.ID, env.assetID(t, "ethereum", sync.NativeContract))
 	require.NoError(t, err)
 	expectedBalance := big.NewInt(2500000000000000000) // 2.5 ETH
 	assert.Equal(t, 0, balance.Balance.Cmp(expectedBalance), "Balance should be 2.5 ETH")
+}
+
+// TestSyncService_SameTickerTwoContracts_SplitAccountsAndLots is acceptance
+// criterion 12 of #59, asserted at the port seam rather than at the resolve.
+//
+// The resolve-level tests already pin "two contracts, two UUIDs". That is the
+// necessary half but not the sufficient one: the whole point of the epic is that
+// the SPLIT SURVIVES INTO THE BOOKS. A UUID that is minted correctly and then
+// collapsed by an account code built from a ticker would pass those tests and
+// still put a spam USDC into the real USDC's balance — the original defect,
+// undetected. So this drives the full pipeline and asserts on the end state:
+// two accounts, two balances, two lot sets.
+//
+// The second contract deliberately carries the SAME ticker on the SAME chain,
+// which is the case the old (symbol, chain) key could not represent at all.
+func TestSyncService_SameTickerTwoContracts_SplitAccountsAndLots(t *testing.T) {
+	env := setupIntegrationTest(t)
+
+	userID := createTestUser(t, env.ctx, testDB.Pool)
+	walletAddress := "0x1234567890123456789012345678901234567890"
+	walletID := createTestWallet(t, env.ctx, testDB.Pool, userID, walletAddress)
+
+	const realUSDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+	const otherUSDC = "0x1111111111111111111111111111111111111111"
+
+	add := func(id, hash, contract string, amount int64) {
+		env.txProviderMock.AddTransaction(walletAddress, sync.DecodedTransaction{
+			ID:            id,
+			TxHash:        hash,
+			ChainID:       "ethereum",
+			OperationType: sync.OpReceive,
+			Transfers: []sync.DecodedTransfer{{
+				AssetSymbol:     "USDC",
+				ContractAddress: contract,
+				Decimals:        6,
+				Amount:          big.NewInt(amount),
+				Direction:       sync.DirectionIn,
+				Sender:          "0xexternalsender",
+				Recipient:       walletAddress,
+				USDPrice:        big.NewInt(100000000),
+			}},
+			MinedAt: time.Now().Add(-time.Hour),
+			Status:  "confirmed",
+		})
+	}
+	add("ext-usdc-real", "0xreal", realUSDC, 1000000)
+	add("ext-usdc-other", "0xother", otherUSDC, 5000000)
+
+	require.NoError(t, env.syncSvc.SyncWallet(env.ctx, walletID))
+
+	realID := env.assetID(t, "ethereum", realUSDC)
+	otherID := env.assetID(t, "ethereum", otherUSDC)
+	require.NotEqual(t, realID, otherID, "two contracts must be two identities")
+
+	// Two DISTINCT accounts, one per identity — not one account holding both.
+	realAcct, err := env.ledgerRepo.GetAccountByCode(env.ctx,
+		"wallet."+walletID.String()+".ethereum."+realID.String())
+	require.NoError(t, err)
+	otherAcct, err := env.ledgerRepo.GetAccountByCode(env.ctx,
+		"wallet."+walletID.String()+".ethereum."+otherID.String())
+	require.NoError(t, err)
+	require.NotEqual(t, realAcct.ID, otherAcct.ID, "each identity needs its own account")
+
+	// Each balance is its own amount. If the split had failed the surviving
+	// account would hold 6000000 — the sum — which is exactly the corrupted
+	// number the epic exists to prevent.
+	realBal, err := env.ledgerSvc.GetAccountBalance(env.ctx, realAcct.ID, realID)
+	require.NoError(t, err)
+	assert.Equal(t, 0, realBal.Balance.Cmp(big.NewInt(1000000)), "real USDC balance stands alone")
+
+	otherBal, err := env.ledgerSvc.GetAccountBalance(env.ctx, otherAcct.ID, otherID)
+	require.NoError(t, err)
+	assert.Equal(t, 0, otherBal.Balance.Cmp(big.NewInt(5000000)), "other USDC balance stands alone")
+
+	// Two lot sets: cost basis is tracked per identity, so a disposal of one
+	// cannot consume the other's lots.
+	realLots, err := env.taxLotRepo.GetLotsByAccount(env.ctx, realAcct.ID, realID)
+	require.NoError(t, err)
+	otherLots, err := env.taxLotRepo.GetLotsByAccount(env.ctx, otherAcct.ID, otherID)
+	require.NoError(t, err)
+	require.Len(t, realLots, 1, "real USDC has its own lot")
+	require.Len(t, otherLots, 1, "other USDC has its own lot")
+	assert.Equal(t, realID, realLots[0].Asset)
+	assert.Equal(t, otherID, otherLots[0].Asset)
 }

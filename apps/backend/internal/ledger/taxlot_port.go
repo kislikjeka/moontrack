@@ -16,9 +16,9 @@ type TaxLotRepository interface {
 	CreateTaxLot(ctx context.Context, lot *TaxLot) error
 	GetTaxLot(ctx context.Context, id uuid.UUID) (*TaxLot, error)
 	GetTaxLotForUpdate(ctx context.Context, id uuid.UUID) (*TaxLot, error)
-	GetOpenLotsFIFO(ctx context.Context, accountID uuid.UUID, asset string) ([]*TaxLot, error)
+	GetOpenLotsFIFO(ctx context.Context, accountID uuid.UUID, asset uuid.UUID) ([]*TaxLot, error)
 	UpdateLotRemaining(ctx context.Context, lotID uuid.UUID, newRemaining *big.Int) error
-	GetLotsByAccount(ctx context.Context, accountID uuid.UUID, asset string) ([]*TaxLot, error)
+	GetLotsByAccount(ctx context.Context, accountID uuid.UUID, asset uuid.UUID) ([]*TaxLot, error)
 	GetLotsByTransaction(ctx context.Context, txID uuid.UUID) ([]*TaxLot, error)
 
 	// Disposal CRUD
@@ -38,21 +38,20 @@ type TaxLotRepository interface {
 
 	// Pending-price resolution methods (migration 000025)
 
-	// ListPendingLotsByAssetAndTime returns all lots whose price_status is 'pending'
-	// for the given asset symbol within the minute bucket containing at.
+	// ListPendingLotsByAssetAndTime returns all lots whose price_status is
+	// 'pending' for the given asset within the minute bucket containing at.
 	//
-	// WARNING: this method keys on the asset symbol (string) only, which
-	// collides for tokens that share a symbol across chains (e.g. USDT on
-	// Ethereum vs USDT on BNB). Prefer ListPendingLotsByAssetIDAndTime for
-	// new code paths.
-	ListPendingLotsByAssetAndTime(ctx context.Context, asset string, at time.Time) ([]*TaxLot, error)
-
-	// ListPendingLotsByAssetIDAndTime returns all lots whose price_status is
-	// 'pending' for the given asset UUID within the minute bucket containing at.
-	// The UUID filter prevents collisions between tokens that share a symbol
-	// on different chains. Implementations must resolve assetID -> (symbol, chain_id)
-	// and JOIN on accounts.chain_id to scope correctly.
-	ListPendingLotsByAssetIDAndTime(ctx context.Context, assetID uuid.UUID, at time.Time) ([]*TaxLot, error)
+	// THIS METHOD REPLACES A PAIR (issue #59). There used to be two: one keyed
+	// on a bare symbol with no chain at all — `WHERE asset = $1`, which matched
+	// every chain's lots sharing a ticker and is the fourth of the four places
+	// the epic called out — and one keyed on a UUID that had to resolve back to
+	// (symbol, chain_id) and JOIN accounts to scope itself correctly.
+	//
+	// Under registry identity both collapse into this one. The asset UUID already
+	// names exactly one (chain, contract), so there is nothing left to
+	// disambiguate and no join left to get wrong: the unscoped variant cannot be
+	// written any more, because there is no longer a key that spans chains.
+	ListPendingLotsByAssetAndTime(ctx context.Context, assetID uuid.UUID, at time.Time) ([]*TaxLot, error)
 
 	// ResolvePendingPrice sets auto_cost_basis_per_unit and transitions
 	// price_status to 'resolved'. Only affects rows where price_status='pending'.

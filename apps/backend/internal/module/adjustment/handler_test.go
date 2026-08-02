@@ -15,6 +15,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/internal/module/adjustment"
 	"github.com/kislikjeka/moontrack/pkg/logger"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 )
 
 var (
@@ -63,7 +64,7 @@ func (m *MockLedgerRepository) GetAccountByCode(ctx context.Context, code string
 	return args.Get(0).(*ledger.Account), args.Error(1)
 }
 
-func (m *MockLedgerRepository) GetAccountBalance(ctx context.Context, accountID uuid.UUID, assetID string) (*ledger.AccountBalance, error) {
+func (m *MockLedgerRepository) GetAccountBalance(ctx context.Context, accountID uuid.UUID, assetID uuid.UUID) (*ledger.AccountBalance, error) {
 	args := m.Called(ctx, accountID, assetID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -71,7 +72,7 @@ func (m *MockLedgerRepository) GetAccountBalance(ctx context.Context, accountID 
 	return args.Get(0).(*ledger.AccountBalance), args.Error(1)
 }
 
-func (m *MockLedgerRepository) GetAccountBalanceForUpdate(ctx context.Context, accountID uuid.UUID, assetID string) (*ledger.AccountBalance, error) {
+func (m *MockLedgerRepository) GetAccountBalanceForUpdate(ctx context.Context, accountID uuid.UUID, assetID uuid.UUID) (*ledger.AccountBalance, error) {
 	args := m.Called(ctx, accountID, assetID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -152,7 +153,7 @@ func (m *MockLedgerRepository) RollbackTx(ctx context.Context) error {
 	return args.Error(0)
 }
 
-func (m *MockLedgerRepository) CalculateBalanceFromEntries(ctx context.Context, accountID uuid.UUID, assetID string) (*big.Int, error) {
+func (m *MockLedgerRepository) CalculateBalanceFromEntries(ctx context.Context, accountID uuid.UUID, assetID uuid.UUID) (*big.Int, error) {
 	args := m.Called(ctx, accountID, assetID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -167,7 +168,8 @@ var _ ledger.Repository = (*MockLedgerRepository)(nil)
 func TestAssetAdjustmentHandler_GenerateEntries_Balance(t *testing.T) {
 	ctx := context.Background()
 	walletID := uuid.New()
-	assetID := "ETH"
+	// assetID is a registry UUID (#59); raw_data carries its string form.
+	assetID := testasset.ETH
 
 	// Helper to create big.Int from string
 	mustParseBigInt := func(s string) *big.Int {
@@ -191,7 +193,7 @@ func TestAssetAdjustmentHandler_GenerateEntries_Balance(t *testing.T) {
 			name: "increase balance - ledger entries balance",
 			txData: map[string]interface{}{
 				"wallet_id":   walletID.String(),
-				"asset_id":    assetID,
+				"asset_id":    assetID.String(),
 				"new_balance": mustParseBigInt("5000000000000000000"), // 5 ETH in wei
 				"usd_rate":    mustParseBigInt("200000000000"),        // $2000 * 10^8
 				"occurred_at": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
@@ -205,7 +207,7 @@ func TestAssetAdjustmentHandler_GenerateEntries_Balance(t *testing.T) {
 			name: "decrease balance - ledger entries balance",
 			txData: map[string]interface{}{
 				"wallet_id":   walletID.String(),
-				"asset_id":    assetID,
+				"asset_id":    assetID.String(),
 				"new_balance": mustParseBigInt("1000000000000000000"), // 1 ETH in wei
 				"usd_rate":    mustParseBigInt("200000000000"),        // $2000 * 10^8
 				"occurred_at": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
@@ -219,7 +221,7 @@ func TestAssetAdjustmentHandler_GenerateEntries_Balance(t *testing.T) {
 			name: "initial balance from zero - ledger entries balance",
 			txData: map[string]interface{}{
 				"wallet_id":   walletID.String(),
-				"asset_id":    assetID,
+				"asset_id":    assetID.String(),
 				"new_balance": mustParseBigInt("10000000000000000000"), // 10 ETH in wei
 				"usd_rate":    mustParseBigInt("200000000000"),         // $2000 * 10^8
 				"occurred_at": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
@@ -233,7 +235,7 @@ func TestAssetAdjustmentHandler_GenerateEntries_Balance(t *testing.T) {
 			name: "no adjustment needed - same balance",
 			txData: map[string]interface{}{
 				"wallet_id":   walletID.String(),
-				"asset_id":    assetID,
+				"asset_id":    assetID.String(),
 				"new_balance": mustParseBigInt("3000000000000000000"), // 3 ETH in wei
 				"usd_rate":    mustParseBigInt("200000000000"),        // $2000 * 10^8
 				"occurred_at": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
@@ -333,7 +335,7 @@ func TestAssetAdjustmentHandler_ValidateData(t *testing.T) {
 			name: "valid adjustment data",
 			txData: map[string]interface{}{
 				"wallet_id":   walletID.String(),
-				"asset_id":    "BTC",
+				"asset_id":    testasset.BTC.String(),
 				"new_balance": mustParseBigInt("100000000"), // 1 BTC in satoshis
 				"occurred_at": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
 			},
@@ -342,7 +344,7 @@ func TestAssetAdjustmentHandler_ValidateData(t *testing.T) {
 		{
 			name: "missing wallet ID",
 			txData: map[string]interface{}{
-				"asset_id":    "BTC",
+				"asset_id":    testasset.BTC.String(),
 				"new_balance": mustParseBigInt("100000000"),
 				"occurred_at": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
 			},
@@ -363,7 +365,7 @@ func TestAssetAdjustmentHandler_ValidateData(t *testing.T) {
 			name: "negative balance",
 			txData: map[string]interface{}{
 				"wallet_id":   walletID.String(),
-				"asset_id":    "BTC",
+				"asset_id":    testasset.BTC.String(),
 				"new_balance": mustParseBigInt("-100000000"), // Negative
 				"occurred_at": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
 			},
@@ -374,7 +376,7 @@ func TestAssetAdjustmentHandler_ValidateData(t *testing.T) {
 			name: "future date",
 			txData: map[string]interface{}{
 				"wallet_id":   walletID.String(),
-				"asset_id":    "BTC",
+				"asset_id":    testasset.BTC.String(),
 				"new_balance": mustParseBigInt("100000000"),
 				"occurred_at": time.Now().Add(24 * time.Hour).Format(time.RFC3339), // Future
 			},
@@ -448,7 +450,7 @@ func TestAssetAdjustmentHandler_USDValueCalculation(t *testing.T) {
 			mockRepo := new(MockLedgerRepository)
 			mockRepo.On("GetAccountBalance", ctx, mock.AnythingOfType("uuid.UUID"), mock.Anything).Return(&ledger.AccountBalance{
 				AccountID: walletID,
-				AssetID:   "ETH",
+				AssetID:   testasset.ETH,
 				Balance:   tt.currentBal,
 			}, nil)
 
@@ -457,7 +459,7 @@ func TestAssetAdjustmentHandler_USDValueCalculation(t *testing.T) {
 
 			txData := map[string]interface{}{
 				"wallet_id":   walletID.String(),
-				"asset_id":    "ETH",
+				"asset_id":    testasset.ETH.String(),
 				"decimals":    tt.decimals,
 				"new_balance": tt.newBalance,
 				"usd_rate":    tt.usdRate,

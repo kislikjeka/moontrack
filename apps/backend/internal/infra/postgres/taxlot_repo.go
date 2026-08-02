@@ -165,7 +165,7 @@ func (r *TaxLotRepository) GetTaxLotForUpdate(ctx context.Context, id uuid.UUID)
 
 // GetOpenLotsFIFO returns all open lots for an account+asset ordered oldest-first,
 // with SELECT ... FOR UPDATE to prevent concurrent consumption.
-func (r *TaxLotRepository) GetOpenLotsFIFO(ctx context.Context, accountID uuid.UUID, asset string) ([]*ledger.TaxLot, error) {
+func (r *TaxLotRepository) GetOpenLotsFIFO(ctx context.Context, accountID uuid.UUID, asset uuid.UUID) ([]*ledger.TaxLot, error) {
 	query := `
 		SELECT id, transaction_id, account_id, asset,
 		       quantity_acquired, quantity_remaining, acquired_at,
@@ -209,7 +209,7 @@ func (r *TaxLotRepository) UpdateLotRemaining(ctx context.Context, lotID uuid.UU
 }
 
 // GetLotsByAccount returns all lots for an account+asset ordered by acquired_at.
-func (r *TaxLotRepository) GetLotsByAccount(ctx context.Context, accountID uuid.UUID, asset string) ([]*ledger.TaxLot, error) {
+func (r *TaxLotRepository) GetLotsByAccount(ctx context.Context, accountID uuid.UUID, asset uuid.UUID) ([]*ledger.TaxLot, error) {
 	query := `
 		SELECT id, transaction_id, account_id, asset,
 		       quantity_acquired, quantity_remaining, acquired_at,
@@ -584,8 +584,24 @@ func (r *TaxLotRepository) GetWAC(ctx context.Context, accountIDs []uuid.UUID) (
 // ---------------------------------------------------------------------------
 
 // ListPendingLotsByAssetAndTime returns all lots with price_status='pending'
-// for the given asset symbol within the minute bucket containing at.
-func (r *TaxLotRepository) ListPendingLotsByAssetAndTime(ctx context.Context, asset string, at time.Time) ([]*ledger.TaxLot, error) {
+// for the given asset within the minute bucket containing at.
+//
+// THE FOURTH PLACE (issue #59). This query used to read `WHERE asset = $1` with
+// asset a bare ticker and NO chain predicate of any kind — not even the
+// IS NOT DISTINCT FROM join its three siblings carried. It therefore matched the
+// pending lots of EVERY chain that had a token of that ticker, and a price
+// resolved for USDC on one chain was written into USDC lots on all of them.
+// The epic flagged it as the place a UUID does not fix automatically, because
+// there was no join here to become correct — there was an absence.
+//
+// It is correct now for a structural reason rather than a careful one: the
+// column holds a registry id, and a registry id names exactly one
+// (chain, contract). A cross-chain match is no longer merely unlikely, it is
+// unrepresentable. The former UUID-keyed twin of this method
+// (ListPendingLotsByAssetIDAndTime, which resolved the id back to
+// (symbol, chain_id) and joined accounts) is gone: it existed only to repair
+// this absence, and repairs nothing that the key does not now guarantee.
+func (r *TaxLotRepository) ListPendingLotsByAssetAndTime(ctx context.Context, assetID uuid.UUID, at time.Time) ([]*ledger.TaxLot, error) {
 	minStart := at.UTC().Truncate(time.Minute)
 	minEnd := minStart.Add(time.Minute)
 
@@ -602,46 +618,9 @@ func (r *TaxLotRepository) ListPendingLotsByAssetAndTime(ctx context.Context, as
 	`
 
 	q := r.getQueryer(ctx)
-	rows, err := q.Query(ctx, query, asset, minStart, minEnd)
-	if err != nil {
-		return nil, fmt.Errorf("list pending lots by asset and time: %w", err)
-	}
-	defer rows.Close()
-
-	return r.collectTaxLots(rows)
-}
-
-// ListPendingLotsByAssetIDAndTime returns lots with price_status='pending' for
-// the asset identified by assetID (UUID) within the minute bucket containing at.
-//
-// Unlike the symbol-keyed variant, this method disambiguates tokens that share
-// a symbol across chains by joining accounts.chain_id against the target asset's
-// chain_id. The JOIN condition uses IS NOT DISTINCT FROM so NULL chain_ids
-// (e.g., non-chain-scoped assets) compare as equal.
-func (r *TaxLotRepository) ListPendingLotsByAssetIDAndTime(ctx context.Context, assetID uuid.UUID, at time.Time) ([]*ledger.TaxLot, error) {
-	minStart := at.UTC().Truncate(time.Minute)
-	minEnd := minStart.Add(time.Minute)
-
-	query := `
-		SELECT tl.id, tl.transaction_id, tl.account_id, tl.asset,
-		       tl.quantity_acquired, tl.quantity_remaining, tl.acquired_at,
-		       tl.auto_cost_basis_per_unit, tl.auto_cost_basis_source,
-		       tl.override_cost_basis_per_unit, tl.override_reason, tl.override_at,
-		       tl.linked_source_lot_id, tl.created_at,
-		       tl.price_status, tl.price_resolution_attempts, tl.price_next_retry_at
-		FROM tax_lots tl
-		JOIN accounts a ON a.id = tl.account_id
-		JOIN assets ass ON ass.symbol = tl.asset
-		   AND ass.chain_id IS NOT DISTINCT FROM a.chain_id
-		WHERE ass.id = $1
-		  AND tl.price_status = 'pending'
-		  AND tl.acquired_at >= $2 AND tl.acquired_at < $3
-	`
-
-	q := r.getQueryer(ctx)
 	rows, err := q.Query(ctx, query, assetID, minStart, minEnd)
 	if err != nil {
-		return nil, fmt.Errorf("list pending lots by asset id and time: %w", err)
+		return nil, fmt.Errorf("list pending lots by asset and time: %w", err)
 	}
 	defer rows.Close()
 
@@ -679,11 +658,15 @@ func (r *TaxLotRepository) ResolvePendingPrice(ctx context.Context, lotID uuid.U
 
 // ResolvePendingDisposals sets proceeds_per_unit and transitions
 // proceeds_status='resolved' for every pending disposal in the minute bucket
-// containing at, scoped to the given asset UUID (via the lot -> account ->
-// asset chain). Returns the number of rows updated.
+// containing at, scoped to the given asset UUID. Returns the number of rows
+// updated.
 //
-// Uses IS NOT DISTINCT FROM for chain_id comparison so chain-less assets match
-// chain-less accounts.
+// The lot -> account -> assets join this used to carry is gone (issue #59):
+// tax_lots.asset IS the registry id, so the scope is a direct equality. That
+// join was the most dangerous of the three, because this variant is
+// deliberately cross-tenant (see below) and its IS NOT DISTINCT FROM predicate
+// matched NULL chain to NULL chain — so a mismatch wrote one user's resolved
+// price into another user's lots.
 //
 // This is the global (no user_id filter) variant. Only the backfill hook
 // (PriceResolvedHook) should use it, since a resolved spot price applies to
@@ -701,12 +684,9 @@ func (r *TaxLotRepository) ResolvePendingDisposals(ctx context.Context, assetID 
 		UPDATE lot_disposals ld
 		SET proceeds_per_unit = $1,
 		    proceeds_status = 'resolved'
-		FROM tax_lots tl, accounts acc, assets ass
+		FROM tax_lots tl
 		WHERE ld.lot_id = tl.id
-		  AND tl.account_id = acc.id
-		  AND ass.symbol = tl.asset
-		  AND ass.chain_id IS NOT DISTINCT FROM acc.chain_id
-		  AND ass.id = $2
+		  AND tl.asset = $2
 		  AND ld.proceeds_status = 'pending'
 		  AND ld.disposed_at >= $3
 		  AND ld.disposed_at < $4
@@ -725,6 +705,10 @@ func (r *TaxLotRepository) ResolvePendingDisposals(ctx context.Context, assetID 
 // predicate so a single user's manual-price override cannot mutate another
 // user's pending disposals that happen to share the same
 // (asset_id, minute_bucket).
+//
+// The accounts and wallets joins remain because they carry the TENANT scope,
+// which is the point of this variant. Only the assets join is gone — the asset
+// scope is now tl.asset = $3 directly (issue #59).
 //
 // Time semantics: callers pass an 'at' timestamp; the SQL filters
 // lot_disposals.disposed_at within [truncate(at,minute), +1 minute). Callers
@@ -745,14 +729,12 @@ func (r *TaxLotRepository) ResolvePendingDisposalsForUser(ctx context.Context, u
 		UPDATE lot_disposals ld
 		SET proceeds_per_unit = $1,
 		    proceeds_status = 'resolved'
-		FROM tax_lots tl, accounts acc, wallets w, assets ass
+		FROM tax_lots tl, accounts acc, wallets w
 		WHERE ld.lot_id = tl.id
 		  AND tl.account_id = acc.id
 		  AND acc.wallet_id = w.id
 		  AND w.user_id = $2
-		  AND ass.symbol = tl.asset
-		  AND ass.chain_id IS NOT DISTINCT FROM acc.chain_id
-		  AND ass.id = $3
+		  AND tl.asset = $3
 		  AND ld.proceeds_status = 'pending'
 		  AND ld.disposed_at >= $4
 		  AND ld.disposed_at < $5
@@ -818,11 +800,18 @@ func (r *TaxLotRepository) MarkResolved(ctx context.Context, lotID uuid.UUID) er
 // CountLotsByPriceStatus returns the count of lots in 'pending' and 'unpriceable'
 // price_status for the given user. The JOIN on accounts enforces multi-tenant isolation.
 func (r *TaxLotRepository) CountLotsByPriceStatus(ctx context.Context, userID uuid.UUID) (pending, unpriceable int, err error) {
+	// Ownership flows accounts.wallet_id -> wallets.user_id; `accounts` has no
+	// user_id column, so the predicate this used to carry (`a.user_id = $1`)
+	// referenced a column that has never existed and made every call fail at
+	// runtime. Fixed here rather than left alone because the surrounding method
+	// is being retyped anyway and a broken tenant filter is not a safe thing to
+	// step around.
 	query := `
 		SELECT tl.price_status, COUNT(*)
 		FROM tax_lots tl
 		JOIN accounts a ON a.id = tl.account_id
-		WHERE a.user_id = $1 AND tl.price_status IN ('pending', 'unpriceable')
+		JOIN wallets w ON w.id = a.wallet_id
+		WHERE w.user_id = $1 AND tl.price_status IN ('pending', 'unpriceable')
 		GROUP BY tl.price_status
 	`
 

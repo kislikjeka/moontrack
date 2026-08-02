@@ -4,6 +4,7 @@ package ledger_test
 
 import (
 	"context"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -25,6 +26,7 @@ import (
 func TestLedgerService_ConcurrentWithdrawals_NoDoubleSpend(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	repo := postgres.NewLedgerRepository(testDB.Pool)
 	registry := ledger.NewRegistry()
@@ -110,7 +112,7 @@ func TestLedgerService_ConcurrentWithdrawals_NoDoubleSpend(t *testing.T) {
 	account, err := repo.GetAccountByCode(ctx, accountCode)
 	require.NoError(t, err)
 
-	balance, err := svc.GetAccountBalance(ctx, account.ID, "BTC")
+	balance, err := svc.GetAccountBalance(ctx, account.ID, testasset.BTC)
 	require.NoError(t, err)
 
 	assert.GreaterOrEqual(t, balance.Balance.Cmp(big.NewInt(0)), 0,
@@ -129,6 +131,7 @@ func TestLedgerService_ConcurrentWithdrawals_NoDoubleSpend(t *testing.T) {
 func TestLedgerService_ConcurrentDeposits_CorrectTotal(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	repo := postgres.NewLedgerRepository(testDB.Pool)
 	registry := ledger.NewRegistry()
@@ -203,7 +206,7 @@ func TestLedgerService_ConcurrentDeposits_CorrectTotal(t *testing.T) {
 	account, err := repo.GetAccountByCode(ctx, accountCode)
 	require.NoError(t, err)
 
-	balance, err := svc.GetAccountBalance(ctx, account.ID, "BTC")
+	balance, err := svc.GetAccountBalance(ctx, account.ID, testasset.BTC)
 	require.NoError(t, err)
 
 	expectedBalance := big.NewInt(int64(numGoroutines * 10))
@@ -211,7 +214,7 @@ func TestLedgerService_ConcurrentDeposits_CorrectTotal(t *testing.T) {
 		"Final balance should be %s, got %s", expectedBalance.String(), balance.Balance.String())
 
 	// Reconcile to ensure entries match balance
-	err = svc.ReconcileBalance(ctx, account.ID, "BTC")
+	err = svc.ReconcileBalance(ctx, account.ID, testasset.BTC)
 	assert.NoError(t, err, "Reconciliation should pass after concurrent deposits")
 }
 
@@ -220,6 +223,7 @@ func TestLedgerService_ConcurrentDeposits_CorrectTotal(t *testing.T) {
 func TestLedgerService_ConcurrentAccountCreation_NoDuplicates(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	repo := postgres.NewLedgerRepository(testDB.Pool)
 	registry := ledger.NewRegistry()
@@ -273,7 +277,7 @@ func TestLedgerService_ConcurrentAccountCreation_NoDuplicates(t *testing.T) {
 	require.NotNil(t, account)
 
 	// Verify balance matches number of successful transactions
-	balance, err := svc.GetAccountBalance(ctx, account.ID, "ETH")
+	balance, err := svc.GetAccountBalance(ctx, account.ID, testasset.ETH)
 	require.NoError(t, err)
 
 	expectedBalance := big.NewInt(int64(successCount) * 100)
@@ -286,6 +290,7 @@ func TestLedgerService_ConcurrentAccountCreation_NoDuplicates(t *testing.T) {
 func TestLedgerService_ConcurrentMixedOperations(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	repo := postgres.NewLedgerRepository(testDB.Pool)
 
@@ -384,7 +389,7 @@ func TestLedgerService_ConcurrentMixedOperations(t *testing.T) {
 	account, err := repo.GetAccountByCode(ctx, accountCode)
 	require.NoError(t, err)
 
-	balance, err := incomeSvc.GetAccountBalance(ctx, account.ID, "BTC")
+	balance, err := incomeSvc.GetAccountBalance(ctx, account.ID, testasset.BTC)
 	require.NoError(t, err)
 
 	// Expected: 1000 + (depositSuccess * 10) - (withdrawSuccess * 5)
@@ -397,6 +402,6 @@ func TestLedgerService_ConcurrentMixedOperations(t *testing.T) {
 		"Balance should never be negative")
 
 	// Reconciliation should pass
-	err = incomeSvc.ReconcileBalance(ctx, account.ID, "BTC")
+	err = incomeSvc.ReconcileBalance(ctx, account.ID, testasset.BTC)
 	assert.NoError(t, err, "Reconciliation should pass after mixed operations")
 }

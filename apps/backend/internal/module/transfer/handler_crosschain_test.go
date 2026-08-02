@@ -17,6 +17,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/kislikjeka/moontrack/pkg/money"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 )
 
 // =============================================================================
@@ -69,7 +70,7 @@ func xcData(srcID, dstID uuid.UUID, srcChain, dstChain string) map[string]interf
 	data := map[string]interface{}{
 		"source_wallet_id": srcID.String(),
 		"dest_wallet_id":   dstID.String(),
-		"asset_id":         "ETH",
+		"asset_id":         testasset.ETH.String(),
 		"decimals":         18,
 		"amount":           money.NewBigIntFromInt64(1000000000000000000).String(), // 1 ETH
 		"usd_rate":         money.NewBigIntFromInt64(200000000000).String(),        // $2000
@@ -96,7 +97,7 @@ func legs(t *testing.T, entries []*ledger.Entry) (debit, credit *ledger.Entry) {
 		if e.EntryType == ledger.EntryTypeAssetIncrease {
 			debit = e
 		}
-		if e.EntryType == ledger.EntryTypeAssetDecrease && e.AssetID == "ETH" {
+		if e.EntryType == ledger.EntryTypeAssetDecrease && e.AssetID == testasset.ETH {
 			if md, ok := e.Metadata["entry_type"].(string); ok && md == "gas_payment" {
 				continue
 			}
@@ -133,9 +134,9 @@ func TestInternalTransfer_CrossChain_LegsCarryOwnChains(t *testing.T) {
 	assert.Equal(t, xcSourceChain, credit.Metadata["chain_id"],
 		"the source leg must keep the SOURCE chain")
 
-	assert.Equal(t, fmt.Sprintf("wallet.%s.%s.ETH", dstID, xcDestChain), debit.Metadata["account_code"],
+	assert.Equal(t, fmt.Sprintf("wallet.%s.%s.%s", dstID, xcDestChain, testasset.ETH.String()), debit.Metadata["account_code"],
 		"destination account code must name the destination chain, or the credit lands on the wrong balance")
-	assert.Equal(t, fmt.Sprintf("wallet.%s.%s.ETH", srcID, xcSourceChain), credit.Metadata["account_code"],
+	assert.Equal(t, fmt.Sprintf("wallet.%s.%s.%s", srcID, xcSourceChain, testasset.ETH.String()), credit.Metadata["account_code"],
 		"source account code must name the source chain")
 
 	assert.NotEqual(t, debit.Metadata["account_code"], credit.Metadata["account_code"],
@@ -155,7 +156,7 @@ func TestInternalTransfer_CrossChain_Balances(t *testing.T) {
 	data["gas_amount"] = money.NewBigIntFromInt64(21000000000000).String()
 	data["gas_usd_rate"] = money.NewBigIntFromInt64(200000000000).String()
 	data["gas_decimals"] = 18
-	data["native_asset_id"] = "ETH"
+	data["native_asset_id"] = testasset.ETH.String()
 
 	entries, err := handler.Handle(ctx, data)
 	require.NoError(t, err)
@@ -187,7 +188,7 @@ func TestInternalTransfer_CrossChain_GasStaysOnSourceChain(t *testing.T) {
 	data["gas_amount"] = money.NewBigIntFromInt64(21000000000000).String()
 	data["gas_usd_rate"] = money.NewBigIntFromInt64(200000000000).String()
 	data["gas_decimals"] = 18
-	data["native_asset_id"] = "ETH"
+	data["native_asset_id"] = testasset.ETH.String()
 
 	entries, err := handler.Handle(ctx, data)
 	require.NoError(t, err)
@@ -206,10 +207,10 @@ func TestInternalTransfer_CrossChain_GasStaysOnSourceChain(t *testing.T) {
 
 	assert.Equal(t, xcSourceChain, gasFee.Metadata["chain_id"],
 		"gas is burned on the source chain")
-	assert.Equal(t, fmt.Sprintf("gas.%s.ETH", xcSourceChain), gasFee.Metadata["account_code"])
+	assert.Equal(t, fmt.Sprintf("gas.%s.%s", xcSourceChain, testasset.ETH.String()), gasFee.Metadata["account_code"])
 	assert.Equal(t, xcSourceChain, gasPayment.Metadata["chain_id"],
 		"gas is paid out of the source wallet's SOURCE-chain native balance")
-	assert.Equal(t, fmt.Sprintf("wallet.%s.%s.ETH", srcID, xcSourceChain), gasPayment.Metadata["account_code"])
+	assert.Equal(t, fmt.Sprintf("wallet.%s.%s.%s", srcID, xcSourceChain, testasset.ETH.String()), gasPayment.Metadata["account_code"])
 }
 
 // -----------------------------------------------------------------------------
@@ -236,8 +237,8 @@ func TestInternalTransfer_SameChain_Unchanged(t *testing.T) {
 	assert.Equal(t, xcSourceChain, debit.Metadata["chain_id"],
 		"absent dest_chain_id must fall back to chain_id — same-chain is still the default")
 	assert.Equal(t, xcSourceChain, credit.Metadata["chain_id"])
-	assert.Equal(t, fmt.Sprintf("wallet.%s.%s.ETH", dstID, xcSourceChain), debit.Metadata["account_code"])
-	assert.Equal(t, fmt.Sprintf("wallet.%s.%s.ETH", srcID, xcSourceChain), credit.Metadata["account_code"])
+	assert.Equal(t, fmt.Sprintf("wallet.%s.%s.%s", dstID, xcSourceChain, testasset.ETH.String()), debit.Metadata["account_code"])
+	assert.Equal(t, fmt.Sprintf("wallet.%s.%s.%s", srcID, xcSourceChain, testasset.ETH.String()), credit.Metadata["account_code"])
 }
 
 // TestInternalTransfer_SameChain_ExplicitEqualChains: a same-chain transfer that

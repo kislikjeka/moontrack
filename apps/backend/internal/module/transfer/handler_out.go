@@ -127,12 +127,15 @@ func (h *TransferOutHandler) GenerateEntries(ctx context.Context, txn *TransferO
 			gasUSDValue.Div(gasUSDValue, divisor)
 		}
 
-		// Get native asset symbol from the transaction (fee asset), falling
-		// back to ETH for legacy/native-fee chains.
+		// The chain's native asset must be resolved before gas can be booked.
+		// The old code defaulted to "ETH" here, which charged every non-Ethereum
+		// chain's gas to Ethereum's ETH account (#59) — a wrong balance that
+		// still reconciled. There is no safe default, so this is an error.
 		nativeAssetID := txn.NativeAssetID
-		if nativeAssetID == "" {
-			nativeAssetID = "ETH" // Fallback for legacy/native-fee chains
+		if nativeAssetID == uuid.Nil {
+			return nil, ErrMissingNativeAsset
 		}
+		nativeAssetSeg := nativeAssetID.String()
 
 		// Entry 3: DEBIT gas account (records gas expense)
 		entries = append(entries, &ledger.Entry{
@@ -147,7 +150,7 @@ func (h *TransferOutHandler) GenerateEntries(ctx context.Context, txn *TransferO
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code": accountcode.GasCode(txn.ChainID, nativeAssetID),
+				"account_code": accountcode.GasCode(txn.ChainID, nativeAssetSeg),
 				"tx_hash":      txn.TxHash,
 				"block_number": txn.BlockNumber,
 				"chain_id":     txn.ChainID,
@@ -168,7 +171,7 @@ func (h *TransferOutHandler) GenerateEntries(ctx context.Context, txn *TransferO
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":    txn.WalletID.String(),
-				"account_code": accountcode.WalletCode(txn.WalletID, txn.ChainID, nativeAssetID),
+				"account_code": accountcode.WalletCode(txn.WalletID, txn.ChainID, nativeAssetSeg),
 				"tx_hash":      txn.TxHash,
 				"block_number": txn.BlockNumber,
 				"chain_id":     txn.ChainID,
@@ -229,7 +232,7 @@ func (h *TransferOutHandler) entriesForItem(txn *TransferOutTransaction, item *T
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code":     accountcode.ExpenseCode(txn.ChainID, item.AssetID),
+				"account_code":     accountcode.ExpenseCode(txn.ChainID, item.AssetID.String()),
 				"tx_hash":          txn.TxHash,
 				"block_number":     txn.BlockNumber,
 				"chain_id":         txn.ChainID,
@@ -252,7 +255,7 @@ func (h *TransferOutHandler) entriesForItem(txn *TransferOutTransaction, item *T
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":        txn.WalletID.String(),
-				"account_code":     accountcode.WalletCode(txn.WalletID, txn.ChainID, item.AssetID),
+				"account_code":     accountcode.WalletCode(txn.WalletID, txn.ChainID, item.AssetID.String()),
 				"tx_hash":          txn.TxHash,
 				"block_number":     txn.BlockNumber,
 				"chain_id":         txn.ChainID,

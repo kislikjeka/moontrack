@@ -76,7 +76,7 @@ func NewTaxLotHook(repo TaxLotRepository, ledgerRepo Repository, log *logger.Log
 			firstLotID *uuid.UUID
 			disposals  []*LotDisposal
 		}
-		disposalResults := make(map[string]*disposalResult) // key: asset
+		disposalResults := make(map[uuid.UUID]*disposalResult) // key: asset registry id
 
 		// --- Process disposals ---
 		for _, d := range disposals {
@@ -101,7 +101,7 @@ func NewTaxLotHook(repo TaxLotRepository, ledgerRepo Repository, log *logger.Log
 				hookLog.Warn("insufficient lots for disposal, continuing",
 					"tx_id", tx.ID.String(),
 					"account_id", d.acct.ID.String(),
-					"asset", d.entry.AssetID,
+					"asset", d.entry.AssetID.String(),
 					"amount", d.entry.Amount.String())
 				// Don't fail the transaction
 			} else if err != nil {

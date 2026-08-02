@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kislikjeka/moontrack/internal/infra/postgres"
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/pkg/testasset"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,6 +25,7 @@ import (
 func TestLedgerService_Commit_TransactionCreation(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	repo := postgres.NewLedgerRepository(testDB.Pool)
 	registry := ledger.NewRegistry()
@@ -65,7 +67,7 @@ func TestLedgerService_Commit_TransactionCreation(t *testing.T) {
 	account, err := repo.GetAccountByCode(ctx, accountCode)
 	require.NoError(t, err)
 
-	balance, err := svc.GetAccountBalance(ctx, account.ID, "BTC")
+	balance, err := svc.GetAccountBalance(ctx, account.ID, testasset.BTC)
 	require.NoError(t, err)
 	assert.Equal(t, 0, balance.Balance.Cmp(big.NewInt(100)))
 }
@@ -75,6 +77,7 @@ func TestLedgerService_Commit_TransactionCreation(t *testing.T) {
 func TestLedgerService_Commit_MultipleBalanceUpdates(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	repo := postgres.NewLedgerRepository(testDB.Pool)
 	registry := ledger.NewRegistry()
@@ -122,7 +125,7 @@ func TestLedgerService_Commit_MultipleBalanceUpdates(t *testing.T) {
 	account, err := repo.GetAccountByCode(ctx, accountCode)
 	require.NoError(t, err)
 
-	balance, err := svc.GetAccountBalance(ctx, account.ID, "BTC")
+	balance, err := svc.GetAccountBalance(ctx, account.ID, testasset.BTC)
 	require.NoError(t, err)
 	assert.Equal(t, 0, balance.Balance.Cmp(big.NewInt(150)))
 }
@@ -132,6 +135,7 @@ func TestLedgerService_Commit_MultipleBalanceUpdates(t *testing.T) {
 func TestLedgerService_ReconcileAfterMultipleTransactions(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	repo := postgres.NewLedgerRepository(testDB.Pool)
 	registry := ledger.NewRegistry()
@@ -167,11 +171,11 @@ func TestLedgerService_ReconcileAfterMultipleTransactions(t *testing.T) {
 	require.NoError(t, err)
 
 	// Reconcile should pass
-	err = svc.ReconcileBalance(ctx, account.ID, "BTC")
+	err = svc.ReconcileBalance(ctx, account.ID, testasset.BTC)
 	assert.NoError(t, err)
 
 	// Verify balance
-	balance, err := svc.GetAccountBalance(ctx, account.ID, "BTC")
+	balance, err := svc.GetAccountBalance(ctx, account.ID, testasset.BTC)
 	require.NoError(t, err)
 	assert.Equal(t, 0, balance.Balance.Cmp(big.NewInt(100))) // 5 * 20 = 100
 }
@@ -181,6 +185,7 @@ func TestLedgerService_ReconcileAfterMultipleTransactions(t *testing.T) {
 func TestLedgerService_ReconcileBalance_DetectsInconsistency(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	repo := postgres.NewLedgerRepository(testDB.Pool)
 	registry := ledger.NewRegistry()
@@ -218,11 +223,11 @@ func TestLedgerService_ReconcileBalance_DetectsInconsistency(t *testing.T) {
 	_, err = testDB.Pool.Exec(ctx, `
 		UPDATE account_balances SET balance = '999'
 		WHERE account_id = $1 AND asset_id = $2
-	`, account.ID, "BTC")
+	`, account.ID, testasset.BTC)
 	require.NoError(t, err)
 
 	// Reconcile should detect the mismatch
-	err = svc.ReconcileBalance(ctx, account.ID, "BTC")
+	err = svc.ReconcileBalance(ctx, account.ID, testasset.BTC)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "mismatch")
 }
@@ -232,6 +237,7 @@ func TestLedgerService_ReconcileBalance_DetectsInconsistency(t *testing.T) {
 func TestLedgerService_Commit_EntriesCreatedBeforeBalanceUpdate(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	repo := postgres.NewLedgerRepository(testDB.Pool)
 	registry := ledger.NewRegistry()
@@ -288,6 +294,7 @@ func TestLedgerService_Commit_EntriesCreatedBeforeBalanceUpdate(t *testing.T) {
 func TestLedgerService_CalculateBalanceFromEntries_Accuracy(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	repo := postgres.NewLedgerRepository(testDB.Pool)
 	registry := ledger.NewRegistry()
@@ -326,14 +333,14 @@ func TestLedgerService_CalculateBalanceFromEntries_Accuracy(t *testing.T) {
 	require.NoError(t, err)
 
 	// Calculate balance from entries
-	calculatedBalance, err := repo.CalculateBalanceFromEntries(ctx, account.ID, "BTC")
+	calculatedBalance, err := repo.CalculateBalanceFromEntries(ctx, account.ID, testasset.BTC)
 	require.NoError(t, err)
 
 	// Should match expected total
 	assert.Equal(t, 0, calculatedBalance.Cmp(big.NewInt(expectedTotal)))
 
 	// Should also match stored balance
-	storedBalance, err := svc.GetAccountBalance(ctx, account.ID, "BTC")
+	storedBalance, err := svc.GetAccountBalance(ctx, account.ID, testasset.BTC)
 	require.NoError(t, err)
 	assert.Equal(t, 0, calculatedBalance.Cmp(storedBalance.Balance))
 }
@@ -343,6 +350,7 @@ func TestLedgerService_CalculateBalanceFromEntries_Accuracy(t *testing.T) {
 func TestLedgerService_NegativeBalancePrevention(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	repo := postgres.NewLedgerRepository(testDB.Pool)
 	registry := ledger.NewRegistry()
@@ -422,9 +430,13 @@ func (h *testOutcomeHandler) Handle(ctx context.Context, data map[string]interfa
 		walletID, _ = uuid.Parse(wid)
 	}
 
-	assetID := "BTC"
+	assetID := testasset.BTC
 	if aid, ok := data["asset_id"].(string); ok {
-		assetID = aid
+		parsed, err := uuid.Parse(aid)
+		if err != nil {
+			return nil, err
+		}
+		assetID = parsed
 	}
 
 	amount := big.NewInt(100)
@@ -446,7 +458,7 @@ func (h *testOutcomeHandler) Handle(ctx context.Context, data map[string]interfa
 			CreatedAt:   now,
 			Metadata: map[string]interface{}{
 				"wallet_id":    walletID.String(),
-				"account_code": "wallet." + walletID.String() + "." + assetID,
+				"account_code": "wallet." + walletID.String() + "." + assetID.String(),
 			},
 		},
 		{
@@ -460,7 +472,7 @@ func (h *testOutcomeHandler) Handle(ctx context.Context, data map[string]interfa
 			OccurredAt:  now,
 			CreatedAt:   now,
 			Metadata: map[string]interface{}{
-				"account_code": "expense." + assetID,
+				"account_code": "expense." + assetID.String(),
 			},
 		},
 	}, nil
@@ -479,6 +491,7 @@ func (h *testOutcomeHandler) Type() ledger.TransactionType {
 func TestLedgerService_ValidationError_NoEntriesInDB(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	repo := postgres.NewLedgerRepository(testDB.Pool)
 	registry := ledger.NewRegistry()
@@ -540,6 +553,7 @@ func (h *testValidationFailHandler) ValidateData(ctx context.Context, data map[s
 func TestLedgerService_EntryImmutability(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testDB.Reset(ctx))
+	seedTestAssets(t, ctx, testDB.Pool)
 
 	repo := postgres.NewLedgerRepository(testDB.Pool)
 	registry := ledger.NewRegistry()
