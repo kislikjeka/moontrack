@@ -312,10 +312,16 @@ func (c *Collector) extractAssets(ctx context.Context, txs []DecodedTransaction)
 			seen[key] = true
 
 			if err := c.assetRepo.Upsert(ctx, &SyncAsset{
-				Symbol:          t.AssetSymbol,
-				Name:            t.AssetName,
-				ChainID:         dt.ChainID,
-				ContractAddress: t.ContractAddress,
+				Symbol:  t.AssetSymbol,
+				Name:    t.AssetName,
+				ChainID: dt.ChainID,
+				// The legacy store keeps its own spelling of native — the empty
+				// string its column defaults to. The sentinel belongs to the new
+				// (chain, contract) registry; writing it here would change the
+				// format of a live legacy column that this phase is meant to
+				// leave alone (#56), and chain_assets is keyed on
+				// (symbol, chain_id) anyway, so its contract is metadata only.
+				ContractAddress: legacyContractAddress(t.ContractAddress),
 				Decimals:        t.Decimals,
 				IconURL:         t.IconURL,
 			}); err != nil {

@@ -250,7 +250,14 @@ func main() {
 		rawTxRepo := postgres.NewRawTransactionRepository(db.Pool)
 
 		priceBackfillJobRepo := postgres.NewPriceBackfillJobRepository(db.Pool)
-		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, novesAdapter, novesAdapter, rawTxRepo, syncAssetRepo, lpPositionSvc, lendingPositionSvc, assetSvc, priceBackfillJobRepo)
+
+		// The asset registry, keyed on (chain, contract) (issue #56). It runs
+		// alongside the legacy assets / chain_assets stores during the expand
+		// phase: sync resolves every leg's identity into it, while the ledger
+		// still addresses assets by symbol.
+		assetRegistryRepo := postgres.NewAssetRegistryRepository(db.Pool)
+
+		syncSvc = sync.NewService(syncConfig, walletRepo, ledgerSvc, syncAssetAdapter, log, novesAdapter, novesAdapter, rawTxRepo, syncAssetRepo, lpPositionSvc, lendingPositionSvc, assetSvc, priceBackfillJobRepo, assetRegistryRepo)
 		log.Info("Sync service initialized",
 			"poll_interval", cfg.SyncPollInterval,
 			"provider", "noves")

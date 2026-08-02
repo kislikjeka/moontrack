@@ -98,7 +98,7 @@ func TestTxBuilder_MissingPrice_UpsertAndEnqueue(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil)
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
 	w := newTestWallet(userID, walletAddr)
@@ -161,9 +161,18 @@ func TestTxBuilder_MissingPrice_UpsertAndEnqueue(t *testing.T) {
 	assert.False(t, hasPrice, "usd_price key should be absent when no price available")
 }
 
-// TestTxBuilder_MissingPrice_NativeToken verifies that when a transfer has
-// no price AND no contract address (native coin), the processor does NOT call
-// the asset upserter (can't upsert by on-chain identity without a contract address).
+// TestTxBuilder_MissingPrice_NativeToken verifies that an unpriced native leg
+// does NOT reach the LEGACY asset upserter, which writes to the `assets` table
+// and is keyed on a real contract address.
+//
+// The leg now carries the native sentinel rather than an empty string (#56), so
+// this pins the skip against the value that actually arrives. Passing the
+// sentinel through would fail the EVM address shape check and emit a spurious
+// "invalid contract address" WARN on every native leg.
+//
+// Native coins are not left without an identity by this skip: the (chain,
+// contract) registry resolves them, which TestTxBuilder_ResolvesEveryLeg_Native
+// covers.
 func TestTxBuilder_MissingPrice_NativeToken(t *testing.T) {
 	ctx := context.Background()
 	log := logger.New("test", os.Stdout)
@@ -180,7 +189,7 @@ func TestTxBuilder_MissingPrice_NativeToken(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil)
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
 	w := newTestWallet(userID, walletAddr)
@@ -203,7 +212,7 @@ func TestTxBuilder_MissingPrice_NativeToken(t *testing.T) {
 			},
 			{
 				AssetSymbol:     "ETH",
-				ContractAddress: "", // native — no contract address
+				ContractAddress: sync.NativeContract, // native — the sentinel, not an address
 				Decimals:        18,
 				Amount:          big.NewInt(1000000000000000000),
 				Direction:       sync.DirectionIn,
@@ -256,7 +265,7 @@ func TestTxBuilder_OutgoingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil)
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
 	w := newTestWallet(userID, walletAddr)
@@ -325,7 +334,7 @@ func TestTxBuilder_IncomingOnly_MissingPrice_EnqueuesJob(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil)
 	userID := uuid.New()
 	walletAddr := "0x2222222222222222222222222222222222222222"
 	w := newTestWallet(userID, walletAddr)
@@ -388,7 +397,7 @@ func TestTxBuilder_InvalidContractAddress_NoEnqueue(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything).
 		Return(&ledger.Transaction{ID: uuid.New()}, nil)
 
-	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer)
+	processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, upsert, enqueuer, nil)
 	userID := uuid.New()
 	walletAddr := "0x1111111111111111111111111111111111111111"
 	w := newTestWallet(userID, walletAddr)

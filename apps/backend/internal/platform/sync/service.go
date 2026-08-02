@@ -46,6 +46,7 @@ func NewService(
 	lendingPositionSvc LendingPositionService,
 	assetUpsert AssetUpserter,
 	jobEnqueuer JobEnqueuer,
+	assetRegistry AssetRegistry,
 ) *Service {
 	if config == nil {
 		config = DefaultConfig()
@@ -54,7 +55,7 @@ func NewService(
 
 	var txBuilder *TxBuilder
 	if txProvider != nil {
-		txBuilder = NewTxBuilder(walletRepo, ledgerSvc, lpPositionSvc, lendingPositionSvc, logger, assetUpsert, jobEnqueuer)
+		txBuilder = NewTxBuilder(walletRepo, ledgerSvc, lpPositionSvc, lendingPositionSvc, logger, assetUpsert, jobEnqueuer, assetRegistry)
 	}
 
 	svc := &Service{

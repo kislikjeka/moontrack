@@ -117,7 +117,7 @@ func TestLendingUSD_AppliesDecimalsDivisor(t *testing.T) {
 
 			lendingSvc := &mockLendingPositionService{}
 
-			processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, lendingSvc, log, nil, nil)
+			processor := sync.NewTxBuilder(walletRepo, ledgerSvc, nil, lendingSvc, log, nil, nil, nil)
 
 			tx := sync.DecodedTransaction{
 				ID:            "ext-tx-" + uuid.New().String()[:8],

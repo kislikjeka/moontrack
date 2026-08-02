@@ -26,7 +26,7 @@ import (
 
 func newTxBuilder(walletRepo sync.WalletRepository, ledgerSvc sync.LedgerService) *sync.TxBuilder {
 	log := logger.New("test", os.Stdout)
-	return sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil)
+	return sync.NewTxBuilder(walletRepo, ledgerSvc, nil, nil, log, nil, nil, nil)
 }
 
 func newDecodedTransaction(opType sync.OperationType, transfers []sync.DecodedTransfer) sync.DecodedTransaction {

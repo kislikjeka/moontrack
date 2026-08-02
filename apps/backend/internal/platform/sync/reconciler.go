@@ -283,10 +283,12 @@ func (r *Reconciler) extractAssetsFromPositions(ctx context.Context, positions [
 			continue
 		}
 		if err := r.assetRepo.Upsert(ctx, &SyncAsset{
-			Symbol:          pos.AssetSymbol,
-			Name:            pos.AssetName,
-			ChainID:         pos.ChainID,
-			ContractAddress: pos.ContractAddress,
+			Symbol:  pos.AssetSymbol,
+			Name:    pos.AssetName,
+			ChainID: pos.ChainID,
+			// Legacy store, legacy spelling of native — see the collector's
+			// matching write and legacyContractAddress (#56).
+			ContractAddress: legacyContractAddress(pos.ContractAddress),
 			Decimals:        pos.Decimals,
 			IconURL:         pos.IconURL,
 		}); err != nil {

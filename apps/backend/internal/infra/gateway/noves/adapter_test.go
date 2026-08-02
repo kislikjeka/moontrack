@@ -126,7 +126,7 @@ func TestConvert_BridgeReceive(t *testing.T) {
 	tr := dt.Transfers[0]
 	assert.Equal(t, sync.DirectionIn, tr.Direction)
 	assert.Equal(t, "ETH", tr.AssetSymbol)
-	assert.Equal(t, "", tr.ContractAddress)                    // native → empty contract
+	assert.Equal(t, sync.NativeContract, tr.ContractAddress)   // native → literal sentinel (#56)
 	assert.Equal(t, bigStr(t, "69706000000000000"), tr.Amount) // 0.069706 * 1e18
 }
 

@@ -1,6 +1,10 @@
 package noves
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kislikjeka/moontrack/internal/platform/sync"
+)
 
 func TestDomainToNovesChain(t *testing.T) {
 	tests := []struct {
@@ -67,12 +71,54 @@ func TestIsNativeAddress(t *testing.T) {
 	}
 }
 
+// TestNormalizeContract pins the adapter's half of the (chain, contract)
+// identity contract (issue #56): the native leg is translated into the literal
+// sentinel, a leg carrying a real address keeps that address, and casing is
+// normalized consistently so one contract cannot yield two identities.
 func TestNormalizeContract(t *testing.T) {
-	if got := normalizeContract("ETH"); got != "" {
-		t.Errorf("native token contract should be empty, got %q", got)
+	tests := []struct {
+		name    string
+		address string
+		want    string
+	}{
+		// Native legs. Noves spells native as a symbol-as-address sentinel, and
+		// each spelling must land on the ONE literal — an empty contract here
+		// used to mean native, and that ambiguity is what #56 removes.
+		{"native symbol-as-address", "ETH", sync.NativeContract},
+		{"native on a non-eth chain", "MATIC", sync.NativeContract},
+		{"native as empty address", "", sync.NativeContract},
+
+		// A real address survives intact, only lowercased.
+		{"checksummed address is lowercased", "0x833589FCD6EDB6E08F4C7C32D4F71B54BDA02913", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"},
+		{"already-lowercase address is unchanged", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"},
+		{"mixed-case address is lowercased", "0xCBB7C0000AB88B473B1F5AFD9EF808440EED33BF", "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf"},
 	}
-	if got := normalizeContract("0x833589FCD6EDB6E08F4C7C32D4F71B54BDA02913"); got != "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" {
-		t.Errorf("contract should be lowercased, got %q", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := normalizeContract(tt.address); got != tt.want {
+				t.Errorf("normalizeContract(%q) = %q, want %q", tt.address, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestNormalizeContract_CasingIsConsistent is the identity-level statement the
+// case-by-case table cannot make: the SAME contract written three ways must
+// normalize to ONE value. Were it not so, one token would occupy several rows
+// of a registry keyed on (chain, contract) — each with its own UUID and its own
+// tax lots — which is the very splitting the composite key exists to prevent.
+func TestNormalizeContract_CasingIsConsistent(t *testing.T) {
+	spellings := []string{
+		"0x833589FCD6EDB6E08F4C7C32D4F71B54BDA02913",
+		"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+		"0x833589FcD6EdB6E08f4c7C32D4f71b54bdA02913",
+	}
+
+	first := normalizeContract(spellings[0])
+	for _, s := range spellings[1:] {
+		if got := normalizeContract(s); got != first {
+			t.Errorf("normalizeContract(%q) = %q, want %q — the same contract must yield one identity", s, got, first)
+		}
 	}
 }
 

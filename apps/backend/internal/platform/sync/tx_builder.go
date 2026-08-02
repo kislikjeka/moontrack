@@ -38,13 +38,18 @@ type TxBuilder struct {
 	lendingPositionSvc LendingPositionService
 	assetUpsert        AssetUpserter
 	jobEnqueuer        JobEnqueuer
+	assetRegistry      AssetRegistry
 	classifier         *Classifier
 	logger             *logger.Logger
 	addressCache       map[string][]uuid.UUID
 }
 
 // NewTxBuilder creates a new TxBuilder.
-func NewTxBuilder(walletRepo WalletRepository, ledgerSvc LedgerService, lpPositionSvc LPPositionService, lendingPositionSvc LendingPositionService, log *logger.Logger, assetUpsert AssetUpserter, jobEnqueuer JobEnqueuer) *TxBuilder {
+//
+// assetRegistry may be nil, in which case identity resolution is skipped and
+// the builder behaves exactly as before the registry existed. Tests that do not
+// exercise identity rely on that.
+func NewTxBuilder(walletRepo WalletRepository, ledgerSvc LedgerService, lpPositionSvc LPPositionService, lendingPositionSvc LendingPositionService, log *logger.Logger, assetUpsert AssetUpserter, jobEnqueuer JobEnqueuer, assetRegistry AssetRegistry) *TxBuilder {
 	return &TxBuilder{
 		walletRepo:         walletRepo,
 		ledgerSvc:          ledgerSvc,
@@ -52,9 +57,98 @@ func NewTxBuilder(walletRepo WalletRepository, ledgerSvc LedgerService, lpPositi
 		lendingPositionSvc: lendingPositionSvc,
 		assetUpsert:        assetUpsert,
 		jobEnqueuer:        jobEnqueuer,
+		assetRegistry:      assetRegistry,
 		classifier:         NewClassifier(),
 		logger:             log.WithField("component", "tx_builder"),
 		addressCache:       make(map[string][]uuid.UUID),
+	}
+}
+
+// resolveAssetIdentities resolves every leg of a decoded transaction to its
+// registry UUID (issue #56).
+//
+// It sits here, at the one point where the whole transaction is in hand, rather
+// than inside the per-type raw-data builders. Spreading it across the builders
+// would make "every leg is resolved" a property of fifteen switch arms that
+// each have to remember; here it is a property of the one loop they all pass
+// through, and a new transaction type cannot forget it.
+//
+// EVERY leg means every leg, natives included. The old on-chain upsert ran only
+// for the price-backfill job and returned early on an empty contract, so the
+// native coin — the largest position in most wallets — never acquired an
+// on-chain identity at all. Under (chain, contract) identity a native leg is
+// just the leg whose contract is the sentinel.
+//
+// The fee leg is resolved too. A fee is always paid in the native coin, which
+// is exactly the case the old path skipped, so gas would otherwise be the one
+// movement with no resolvable asset.
+//
+// Failures are logged and swallowed. In the expand phase the ledger still runs
+// on symbolic asset_ids and nothing downstream reads these UUIDs yet, so a
+// registry error must not cost the transaction — dropping it would trade a
+// cosmetic gap for the one thing the product will not accept, a lost movement.
+// That balance flips in the contract phase (#59), when the ledger depends on
+// the resolved identity and a failure has to become fatal.
+func (p *TxBuilder) resolveAssetIdentities(ctx context.Context, tx DecodedTransaction) {
+	if p.assetRegistry == nil {
+		return
+	}
+
+	// Dedupe within the transaction: a swap routed through several hops emits
+	// the same asset repeatedly, and one resolve per identity is enough.
+	seen := make(map[AssetKey]bool, len(tx.Transfers)+1)
+
+	resolve := func(chain, contract, symbol, name string, decimals int) {
+		key := NewAssetKey(chain, contract)
+		if !key.Valid() {
+			// NewAssetKey turns a missing contract into the sentinel, so the
+			// only way to be here is a missing CHAIN — a provider defect, not a
+			// native leg. Logged rather than dropped in silence: an asset that
+			// never reaches the registry is exactly the invisible gap this file
+			// makes a point of surfacing everywhere else.
+			p.logger.Warn("asset identity skipped: incomplete on-chain identity",
+				"chain", price.SanitizeLogField(key.Chain),
+				"contract", price.SanitizeLogField(key.Contract),
+				"asset_symbol", price.SanitizeLogField(symbol),
+			)
+			return
+		}
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+
+		if name == "" {
+			name = symbol
+		}
+		if _, err := p.assetRegistry.Resolve(ctx, key, symbol, name, decimals); err != nil {
+			p.logger.Warn("asset identity resolve failed during sync",
+				"chain", price.SanitizeLogField(key.Chain),
+				"contract", price.SanitizeLogField(key.Contract),
+				"asset_symbol", price.SanitizeLogField(symbol),
+				"error", price.SanitizeLogField(err.Error()),
+			)
+		}
+	}
+
+	for i := range tx.Transfers {
+		t := &tx.Transfers[i]
+		// The destination chain of a stitched bridge is where the inbound leg
+		// lands, so that leg's identity belongs to that chain, not to the chain
+		// the transaction was observed on. Getting this wrong would file the
+		// arriving asset under the source chain and defeat the point of the
+		// composite key.
+		chain := tx.ChainID
+		if tx.DestChainID != "" && t.Direction == DirectionIn {
+			chain = tx.DestChainID
+		}
+		resolve(chain, t.ContractAddress, t.AssetSymbol, t.AssetName, t.Decimals)
+	}
+
+	if tx.Fee != nil && tx.Fee.AssetSymbol != "" {
+		// DecodedFee carries no contract: gas is paid in the native coin by
+		// construction, so the sentinel is not a guess here.
+		resolve(tx.ChainID, NativeContract, tx.Fee.AssetSymbol, tx.Fee.AssetName, tx.Fee.Decimals)
 	}
 }
 
@@ -73,6 +167,12 @@ func (p *TxBuilder) ProcessTransaction(ctx context.Context, w *wallet.Wallet, tx
 		p.logger.Debug("skipping unclassifiable transaction", "tx_hash", tx.TxHash, "op_type", tx.OperationType)
 		return nil, nil
 	}
+
+	// Resolve every leg's on-chain identity before anything is built or
+	// recorded. Deliberately ahead of the internal-transfer skip below: the
+	// incoming side records no ledger transaction, but the assets it saw are
+	// real and the registry is a catalogue of assets, not of bookkeeping.
+	p.resolveAssetIdentities(ctx, tx)
 
 	txType, destWalletID := p.detectInternalTransfer(ctx, w, tx, txType)
 
@@ -203,6 +303,11 @@ func (p *TxBuilder) ProcessStitchedBridge(ctx context.Context, w *wallet.Wallet,
 		p.logger.Debug("skipping failed stitched bridge leg", "tx_hash", tx.TxHash)
 		return nil, nil
 	}
+
+	// A stitched bridge is the one transaction that spans two chains, so its
+	// legs resolve against two different chains — handled inside the resolver,
+	// which reads DestChainID for the inbound leg.
+	p.resolveAssetIdentities(ctx, tx)
 
 	// Source and destination wallet are the same row: one address, two chains.
 	// The internal-transfer model allows that exactly when the chains differ.
@@ -413,8 +518,8 @@ func (p *TxBuilder) handleLPDeposit(ctx context.Context, w *wallet.Wallet, tx De
 
 	chainID := tx.ChainID
 	pos, err := p.lpPositionSvc.FindOrCreate(ctx, w.UserID, w.ID, chainID, tx.Protocol, tx.NFTTokenID, "",
-		lpposition.TokenInfo{Symbol: token0.AssetSymbol, Contract: token0.ContractAddress, Decimals: token0.Decimals},
-		lpposition.TokenInfo{Symbol: token1.AssetSymbol, Contract: token1.ContractAddress, Decimals: token1.Decimals},
+		lpposition.TokenInfo{Symbol: token0.AssetSymbol, Contract: legacyContractAddress(token0.ContractAddress), Decimals: token0.Decimals},
+		lpposition.TokenInfo{Symbol: token1.AssetSymbol, Contract: legacyContractAddress(token1.ContractAddress), Decimals: token1.Decimals},
 		tx.MinedAt,
 	)
 	if err != nil {
@@ -442,8 +547,8 @@ func (p *TxBuilder) handleLPWithdraw(ctx context.Context, w *wallet.Wallet, tx D
 	var err error
 	if tx.NFTTokenID != "" {
 		pos, err = p.lpPositionSvc.FindOrCreate(ctx, w.UserID, w.ID, chainID, tx.Protocol, tx.NFTTokenID, "",
-			lpposition.TokenInfo{Symbol: token0.AssetSymbol, Contract: token0.ContractAddress, Decimals: token0.Decimals},
-			lpposition.TokenInfo{Symbol: token1.AssetSymbol, Contract: token1.ContractAddress, Decimals: token1.Decimals},
+			lpposition.TokenInfo{Symbol: token0.AssetSymbol, Contract: legacyContractAddress(token0.ContractAddress), Decimals: token0.Decimals},
+			lpposition.TokenInfo{Symbol: token1.AssetSymbol, Contract: legacyContractAddress(token1.ContractAddress), Decimals: token1.Decimals},
 			tx.MinedAt,
 		)
 	} else {
@@ -477,8 +582,8 @@ func (p *TxBuilder) handleLPClaimFees(ctx context.Context, w *wallet.Wallet, tx 
 	var err error
 	if tx.NFTTokenID != "" {
 		pos, err = p.lpPositionSvc.FindOrCreate(ctx, w.UserID, w.ID, chainID, tx.Protocol, tx.NFTTokenID, "",
-			lpposition.TokenInfo{Symbol: token0.AssetSymbol, Contract: token0.ContractAddress, Decimals: token0.Decimals},
-			lpposition.TokenInfo{Symbol: token1.AssetSymbol, Contract: token1.ContractAddress, Decimals: token1.Decimals},
+			lpposition.TokenInfo{Symbol: token0.AssetSymbol, Contract: legacyContractAddress(token0.ContractAddress), Decimals: token0.Decimals},
+			lpposition.TokenInfo{Symbol: token1.AssetSymbol, Contract: legacyContractAddress(token1.ContractAddress), Decimals: token1.Decimals},
 			tx.MinedAt,
 		)
 	} else {
@@ -592,7 +697,7 @@ func (p *TxBuilder) buildTransferInData(ctx context.Context, w *wallet.Wallet, t
 		data["asset_id"] = first.AssetSymbol
 		data["amount"] = money.NewBigInt(first.Amount).String()
 		data["decimals"] = first.Decimals
-		data["contract_address"] = first.ContractAddress
+		data["contract_address"] = legacyContractAddress(first.ContractAddress)
 		data["from_address"] = first.Sender
 		if first.USDPrice != nil {
 			data["usd_rate"] = first.USDPrice.String()
@@ -638,7 +743,7 @@ func (p *TxBuilder) buildTransferOutData(ctx context.Context, w *wallet.Wallet, 
 		data["asset_id"] = first.AssetSymbol
 		data["amount"] = money.NewBigInt(first.Amount).String()
 		data["decimals"] = first.Decimals
-		data["contract_address"] = first.ContractAddress
+		data["contract_address"] = legacyContractAddress(first.ContractAddress)
 		data["to_address"] = first.Recipient
 		if first.USDPrice != nil {
 			data["usd_rate"] = first.USDPrice.String()
@@ -666,7 +771,7 @@ func (p *TxBuilder) buildTransferEntry(t *DecodedTransfer) map[string]interface{
 		"asset_id":         t.AssetSymbol,
 		"amount":           money.NewBigInt(t.Amount).String(),
 		"decimals":         t.Decimals,
-		"contract_address": t.ContractAddress,
+		"contract_address": legacyContractAddress(t.ContractAddress),
 		"direction":        string(t.Direction),
 		"from_address":     t.Sender,
 		"to_address":       t.Recipient,
@@ -680,15 +785,29 @@ func (p *TxBuilder) buildTransferEntry(t *DecodedTransfer) map[string]interface{
 // ensureBackfillJob upserts an asset by on-chain identity (if we have a
 // contract address) and enqueues a price-backfill job keyed on
 // (asset_id, target_time). Repo's Enqueue is idempotent on that pair, so
-// it's safe to call for every unpriced transfer direction. Silent no-op
-// when the transfer has no contract address (native coin) — we can't
-// upsert a chain-scoped asset identity without one.
+// it's safe to call for every unpriced transfer direction.
+//
+// This is the LEGACY identity path, writing to the `assets` table. It stays
+// keyed on a real contract address and still skips the native coin — but the
+// skip is now stated in terms of the sentinel rather than an empty string,
+// because the adapter no longer spells native as "". Passing the sentinel
+// through would reach normalizeContractAddress, fail the EVM shape check and
+// produce an ErrInvalidContractAddress WARN on every native leg.
+//
+// Native coins are not missing an identity as a result: the (chain, contract)
+// registry resolves them in resolveAssetIdentities, which runs for every leg of
+// every transaction. What they lack here is a row in the legacy table, whose
+// partial uniqueness index cannot represent them anyway — retiring that table
+// is the contract phase (#59).
 //
 // Upsert failures are logged at WARN (sanitized fields) rather than
 // swallowed silently, so the silent-dataloss pattern caught in Bug C is
 // observable in logs and metrics.
 func (p *TxBuilder) ensureBackfillJob(ctx context.Context, t *DecodedTransfer, chainID string, occurredAt time.Time) {
-	if t == nil || t.ContractAddress == "" || chainID == "" {
+	if t == nil || chainID == "" {
+		return
+	}
+	if t.ContractAddress == "" || t.ContractAddress == NativeContract {
 		return
 	}
 	if p.assetUpsert == nil || p.jobEnqueuer == nil {
@@ -765,7 +884,7 @@ func (p *TxBuilder) buildInternalTransferData(w *wallet.Wallet, tx DecodedTransa
 		data["asset_id"] = t.AssetSymbol
 		data["amount"] = money.NewBigInt(t.Amount).String()
 		data["decimals"] = t.Decimals
-		data["contract_address"] = t.ContractAddress
+		data["contract_address"] = legacyContractAddress(t.ContractAddress)
 		data["unique_id"] = tx.ID
 		if t.USDPrice != nil {
 			data["usd_rate"] = t.USDPrice.String()
@@ -868,7 +987,7 @@ func (p *TxBuilder) buildSingleTransfer(ctx context.Context, t DecodedTransfer, 
 		"asset_symbol":     t.AssetSymbol,
 		"amount":           money.NewBigInt(t.Amount).String(),
 		"decimals":         t.Decimals,
-		"contract_address": t.ContractAddress,
+		"contract_address": legacyContractAddress(t.ContractAddress),
 		"direction":        string(t.Direction),
 		"sender":           t.Sender,
 		"recipient":        t.Recipient,
@@ -877,9 +996,12 @@ func (p *TxBuilder) buildSingleTransfer(ctx context.Context, t DecodedTransfer, 
 	if t.USDPrice != nil {
 		// Price provided by the provider — use it directly.
 		m["usd_price"] = t.USDPrice.String()
-	} else if t.ContractAddress != "" && chainID != "" {
+	} else if t.ContractAddress != "" && t.ContractAddress != NativeContract && chainID != "" {
 		// The provider has no price for this token. Upsert the asset by on-chain
 		// identity and enqueue a backfill job so the price is resolved later.
+		// The sentinel is excluded for the same reason as in ensureBackfillJob:
+		// this legacy path is keyed on a real contract address, and the native
+		// coin's identity now comes from the registry instead.
 		// Downstream readers treat the absence of the usd_price key as a
 		// pending price (USDRate = nil, TaxLotHook creates a pending lot).
 		// We do not emit any separate marker — the worker will fill it in.
@@ -915,8 +1037,8 @@ func (p *TxBuilder) buildSingleTransfer(ctx context.Context, t DecodedTransfer, 
 			}
 		}
 	}
-	// For native coins (ContractAddress == "") with no price: omit usd_price
-	// entirely. Downstream handles the missing key as nil USDRate.
+	// For native coins (ContractAddress == NativeContract) with no price: omit
+	// usd_price entirely. Downstream handles the missing key as nil USDRate.
 
 	return m
 }
@@ -1010,7 +1132,7 @@ func (p *TxBuilder) setLendingAssetFields(data map[string]interface{}, t *Decode
 	data["asset"] = t.AssetSymbol
 	data["amount"] = money.NewBigInt(t.Amount).String()
 	data["decimals"] = t.Decimals
-	data["contract_address"] = t.ContractAddress
+	data["contract_address"] = legacyContractAddress(t.ContractAddress)
 	if t.USDPrice != nil {
 		data["usd_price"] = t.USDPrice.String()
 	}
@@ -1034,7 +1156,7 @@ func (p *TxBuilder) handleLendingSupply(ctx context.Context, w *wallet.Wallet, t
 	}
 
 	usdValue := p.calcLendingUSD(t)
-	if err := p.lendingPositionSvc.RecordSupply(ctx, pos.ID, t.AssetSymbol, t.Decimals, t.ContractAddress, t.Amount, usdValue); err != nil {
+	if err := p.lendingPositionSvc.RecordSupply(ctx, pos.ID, t.AssetSymbol, t.Decimals, legacyContractAddress(t.ContractAddress), t.Amount, usdValue); err != nil {
 		p.logger.Error("lending supply: failed to record", "tx_hash", tx.TxHash, "position_id", pos.ID, "error", err)
 	}
 }
@@ -1076,7 +1198,7 @@ func (p *TxBuilder) handleLendingBorrow(ctx context.Context, w *wallet.Wallet, t
 	}
 
 	usdValue := p.calcLendingUSD(t)
-	if err := p.lendingPositionSvc.RecordBorrow(ctx, pos.ID, t.AssetSymbol, t.Decimals, t.ContractAddress, t.Amount, usdValue); err != nil {
+	if err := p.lendingPositionSvc.RecordBorrow(ctx, pos.ID, t.AssetSymbol, t.Decimals, legacyContractAddress(t.ContractAddress), t.Amount, usdValue); err != nil {
 		p.logger.Error("lending borrow: failed to record", "tx_hash", tx.TxHash, "position_id", pos.ID, "error", err)
 	}
 }

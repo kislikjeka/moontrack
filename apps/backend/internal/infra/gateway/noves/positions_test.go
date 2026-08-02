@@ -44,11 +44,12 @@ func TestConvertBalance_BaseUnits(t *testing.T) {
 		bySymbol[pos.AssetSymbol] = pos
 	}
 
-	// Native ETH: 1.075192143935849059 × 10^18 → exact base units, contract "".
+	// Native ETH: 1.075192143935849059 × 10^18 → exact base units, contract is
+	// the native sentinel (#56).
 	eth := bySymbol["ETH"]
 	assert.Equal(t, "ethereum", eth.ChainID)
 	assert.Equal(t, 18, eth.Decimals)
-	assert.Equal(t, "", eth.ContractAddress, "native coin has empty contract")
+	assert.Equal(t, sync.NativeContract, eth.ContractAddress, "native coin carries the native sentinel")
 	assert.Equal(t, "1075192143935849059", eth.Quantity.String())
 
 	// USDC: 7854.743084 × 10^6, contract lowercased.

@@ -213,13 +213,23 @@ func fractionalDigits(amountStr string) int {
 	return len(amountStr) - i - 1
 }
 
-// normalizeContract lowercases a hex contract address, or returns "" for the
-// native coin. Noves encodes native as a symbol-as-address sentinel (no 0x
-// prefix, address == symbol, e.g. "ETH"), which maps to an empty contract per
-// the DecodedTransfer contract.
+// normalizeContract lowercases a hex contract address, or returns the native
+// sentinel sync.NativeContract for the native coin. Noves encodes native as a
+// symbol-as-address sentinel (no 0x prefix, address == symbol, e.g. "ETH"), and
+// this is the one place that provider spelling is translated into MoonTrack's.
+//
+// The sentinel is a literal rather than the empty string it used to be (issue
+// #56): an empty contract is indistinguishable from "the provider told us
+// nothing", so downstream code had to guess, and every site guessed by skipping
+// the leg. A named value makes the native case something the pipeline carries
+// explicitly instead of something it silently drops.
+//
+// Address casing is normalized to lowercase for tokens. EVM addresses are
+// case-insensitive and providers are inconsistent about checksum casing, so
+// without this the same contract yields two identities.
 func normalizeContract(address string) string {
 	if isNativeAddress(address) {
-		return ""
+		return sync.NativeContract
 	}
 	return strings.ToLower(address)
 }

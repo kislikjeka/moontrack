@@ -192,9 +192,14 @@ type DecodedTransaction struct {
 
 // DecodedTransfer represents a single token movement within a decoded transaction
 type DecodedTransfer struct {
-	AssetSymbol     string
-	AssetName       string // Human-readable name (e.g. "Ethereum"), empty if unknown
-	ContractAddress string // Lowercase, empty for native tokens
+	AssetSymbol string
+	AssetName   string // Human-readable name (e.g. "Ethereum"), empty if unknown
+	// ContractAddress is the lowercased contract, or NativeContract ("native")
+	// for a chain's native coin. Adapters normalize into this contract, so a
+	// leg arriving with an empty string means the provider supplied no token at
+	// all — not that the leg is native. Together with ChainID it forms the
+	// AssetKey that resolves to the asset's registry UUID.
+	ContractAddress string
 	Decimals        int
 	Amount          *big.Int          // Amount in base units (never nil)
 	Direction       TransferDirection // "in" or "out"
