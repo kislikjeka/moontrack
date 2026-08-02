@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/internal/ledger/accountcode"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/kislikjeka/moontrack/pkg/money"
 )
@@ -107,8 +108,8 @@ func (h *Handler) generateEntries(txn *GenesisBalanceTransaction) ([]*ledger.Ent
 	}
 
 	now := time.Now().UTC()
-	walletCode := fmt.Sprintf("wallet.%s.%s.%s", txn.WalletID.String(), txn.ChainID, txn.AssetID)
-	incomeCode := fmt.Sprintf("income.genesis.%s.%s", txn.ChainID, txn.AssetID)
+	walletCode := accountcode.WalletCode(txn.WalletID, txn.ChainID, txn.AssetID)
+	incomeCode := accountcode.IncomeGenesisCode(txn.ChainID, txn.AssetID)
 
 	entries := []*ledger.Entry{
 		{

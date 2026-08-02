@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/internal/ledger/accountcode"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 )
@@ -146,7 +147,7 @@ func (h *TransferOutHandler) GenerateEntries(ctx context.Context, txn *TransferO
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code": fmt.Sprintf("gas.%s.%s", txn.ChainID, nativeAssetID),
+				"account_code": accountcode.GasCode(txn.ChainID, nativeAssetID),
 				"tx_hash":      txn.TxHash,
 				"block_number": txn.BlockNumber,
 				"chain_id":     txn.ChainID,
@@ -167,7 +168,7 @@ func (h *TransferOutHandler) GenerateEntries(ctx context.Context, txn *TransferO
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":    txn.WalletID.String(),
-				"account_code": fmt.Sprintf("wallet.%s.%s.%s", txn.WalletID.String(), txn.ChainID, nativeAssetID),
+				"account_code": accountcode.WalletCode(txn.WalletID, txn.ChainID, nativeAssetID),
 				"tx_hash":      txn.TxHash,
 				"block_number": txn.BlockNumber,
 				"chain_id":     txn.ChainID,
@@ -228,7 +229,7 @@ func (h *TransferOutHandler) entriesForItem(txn *TransferOutTransaction, item *T
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code":     fmt.Sprintf("expense.%s.%s", txn.ChainID, item.AssetID),
+				"account_code":     accountcode.ExpenseCode(txn.ChainID, item.AssetID),
 				"tx_hash":          txn.TxHash,
 				"block_number":     txn.BlockNumber,
 				"chain_id":         txn.ChainID,
@@ -251,7 +252,7 @@ func (h *TransferOutHandler) entriesForItem(txn *TransferOutTransaction, item *T
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":        txn.WalletID.String(),
-				"account_code":     fmt.Sprintf("wallet.%s.%s.%s", txn.WalletID.String(), txn.ChainID, item.AssetID),
+				"account_code":     accountcode.WalletCode(txn.WalletID, txn.ChainID, item.AssetID),
 				"tx_hash":          txn.TxHash,
 				"block_number":     txn.BlockNumber,
 				"chain_id":         txn.ChainID,

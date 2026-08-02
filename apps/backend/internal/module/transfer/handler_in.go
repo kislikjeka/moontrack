@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/internal/ledger/accountcode"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
 	"github.com/kislikjeka/moontrack/pkg/logger"
@@ -162,7 +163,7 @@ func (h *TransferInHandler) entriesForItem(txn *TransferInTransaction, item *Tra
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":        txn.WalletID.String(),
-				"account_code":     fmt.Sprintf("wallet.%s.%s.%s", txn.WalletID.String(), txn.ChainID, item.AssetID),
+				"account_code":     accountcode.WalletCode(txn.WalletID, txn.ChainID, item.AssetID),
 				"tx_hash":          txn.TxHash,
 				"block_number":     txn.BlockNumber,
 				"chain_id":         txn.ChainID,
@@ -184,7 +185,7 @@ func (h *TransferInHandler) entriesForItem(txn *TransferInTransaction, item *Tra
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code":     fmt.Sprintf("income.%s.%s", txn.ChainID, item.AssetID),
+				"account_code":     accountcode.IncomeCode(txn.ChainID, item.AssetID),
 				"tx_hash":          txn.TxHash,
 				"block_number":     txn.BlockNumber,
 				"chain_id":         txn.ChainID,

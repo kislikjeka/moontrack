@@ -1,7 +1,6 @@
 package lending
 
 import (
-	"fmt"
 	"math/big"
 	"strings"
 	"time"
@@ -9,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/internal/ledger/accountcode"
 	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
@@ -48,7 +48,7 @@ func generateGasFeeEntries(txn *LendingTransaction) []*ledger.Entry {
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code": fmt.Sprintf("gas.%s.%s", chain, feeAsset),
+				"account_code": accountcode.GasCode(chain, feeAsset),
 				"tx_hash":      txn.TxHash,
 				"chain_id":     chain,
 			},
@@ -65,7 +65,7 @@ func generateGasFeeEntries(txn *LendingTransaction) []*ledger.Entry {
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":    walletID,
-				"account_code": fmt.Sprintf("wallet.%s.%s.%s", walletID, chain, feeAsset),
+				"account_code": accountcode.WalletCode(txn.WalletID, chain, feeAsset),
 				"tx_hash":      txn.TxHash,
 				"chain_id":     chain,
 				"entry_type":   "gas_payment",
@@ -107,12 +107,10 @@ type entryRouting struct {
 // generateSupplyItemEntries emits entries for one transfer item of a supply op.
 // The principal leaves the wallet and lands in collateral.
 func generateSupplyItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
-	walletID := txn.WalletID.String()
-
 	return buildLendingPair(txn, item, entryRouting{
-		debitAccount:  fmt.Sprintf("collateral.%s.%s.%s.%s", txn.Protocol, walletID, txn.ChainID, item.AssetID),
+		debitAccount:  accountcode.CollateralCode(txn.Protocol, txn.WalletID, txn.ChainID, item.AssetID),
 		debitType:     ledger.EntryTypeCollateralIncrease,
-		creditAccount: fmt.Sprintf("wallet.%s.%s.%s", walletID, txn.ChainID, item.AssetID),
+		creditAccount: accountcode.WalletCode(txn.WalletID, txn.ChainID, item.AssetID),
 		creditType:    ledger.EntryTypeAssetDecrease,
 	})
 }
@@ -120,12 +118,10 @@ func generateSupplyItemEntries(txn *LendingTransaction, item *LendingTransferIte
 // generateWithdrawItemEntries emits entries for one transfer item of a withdraw op.
 // The principal leaves collateral and lands back in the wallet.
 func generateWithdrawItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
-	walletID := txn.WalletID.String()
-
 	return buildLendingPair(txn, item, entryRouting{
-		debitAccount:  fmt.Sprintf("wallet.%s.%s.%s", walletID, txn.ChainID, item.AssetID),
+		debitAccount:  accountcode.WalletCode(txn.WalletID, txn.ChainID, item.AssetID),
 		debitType:     ledger.EntryTypeAssetIncrease,
-		creditAccount: fmt.Sprintf("collateral.%s.%s.%s.%s", txn.Protocol, walletID, txn.ChainID, item.AssetID),
+		creditAccount: accountcode.CollateralCode(txn.Protocol, txn.WalletID, txn.ChainID, item.AssetID),
 		creditType:    ledger.EntryTypeCollateralDecrease,
 	})
 }
@@ -133,12 +129,10 @@ func generateWithdrawItemEntries(txn *LendingTransaction, item *LendingTransferI
 // generateBorrowItemEntries emits entries for one transfer item of a borrow op.
 // The borrowed principal arrives in the wallet against a matching liability.
 func generateBorrowItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
-	walletID := txn.WalletID.String()
-
 	return buildLendingPair(txn, item, entryRouting{
-		debitAccount:  fmt.Sprintf("wallet.%s.%s.%s", walletID, txn.ChainID, item.AssetID),
+		debitAccount:  accountcode.WalletCode(txn.WalletID, txn.ChainID, item.AssetID),
 		debitType:     ledger.EntryTypeAssetIncrease,
-		creditAccount: fmt.Sprintf("liability.%s.%s.%s.%s", txn.Protocol, walletID, txn.ChainID, item.AssetID),
+		creditAccount: accountcode.LiabilityCode(txn.Protocol, txn.WalletID, txn.ChainID, item.AssetID),
 		creditType:    ledger.EntryTypeLiabilityIncrease,
 	})
 }
@@ -146,12 +140,10 @@ func generateBorrowItemEntries(txn *LendingTransaction, item *LendingTransferIte
 // generateRepayItemEntries emits entries for one transfer item of a repay op.
 // The principal leaves the wallet and retires the matching liability.
 func generateRepayItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
-	walletID := txn.WalletID.String()
-
 	return buildLendingPair(txn, item, entryRouting{
-		debitAccount:  fmt.Sprintf("liability.%s.%s.%s.%s", txn.Protocol, walletID, txn.ChainID, item.AssetID),
+		debitAccount:  accountcode.LiabilityCode(txn.Protocol, txn.WalletID, txn.ChainID, item.AssetID),
 		debitType:     ledger.EntryTypeLiabilityDecrease,
-		creditAccount: fmt.Sprintf("wallet.%s.%s.%s", walletID, txn.ChainID, item.AssetID),
+		creditAccount: accountcode.WalletCode(txn.WalletID, txn.ChainID, item.AssetID),
 		creditType:    ledger.EntryTypeAssetDecrease,
 	})
 }
@@ -159,12 +151,10 @@ func generateRepayItemEntries(txn *LendingTransaction, item *LendingTransferItem
 // generateClaimItemEntries emits entries for one transfer item of a claim op.
 // Rewards arrive in the wallet against lending income.
 func generateClaimItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
-	walletID := txn.WalletID.String()
-
 	return buildLendingPair(txn, item, entryRouting{
-		debitAccount:  fmt.Sprintf("wallet.%s.%s.%s", walletID, txn.ChainID, item.AssetID),
+		debitAccount:  accountcode.WalletCode(txn.WalletID, txn.ChainID, item.AssetID),
 		debitType:     ledger.EntryTypeAssetIncrease,
-		creditAccount: fmt.Sprintf("income.lending.%s.%s", txn.ChainID, item.AssetID),
+		creditAccount: accountcode.IncomeLendingCode(txn.ChainID, item.AssetID),
 		creditType:    ledger.EntryTypeIncome,
 	})
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/internal/ledger/accountcode"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 )
@@ -156,7 +157,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
 			"wallet_id":        txn.DestWalletID.String(),
-			"account_code":     fmt.Sprintf("wallet.%s.%s.%s", txn.DestWalletID.String(), destChain, txn.AssetID),
+			"account_code":     accountcode.WalletCode(txn.DestWalletID, destChain, txn.AssetID),
 			"tx_hash":          txn.TxHash,
 			"block_number":     txn.BlockNumber,
 			"chain_id":         destChain,
@@ -181,7 +182,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
 			"wallet_id":        txn.SourceWalletID.String(),
-			"account_code":     fmt.Sprintf("wallet.%s.%s.%s", txn.SourceWalletID.String(), sourceChain, txn.AssetID),
+			"account_code":     accountcode.WalletCode(txn.SourceWalletID, sourceChain, txn.AssetID),
 			"tx_hash":          txn.TxHash,
 			"block_number":     txn.BlockNumber,
 			"chain_id":         sourceChain,
@@ -236,7 +237,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code": fmt.Sprintf("gas.%s.%s", sourceChain, nativeAssetID),
+				"account_code": accountcode.GasCode(sourceChain, nativeAssetID),
 				"tx_hash":      txn.TxHash,
 				"block_number": txn.BlockNumber,
 				"chain_id":     sourceChain,
@@ -257,7 +258,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":    txn.SourceWalletID.String(),
-				"account_code": fmt.Sprintf("wallet.%s.%s.%s", txn.SourceWalletID.String(), sourceChain, nativeAssetID),
+				"account_code": accountcode.WalletCode(txn.SourceWalletID, sourceChain, nativeAssetID),
 				"tx_hash":      txn.TxHash,
 				"block_number": txn.BlockNumber,
 				"chain_id":     sourceChain,

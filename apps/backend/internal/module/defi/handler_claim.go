@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/internal/ledger/accountcode"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 	"github.com/kislikjeka/moontrack/pkg/money"
@@ -122,7 +123,7 @@ func (h *DeFiClaimHandler) GenerateEntries(ctx context.Context, txn *DeFiTransac
 
 		walletMeta := mergeMetadata(baseMeta, map[string]interface{}{
 			"wallet_id":        walletIDStr,
-			"account_code":     fmt.Sprintf("wallet.%s.%s.%s", walletIDStr, chainIDStr, tr.AssetSymbol),
+			"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetSymbol),
 			"tx_hash":          txn.TxHash,
 			"chain_id":         chainIDStr,
 			"direction":        "in",
@@ -145,7 +146,7 @@ func (h *DeFiClaimHandler) GenerateEntries(ctx context.Context, txn *DeFiTransac
 		})
 
 		incomeMeta := mergeMetadata(baseMeta, map[string]interface{}{
-			"account_code":     fmt.Sprintf("income.defi.%s.%s", chainIDStr, tr.AssetSymbol),
+			"account_code":     accountcode.IncomeDefiCode(chainIDStr, tr.AssetSymbol),
 			"tx_hash":          txn.TxHash,
 			"chain_id":         chainIDStr,
 			"contract_address": tr.ContractAddress,

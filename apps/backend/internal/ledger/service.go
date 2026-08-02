@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kislikjeka/moontrack/internal/ledger/accountcode"
 	"github.com/kislikjeka/moontrack/pkg/logger"
 )
 
@@ -205,8 +206,15 @@ func (s *Service) GetAccountBalances(ctx context.Context, accountID uuid.UUID) (
 // GetBalance retrieves the balance for a specific wallet and asset
 // This is used by handlers that need to check balance before processing
 func (s *Service) GetBalance(ctx context.Context, walletID uuid.UUID, chain string, assetID string) (*big.Int, error) {
-	// Build account code for wallet asset
-	accountCode := fmt.Sprintf("wallet.%s.%s.%s", walletID.String(), chain, assetID)
+	// Build account code for wallet asset.
+	//
+	// This is the only reader among the account-code sites: the code is built to
+	// *find* an account, and GetAccountByCode compares it with exact equality.
+	// A producer that drifts from the shared constructor creates a stray account
+	// — visible in the database. This reader creates nothing; drifting here
+	// returns zero where a balance exists, silently. It must stay on the
+	// constructor.
+	accountCode := accountcode.WalletCode(walletID, chain, assetID)
 
 	// Find the account by code
 	account, err := s.repo.GetAccountByCode(ctx, accountCode)
