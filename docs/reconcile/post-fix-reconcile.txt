@@ -1,0 +1,2527 @@
+{
+  "wallet_id": "19934671-b0c2-434d-8f33-e27dae4db78b",
+  "wallet_address": "(redacted)",
+  "synced_until": {
+    "arbitrum": "2026-06-26T14:41:51Z",
+    "base": "2026-07-21T21:05:07Z",
+    "ethereum": "2026-07-28T19:25:35Z"
+  },
+  "positions_fetched_at": "2026-08-03T03:32:33Z",
+  "positions_source": "snapshot /Users/kislikjeka/projects/code/moontrack/docs/reconcile/ticket61-snapshot.json",
+  "cursor_probed": false,
+  "checks": [
+    {
+      "name": "triangle_p_f_l",
+      "status": "ran",
+      "findings": [
+        "arbitrum:0xaf88d065e77c8cc2239327c5edb3a432268e5831 (USDC): flow=0 ledger=24446763 delta=-24446763 — both sides come from the same collected history, so this is a POSTING defect",
+        "arbitrum:native (ETH): flow=-662337582090000 ledger=560640155621509 delta=-1222977737711509 — both sides come from the same collected history, so this is a POSTING defect",
+        "base:0x4200000000000000000000000000000000000006 (WETH): flow=6775339472498977 ledger=0 delta=6775339472498977 — both sides come from the same collected history, so this is a POSTING defect",
+        "base:0x59dca05b6c26dbd64b5381374aaac5cd05644c28 (variableDebtBasUSDC): flow=4430606440 ledger=0 delta=4430606440 — both sides come from the same collected history, so this is a POSTING defect",
+        "base:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913 (USDC): flow=13888232 ledger=696733131 delta=-682844899 — both sides come from the same collected history, so this is a POSTING defect",
+        "base:0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf (cbBTC): flow=0 ledger=30003 delta=-30003 — both sides come from the same collected history, so this is a POSTING defect",
+        "base:native (ETH): flow=-6884608408143164 ledger=934097253752991962 delta=-940981862161135126 — both sides come from the same collected history, so this is a POSTING defect",
+        "ethereum:native (ETH): flow=-1013792350274497 ledger=22656926547054 delta=-1036449276821551 — both sides come from the same collected history, so this is a POSTING defect",
+        "251 collected transaction(s) never reached the ledger (error=23 pending=59 skipped=169). They are counted in F and absent from L, so they account for part of every flow_ledger_delta above — the cause is already recorded on the raws"
+      ]
+    },
+    {
+      "name": "entries_equal_balances",
+      "status": "ran",
+      "findings": []
+    },
+    {
+      "name": "one_account_per_identity",
+      "status": "ran",
+      "findings": [
+        "arbitrum:0xaf88d065e77c8cc2239327c5edb3a432268e5831 in scope \"wallet\" is addressed by 2 accounts ([wallet.19934671-b0c2-434d-8f33-e27dae4db78b.arbitrum.62c13add-72f8-4534-9361-5cb9f1d3ea43 wallet.19934671-b0c2-434d-8f33-e27dae4db78b.base.62c13add-72f8-4534-9361-5cb9f1d3ea43]); their balances sum to 24446763, which every magnitude comparison would accept",
+        "base:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913 in scope \"wallet\" is addressed by 2 accounts ([wallet.19934671-b0c2-434d-8f33-e27dae4db78b.arbitrum.a117b186-72ec-46b0-a95e-f845009389d9 wallet.19934671-b0c2-434d-8f33-e27dae4db78b.base.a117b186-72ec-46b0-a95e-f845009389d9]); their balances sum to 696733131, which every magnitude comparison would accept"
+      ]
+    },
+    {
+      "name": "provider_vs_ledger",
+      "status": "ran",
+      "findings": [
+        "arbitrum:native (ETH): provider=21083263648000 ledger=560640155621509 delta=-539556891973509",
+        "base:0x4200000000000000000000000000000000000006 (WETH): provider=6775339472498977 ledger=0 delta=6775339472498977",
+        "base:0x59dca05b6c26dbd64b5381374aaac5cd05644c28 (variableDebtBasUSDC): provider=4525010431 ledger=0 delta=4525010431",
+        "base:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913 (USDC): provider=13888232 ledger=696733131 delta=-682844899",
+        "base:native (ETH): provider=972107593600205 ledger=934097253752991962 delta=-933125146159391757",
+        "ethereum:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48 (USDC): provider reports 1133711587, ledger holds nothing, and no rule accounts for the absence (knownness=\"\")"
+      ]
+    }
+  ],
+  "rows": [
+    {
+      "chain": "arbitrum",
+      "contract": "0x47c031236e19d024b42f8ae6780e44a573170703",
+      "symbol": "GM",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "97263238983858797121",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "670983794224305388189",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "arbitrum",
+      "contract": "0x70d95587d40a2caf56bd97485ab3eec10bee6336",
+      "symbol": "GM",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "105144272541188163337",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "313144272541188163337",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "arbitrum",
+      "contract": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+      "symbol": "USDC",
+      "decimals": 6,
+      "category": "ledger_only",
+      "provider": "",
+      "flow": "0",
+      "ledger": "24446763",
+      "flow_ledger_delta": "-24446763"
+    },
+    {
+      "chain": "arbitrum",
+      "contract": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+      "symbol": "cbBTC",
+      "decimals": 8,
+      "category": "agrees",
+      "provider": "1",
+      "flow": "1",
+      "ledger": "1"
+    },
+    {
+      "chain": "arbitrum",
+      "contract": "native",
+      "symbol": "ETH",
+      "decimals": 18,
+      "category": "amount_mismatch",
+      "provider": "21083263648000",
+      "flow": "-662337582090000",
+      "ledger": "560640155621509",
+      "delta": "-539556891973509",
+      "flow_ledger_delta": "-1222977737711509"
+    },
+    {
+      "chain": "base",
+      "contract": "0x0137bed224ab6940241c9b4926987c7d2029b462",
+      "symbol": "SHIB (swap: t.me/s/shib_pool)",
+      "decimals": 0,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "57500000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x033b1444fbfac85f3761831000dbdad714c48e50",
+      "symbol": "SOL",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "100000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "100000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x03fef7db0067772037da7db2c3096401e97621c6",
+      "symbol": "RocketB20",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x0604e459c28c7a32bbd5cc1ce1a8afebdb70d096",
+      "symbol": "FDOR",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "50000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "50000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x073ffeb4a7a707781f61ce4018ad7111e22cc5da",
+      "symbol": "POLLY",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "8888000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "8888000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x0bf43486ba5b80c0ff742d5e31576abc63d8c0e8",
+      "symbol": "NATO",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x0c4dcf0e640683d11067c0a257d912024cdb10cf",
+      "symbol": "REBELL",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "100000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "100000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x0ff37d3638577b9900561ec247250d8f51c7faa7",
+      "symbol": "DAOR COIN",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x1062f5cb624427fc843e385cb8744fc8201838f0",
+      "symbol": "TRUMP",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x11373977cf095247bdd2fd5fe56212e7e7dfad2d",
+      "symbol": "DISCOPUSSY",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "20000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "20000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x158609cc4e5e1eb12d8d03329860e597d8048358",
+      "symbol": "ESSE",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x183d0b78bd3a8bf10e013a1c637e8090cc770606",
+      "symbol": "CUKI",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "50000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "50000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x19ed88560781cbd496e344cbd48701a53eb1a580",
+      "symbol": "$RLSS",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "88000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "88000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x1c58eaecb9b8e8e7bd1819c82a3da03a3539e6ad",
+      "symbol": "DRONE",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x1ce89cf4a098295d4ec294c3dd7e0e195f906626",
+      "symbol": "Moltbook",
+      "decimals": 9,
+      "category": "check_failed",
+      "provider": "9000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "9000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x1e25c1c67a1de4fc8a602a638355659e36378aaf",
+      "symbol": "MIRROR",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x1e358596f48420fe4cd147dcc850661632125e21",
+      "symbol": "Telegram @TronVanity88_bot",
+      "decimals": 0,
+      "category": "check_failed",
+      "provider": "8888",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "8888",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x1f1bb61c1c1f0b64b6a729bcd73d4a4335aee107",
+      "symbol": "SNOWCAT",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "9999000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x22dd8aa02034903df62f82ee81d6e73ee8e37a2d",
+      "symbol": "BASE",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x293ed67c6ba6d4131484954194ccda56b6b567eb",
+      "symbol": "USOH",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x2b225125765ecbbc4d4e4d2674f92e43c6340331",
+      "symbol": "OpenAI",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "5000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x2f73b6a349e56781a8d6432258d942587a8e40b3",
+      "symbol": "BABUCKS",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x30607b4b05b105e403a62f387ae637941163f4ee",
+      "symbol": "$MONWHALEE",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "111000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "111000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x316696401b34dbf009e497f08b0365727e4c203a",
+      "symbol": "SPCXx",
+      "decimals": 9,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "9000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x32a9689c8be6a2cba780c1fd2a56232b8a9b685c",
+      "symbol": "42",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "27000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "27000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x32e8da0dc9aaf6444c74304c48f4fd5c4ced157c",
+      "symbol": "XMAS",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "9999000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x33c62b565ae68c38ddbf2c1559e0b3960710f17c",
+      "symbol": "SHIB (t.me/s/shib_pool)",
+      "decimals": 0,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "84500000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x35bcab0f106bf16e871234ce6f81ff7ccbca32de",
+      "symbol": "GOAL",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x36e31cb885dafd469f699be7e85217bfda9772b7",
+      "symbol": "VERSA",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x3820588b5ebc5bd3f78cf18ebb3e435a01b8b52b",
+      "symbol": "SOLS",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x3b9efc6f8165812c033618f45a5145cb07548712",
+      "symbol": "USGR",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x3e80dcb1f630fe68d9b327eedfbf748504290a50",
+      "symbol": "GWEI",
+      "decimals": 9,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "9000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x4081a3d66a9092325e52bc969e946d2c4c5271e4",
+      "symbol": "(t.me/s/US_POOL) *claim until 23.01.26",
+      "decimals": 0,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x412c2ddddb42e59dff2a4b1091f469c68d0ea757",
+      "symbol": "NEXARION",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "10000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "10000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x4200000000000000000000000000000000000006",
+      "symbol": "WETH",
+      "decimals": 18,
+      "category": "amount_mismatch",
+      "provider": "6775339472498977",
+      "flow": "6775339472498977",
+      "ledger": "0",
+      "delta": "6775339472498977",
+      "flow_ledger_delta": "6775339472498977"
+    },
+    {
+      "chain": "base",
+      "contract": "0x458759e81f8da8ce552162da6f631fdd36e7347f",
+      "symbol": "BDGA",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "15000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "15000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x486f662020286e17e7469df4e5f2cf2415f36662",
+      "symbol": "AI",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x494e8951094d2c5700c4fe09bd3ea24e8fe9727e",
+      "symbol": "ARMA",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x4995f6876ad120efdc8962691278efdcfadfaebb",
+      "symbol": "LIMAS",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x49c32c82b4c2320be180b267bb3b111758e7a328",
+      "symbol": "ROSS",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x4b545661b3a21a7d4ae98c91499884f94a66c444",
+      "symbol": "PTT",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "10000000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x4c0546c198b5f2134abe1527f71e9d1f504edcf4",
+      "symbol": "VROF",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "20000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "20000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x4c3a205240cdd2336573c0ed5bb25676a3cc427b",
+      "symbol": "PICKLE",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x4d61857bb6919b20b6b6fdd48034260b34c939da",
+      "symbol": "STEVEN",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x50f1094e6fbd914ad146111e5a97258cf6c6948d",
+      "symbol": "LUNA",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x51b92122fe58883601fba4e99fc6f7f98ce0d1e0",
+      "symbol": "MAGA",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "4000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "4000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x52ca825d762a97205aedc0cd8b9509bc03b73543",
+      "symbol": "USWR",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x5364e2b7cabdb67607895900a70716b266736fe3",
+      "symbol": "USTOF",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "6000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "6000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x57894437f05640ca014e2c4723fa18fd79b4c9e1",
+      "symbol": "PENGUIN",
+      "decimals": 9,
+      "category": "check_failed",
+      "provider": "9000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "9000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x58a02270bbeb487eee7da422be3fdf0cd9b6d8c8",
+      "symbol": "BDGA",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "20000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "20000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x58d477bb21c27a2e2a918569e0da580785ed21f3",
+      "symbol": "USCC",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "50000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "50000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x59dca05b6c26dbd64b5381374aaac5cd05644c28",
+      "symbol": "variableDebtBasUSDC",
+      "decimals": 6,
+      "category": "amount_mismatch",
+      "provider": "4525010431",
+      "flow": "4430606440",
+      "ledger": "0",
+      "delta": "4525010431",
+      "flow_ledger_delta": "4430606440",
+      "knownness_status": "known"
+    },
+    {
+      "chain": "base",
+      "contract": "0x5bc7d3f4db6d32e7a2876965e4cf1c5809503c08",
+      "symbol": "LYTHERA",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "10000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "10000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x61e030a56d33e8260fdd81f03b162a79fe3449cd",
+      "symbol": "FLUID",
+      "decimals": 18,
+      "category": "agrees",
+      "provider": "10855443215664299379",
+      "flow": "10855443215664299379",
+      "ledger": "10855443215664299379"
+    },
+    {
+      "chain": "base",
+      "contract": "0x623f111197db4380e04fc26517d46c9ea6a3b444",
+      "symbol": "DOG",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x625b2c48020901df23a95136cdfd173220b6fbbd",
+      "symbol": "2026",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "111000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "111000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x67467d3d235597768b102c442c2dfb5725c220ad",
+      "symbol": "www.baser.cfd",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "6586000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x6808c0a865094dc0c257536f707accf8cdee2e4a",
+      "symbol": "gRONALDO",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "10000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "10000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x68e0acc6a24007718a9d1877ed2f41a2f9561004",
+      "symbol": "LIGHT",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "2000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "2000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x6ab0beb71a0c420035e861ee6834db4ccd2ff71f",
+      "symbol": "SXC",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x6abc46cb32d8dff95b0af7b746a2fa5d0d8b25ae",
+      "symbol": "GBT",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x6b8d803d55ec5cb74f8bb121e01ff2c49668d620",
+      "symbol": "ANSEM",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "20000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "20000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x6e96d8316004313439be46d0f0af40bf61cfe38e",
+      "symbol": "POOM",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "20000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "20000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x72dcc25e16f813933ace984ff58a540d3c409229",
+      "symbol": "ꓴꓢꓓC",
+      "decimals": 6,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "200000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x78cdbef65ede022351f2dd635abc41ac74788cbd",
+      "symbol": "GENESIS",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "15000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "15000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x7992e1da2c11be520584f51a04e06753e4ee533e",
+      "symbol": "$WDC",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "100000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "100000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x79eb0fdfd3a12c9987685a71b11ecb8ddc76ecbe",
+      "symbol": "XOGE",
+      "decimals": 9,
+      "category": "check_failed",
+      "provider": "9000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "9000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x7c5f5a4bbd8fd63184577525326123b519429bdc",
+      "symbol": "UNI-V4-POSM",
+      "decimals": 0,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x818eecdd2fec8a11bcd3d9470639d544eaf101bf",
+      "symbol": "BOUNTYLIFE",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x831533c8a24cb220c4d3718edb9a617fa58813bd",
+      "symbol": "OSCAR",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      "symbol": "USDC",
+      "decimals": 6,
+      "category": "amount_mismatch",
+      "provider": "13888232",
+      "flow": "13888232",
+      "ledger": "696733131",
+      "delta": "-682844899",
+      "flow_ledger_delta": "-682844899"
+    },
+    {
+      "chain": "base",
+      "contract": "0x84975d56b036f6a7b3d34ea73cc73782ba6d9a3c",
+      "symbol": "LOS",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "8888000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x85285167f790f71e7c11cc73563755cdcae89e28",
+      "symbol": "NOVA",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "16000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "16000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x8859f06f83e23c801efd6359eadde89018a5f3d7",
+      "symbol": "SOB",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "9999000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x8bb0ac8ae1033cdee8a45b1fa669b0fad5b40278",
+      "symbol": "USOR",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x8cf96465366b8d903094deaec95ffcc6270f724f",
+      "symbol": "VDR",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "20000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "20000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x8f3b6ad619d85f99e4b32d41bc86a03f9c61879c",
+      "symbol": "TRUMP",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "9999000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x91139e10899c7f38678cf370555d688d957b2c8f",
+      "symbol": "ROOT",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "20000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "20000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x91dd54aa8ba9dfde8b956cfb709a7c418f870e21",
+      "symbol": "GM: BTC/USD [WBTC-USDC]",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "487044886000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x9272d6153133175175bc276512b2336be3931ce9",
+      "symbol": "fWETH",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "35487091373563734",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "35487091373563734",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x92b6ba60726ffb1ac0aceb333e38e7134d3e9440",
+      "symbol": "USWR",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x95908c3fa801d71dccd80022006245418d1d1064",
+      "symbol": "FED",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "10000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "10000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0x97d0d02f643e6dc0651452932a0f18e0c41e597e",
+      "symbol": "DRONE",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xa033488bbe5ab8e5d2e4549be25f2b86279dc08e",
+      "symbol": "WWW.BTCFORUMS.XYZ",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "100000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xa1adabc461af106d9e210c2f8e93d4e8b7bfd5d7",
+      "symbol": "ÚSDС",
+      "decimals": 6,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "219814862",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xa1f8ea4ad00538d92654b7a1408b242b5d1acea5",
+      "symbol": "PIZZA",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xb70695a052c02ca2f6eda07ccf4a66a3f5cc612c",
+      "symbol": "NVIDIA",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "10000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "10000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xb9a0c47adea84b1cf17a787c429bdeeeac01ccd7",
+      "symbol": "(t.me/s/US_POOL) *claim until 10.02.26",
+      "decimals": 0,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1250",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xba1429a6b3e5a7ad94e622d0282fb355edb1b92b",
+      "symbol": "AORIE",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xbdb9300b7cde636d9cd4aff00f6f009ffbbc8ee6",
+      "symbol": "aBascbBTC",
+      "decimals": 8,
+      "category": "explained_receipt",
+      "provider": "11219240",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "receipt"
+      ],
+      "rejected_amount": "11219062",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xbde6973d36a668c8346523b514d798ad79cfb425",
+      "symbol": "EXY",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "20000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "20000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xc19e4dad3218aec0573b9882ef683d73f8004f75",
+      "symbol": "$ZORA",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xc2722ac13daf6d8eda72c677e5eb865e475edfb3",
+      "symbol": "Santa",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1100000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1100000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xc2fad67ceadbde7001ca70236cde9f672edc573b",
+      "symbol": "t.me/s/US_POOL | claim until 23.12.25",
+      "decimals": 0,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "3980",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xc3f1d238d436ba63dfc692c17733f77f3556cc27",
+      "symbol": "$SPX",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "15000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "15000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xc5b4f0fd831b93a76316a02fe8509404af8c8635",
+      "symbol": "USDC",
+      "decimals": 6,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "4345307",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xc5ce8f730d540d4dbc210235933c51c0e5917ce5",
+      "symbol": "ESP",
+      "decimals": 9,
+      "category": "check_failed",
+      "provider": "9000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "9000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xc753e0b5a7682fc93a1094303c3578eea72a6bda",
+      "symbol": "SBS",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "100000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "100000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xc8f4cc5426f948bb3b4cf2f49cc2a73b0d56388d",
+      "symbol": "EDDL",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xc970c50bee2ffd114f5d65ee18520b66da5f62c1",
+      "symbol": "LOKI",
+      "decimals": 9,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "99000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+      "symbol": "cbBTC",
+      "decimals": 8,
+      "category": "ledger_only",
+      "provider": "",
+      "flow": "0",
+      "ledger": "30003",
+      "flow_ledger_delta": "-30003"
+    },
+    {
+      "chain": "base",
+      "contract": "0xcc336e1a6454c734ccba34dc3a51972766274451",
+      "symbol": "PENGU",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xccde439de3de2df88b0b8c7043e8e110c5f81f5d",
+      "symbol": "USSR",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xccfd27324fdf87186afc4d6599c8a690242ff875",
+      "symbol": "rCAP",
+      "decimals": 9,
+      "category": "check_failed",
+      "provider": "9000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "9000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xcdd42e83688e46e17ef6e330ff694afe950d36fe",
+      "symbol": "SZNP",
+      "decimals": 9,
+      "category": "check_failed",
+      "provider": "9000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "9000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xcf90628ab96fa93101ba92ef796224257f05e30f",
+      "symbol": "XMAS",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xd1286c41d0308e3dfeec0f43fb3cc7fe22ef0c1f",
+      "symbol": "TRIA",
+      "decimals": 9,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "9000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xd15cc42e0113d94e4c529079580e90bcb9c4c923",
+      "symbol": "BUTERBEAR",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "100000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "100000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xd177e58b02e68b2d13f792288385db41569b104f",
+      "symbol": "USDC",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xd2b6878973dedc61ca5407c0194ff3b996b37134",
+      "symbol": "NNWR",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "15000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "15000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xd4a0e0b9149bcee3c920d2e00b5de09138fd8bb7",
+      "symbol": "aBasWETH",
+      "decimals": 18,
+      "category": "explained_receipt",
+      "provider": "2920880216853978120",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "receipt"
+      ],
+      "rejected_amount": "2916392024735209484"
+    },
+    {
+      "chain": "base",
+      "contract": "0xd5fb4dd6ec8dc12176c151d4be3b33af3da8d274",
+      "symbol": "NEFE",
+      "decimals": 9,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "9000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xd74c7095742c0645ca83f9b4a2d599d67008de3f",
+      "symbol": "$LE",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xd8860c4a780d9b1c8f972a025304d143681b8519",
+      "symbol": "USWR",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "18000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "18000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xd90487d529bff1b7c28ffdd3e3388eb377ee073d",
+      "symbol": "wDINO",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "16873000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "16873000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xdb9d15e484368facb45f5784a99a0a5feceed624",
+      "symbol": "NTFS",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "21000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "21000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xdd2e30c43bd10b4546b67e47d2a4473c821ee31d",
+      "symbol": "U S D C ✅Visit to claim: t.me/s/us_pool",
+      "decimals": 0,
+      "category": "check_failed",
+      "provider": "1",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "980",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xe7e875c78853b00b4df6e7569f20e60aecea06cc",
+      "symbol": "BULL",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xe8a2e29c8199ecef54e20b7766de65a5c5591c6b",
+      "symbol": "TEA",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "2000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "2000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xe8f7bb9bb7ed57db3f1561d0da987861a25725cf",
+      "symbol": "SURGE",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "80000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "80000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xe95c429d2e4e1129074c68d4e8e6973ea0156594",
+      "symbol": "DOGE",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1985000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1985000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xeb9caafc9cd52434fc906dc6ef28f24509d9b309",
+      "symbol": "UЅDС",
+      "decimals": 6,
+      "category": "check_failed",
+      "provider": "7478100000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "419814862",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xec5292103b193a9b0993fedd6672afefc723426c",
+      "symbol": "Visit: t.me/s/US_POOL | claim until 15.12.25",
+      "decimals": 0,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "2840",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xede04208539758ee3fb43b9bac9aad48fa8d97c8",
+      "symbol": "UЅDC",
+      "decimals": 6,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "2800000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xf124e18c84248f1502da7ef4626c631c698f1e3b",
+      "symbol": "Bountywork",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "5000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "5000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xf17ffaef3de6148a0ef8c96d502a65df6e89e76f",
+      "symbol": "EURO",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xf1fabf37b5319881b7ffd2ca56efa9eae2494703",
+      "symbol": "TGC",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "10000000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "10000000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xf2b2c2a4e4eae02ba07decece8d831b11bd7a350",
+      "symbol": "BONK",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "2000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "2000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xf42f5795d9ac7e9d757db633d693cd548cfd9169",
+      "symbol": "fUSDC",
+      "decimals": 6,
+      "category": "explained_receipt",
+      "provider": "4227480672",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "receipt",
+        "unknown_asset"
+      ],
+      "rejected_amount": "6948405888",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xf56834d3ff89dd7f3ee3547b2f1488b209edfdb0",
+      "symbol": "HEUBEU",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xf5e2a99b19fe65c5355746765a42647984ca9aed",
+      "symbol": "PIMPBALL",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "9999000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "9999000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xf707fdafae8427c3dc2acc691bc598260893fae3",
+      "symbol": "TESLA",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "20000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "20000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xf9f8a1638f6a868d783fc9cf39c20dfd14a03b80",
+      "symbol": "GOAT",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xfae7d01301e2eeede488f0953547e712a56c5e1d",
+      "symbol": "OracleAI",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "3000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "3000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xfb9bd838721c959a87055d35fe7b9a1d86894363",
+      "symbol": "USEDTESLA",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xfcff5015627b8ce9ceaa7f5b38a6679f65fe39a7",
+      "symbol": "GM: ETH/USD [WETH-USDC]",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "915326326000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xfd724781411285a1db6e3ea83c136032f0a93569",
+      "symbol": "USSR",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xfe3a3f6677df1834bc9638067f28eb9cf8f4497b",
+      "symbol": "$DRB",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "0xff2ab362df2e52852a88ad210ff3c6fa2fe1fe5d",
+      "symbol": "BASEVARIABLE",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "25000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "25000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "base",
+      "contract": "native",
+      "symbol": "ETH",
+      "decimals": 18,
+      "category": "amount_mismatch",
+      "provider": "972107593600205",
+      "flow": "-6884608408143164",
+      "ledger": "934097253752991962",
+      "delta": "-933125146159391757",
+      "flow_ledger_delta": "-940981862161135126"
+    },
+    {
+      "chain": "ethereum",
+      "contract": "0x1c9b1717181f12b26a2b1b9d93d41e3085df54ed",
+      "symbol": "XERO",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "ethereum",
+      "contract": "0x692cd1cce74bfb88947a3e02f6993ce677d54638",
+      "symbol": "xAI",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "10000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "ethereum",
+      "contract": "0x86863490f091864b224f431cbef28d428b7ad32f",
+      "symbol": "FIRE",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "ethereum",
+      "contract": "0x9347e04ea939b15f5965dd1adb5e496423d21956",
+      "symbol": "PICKLE",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "ethereum",
+      "contract": "0x9e351a9d94d7a0727f273450f4a75f2b062e479b",
+      "symbol": "KIB",
+      "decimals": 18,
+      "category": "settled",
+      "provider": "",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "ethereum",
+      "contract": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+      "symbol": "USDC",
+      "decimals": 6,
+      "category": "unexplained_missing_from_ledger",
+      "provider": "1133711587",
+      "flow": "1133711587",
+      "ledger": ""
+    },
+    {
+      "chain": "ethereum",
+      "contract": "0xcdb9f907bd8828be9643b39cd4638d362fd6e9c4",
+      "symbol": "KEKIUS",
+      "decimals": 18,
+      "category": "check_failed",
+      "provider": "1000000000000000000",
+      "flow": "0",
+      "ledger": "",
+      "rejected_by": [
+        "unknown_asset"
+      ],
+      "rejected_amount": "1000000000000000000",
+      "knownness_status": "pending"
+    },
+    {
+      "chain": "ethereum",
+      "contract": "native",
+      "symbol": "ETH",
+      "decimals": 18,
+      "category": "agrees",
+      "provider": "22656926547054",
+      "flow": "-1013792350274497",
+      "ledger": "22656926547054",
+      "flow_ledger_delta": "-1036449276821551"
+    }
+  ],
+  "summary": {
+    "red": 6,
+    "green": 147,
+    "by_category": {
+      "agrees": 3,
+      "amount_mismatch": 5,
+      "check_failed": 103,
+      "explained_receipt": 3,
+      "ledger_only": 2,
+      "settled": 36,
+      "unexplained_missing_from_ledger": 1
+    },
+    "findings": 17,
+    "checks_not_run": 0
+  }
+}
+RECONCILIATION REPORT — wallet 19934671-b0c2-434d-8f33-e27dae4db78b ((redacted))
+positions from: snapshot /Users/kislikjeka/projects/code/moontrack/docs/reconcile/ticket61-snapshot.json (taken 2026-08-03T03:32:33Z)
+synced until:   arbitrum   2026-06-26T14:41:51Z
+synced until:   base       2026-07-21T21:05:07Z
+synced until:   ethereum   2026-07-28T19:25:35Z
+cursor probe:   NOT ASKED — the provider was not asked whether it holds transactions newer than the cursor (-probe-cursor)
+
+── CHECK 1/4: triangle_p_f_l — ran
+     ✗ arbitrum:0xaf88d065e77c8cc2239327c5edb3a432268e5831 (USDC): flow=0 ledger=24446763 delta=-24446763 — both sides come from the same collected history, so this is a POSTING defect
+     ✗ arbitrum:native (ETH): flow=-662337582090000 ledger=560640155621509 delta=-1222977737711509 — both sides come from the same collected history, so this is a POSTING defect
+     ✗ base:0x4200000000000000000000000000000000000006 (WETH): flow=6775339472498977 ledger=0 delta=6775339472498977 — both sides come from the same collected history, so this is a POSTING defect
+     ✗ base:0x59dca05b6c26dbd64b5381374aaac5cd05644c28 (variableDebtBasUSDC): flow=4430606440 ledger=0 delta=4430606440 — both sides come from the same collected history, so this is a POSTING defect
+     ✗ base:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913 (USDC): flow=13888232 ledger=696733131 delta=-682844899 — both sides come from the same collected history, so this is a POSTING defect
+     ✗ base:0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf (cbBTC): flow=0 ledger=30003 delta=-30003 — both sides come from the same collected history, so this is a POSTING defect
+     ✗ base:native (ETH): flow=-6884608408143164 ledger=934097253752991962 delta=-940981862161135126 — both sides come from the same collected history, so this is a POSTING defect
+     ✗ ethereum:native (ETH): flow=-1013792350274497 ledger=22656926547054 delta=-1036449276821551 — both sides come from the same collected history, so this is a POSTING defect
+     ✗ 251 collected transaction(s) never reached the ledger (error=23 pending=59 skipped=169). They are counted in F and absent from L, so they account for part of every flow_ledger_delta above — the cause is already recorded on the raws
+
+── CHECK 2/4: entries_equal_balances — ran
+     no findings
+
+── CHECK 3/4: one_account_per_identity — ran
+     ✗ arbitrum:0xaf88d065e77c8cc2239327c5edb3a432268e5831 in scope "wallet" is addressed by 2 accounts ([wallet.19934671-b0c2-434d-8f33-e27dae4db78b.arbitrum.62c13add-72f8-4534-9361-5cb9f1d3ea43 wallet.19934671-b0c2-434d-8f33-e27dae4db78b.base.62c13add-72f8-4534-9361-5cb9f1d3ea43]); their balances sum to 24446763, which every magnitude comparison would accept
+     ✗ base:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913 in scope "wallet" is addressed by 2 accounts ([wallet.19934671-b0c2-434d-8f33-e27dae4db78b.arbitrum.a117b186-72ec-46b0-a95e-f845009389d9 wallet.19934671-b0c2-434d-8f33-e27dae4db78b.base.a117b186-72ec-46b0-a95e-f845009389d9]); their balances sum to 696733131, which every magnitude comparison would accept
+
+── CHECK 4/4: provider_vs_ledger — ran
+     ✗ arbitrum:native (ETH): provider=21083263648000 ledger=560640155621509 delta=-539556891973509
+     ✗ base:0x4200000000000000000000000000000000000006 (WETH): provider=6775339472498977 ledger=0 delta=6775339472498977
+     ✗ base:0x59dca05b6c26dbd64b5381374aaac5cd05644c28 (variableDebtBasUSDC): provider=4525010431 ledger=0 delta=4525010431
+     ✗ base:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913 (USDC): provider=13888232 ledger=696733131 delta=-682844899
+     ✗ base:native (ETH): provider=972107593600205 ledger=934097253752991962 delta=-933125146159391757
+     ✗ ethereum:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48 (USDC): provider reports 1133711587, ledger holds nothing, and no rule accounts for the absence (knownness="")
+
+── ROWS (153)
+CHAIN     CONTRACT                                     SYMBOL                   CATEGORY                                     PROVIDER                 FLOW               LEDGER             REJECTED
+ arbitrum 0x47c031236e19d024b42f8ae6780e44a573170703   GM                       check_failed                     97.2632389838587971…                    0                    — 670.983794224305388…
+ arbitrum 0x70d95587d40a2caf56bd97485ab3eec10bee6336   GM                       check_failed                     105.144272541188163…                    0                    — 313.144272541188163…
+ arbitrum 0xaf88d065e77c8cc2239327c5edb3a432268e5831   USDC                     ledger_only                                         —                    0            24.446763                    —
+ arbitrum 0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf   cbBTC                    agrees                                     0.00000001           0.00000001           0.00000001                    —
+✗arbitrum native                                       ETH                      amount_mismatch                     0.000021083263648    -0.00066233758209 0.000560640155621509                    —
+ base     0x0137bed224ab6940241c9b4926987c7d2029b462   SHIB (swap: t.me/s/shib… settled                                             —                    0                    —             57500000
+ base     0x033b1444fbfac85f3761831000dbdad714c48e50   SOL                      check_failed                                      100                    0                    —                  100
+ base     0x03fef7db0067772037da7db2c3096401e97621c6   RocketB20                check_failed                                       25                    0                    —                   25
+ base     0x0604e459c28c7a32bbd5cc1ce1a8afebdb70d096   FDOR                     check_failed                                       50                    0                    —                   50
+ base     0x073ffeb4a7a707781f61ce4018ad7111e22cc5da   POLLY                    check_failed                                     8888                    0                    —                 8888
+ base     0x0bf43486ba5b80c0ff742d5e31576abc63d8c0e8   NATO                     check_failed                                        1                    0                    —                    1
+ base     0x0c4dcf0e640683d11067c0a257d912024cdb10cf   REBELL                   check_failed                                      100                    0                    —                  100
+ base     0x0ff37d3638577b9900561ec247250d8f51c7faa7   DAOR COIN                check_failed                                       25                    0                    —                   25
+ base     0x1062f5cb624427fc843e385cb8744fc8201838f0   TRUMP                    check_failed                                        1                    0                    —                    1
+ base     0x11373977cf095247bdd2fd5fe56212e7e7dfad2d   DISCOPUSSY               check_failed                                       20                    0                    —                   20
+ base     0x158609cc4e5e1eb12d8d03329860e597d8048358   ESSE                     check_failed                                        1                    0                    —                    1
+ base     0x183d0b78bd3a8bf10e013a1c637e8090cc770606   CUKI                     check_failed                                       50                    0                    —                   50
+ base     0x19ed88560781cbd496e344cbd48701a53eb1a580   $RLSS                    check_failed                                       88                    0                    —                   88
+ base     0x1c58eaecb9b8e8e7bd1819c82a3da03a3539e6ad   DRONE                    check_failed                                       25                    0                    —                   25
+ base     0x1ce89cf4a098295d4ec294c3dd7e0e195f906626   Moltbook                 check_failed                                        9                    0                    —                    9
+ base     0x1e25c1c67a1de4fc8a602a638355659e36378aaf   MIRROR                   check_failed                                        1                    0                    —                    1
+ base     0x1e358596f48420fe4cd147dcc850661632125e21   Telegram @TronVanity88_… check_failed                                     8888                    0                    —                 8888
+ base     0x1f1bb61c1c1f0b64b6a729bcd73d4a4335aee107   SNOWCAT                  settled                                             —                    0                    —                 9999
+ base     0x22dd8aa02034903df62f82ee81d6e73ee8e37a2d   BASE                     check_failed                                        1                    0                    —                    1
+ base     0x293ed67c6ba6d4131484954194ccda56b6b567eb   USOH                     check_failed                                        1                    0                    —                    1
+ base     0x2b225125765ecbbc4d4e4d2674f92e43c6340331   OpenAI                   settled                                             —                    0                    —                    5
+ base     0x2f73b6a349e56781a8d6432258d942587a8e40b3   BABUCKS                  check_failed                                        1                    0                    —                    1
+ base     0x30607b4b05b105e403a62f387ae637941163f4ee   $MONWHALEE               check_failed                                      111                    0                    —                  111
+ base     0x316696401b34dbf009e497f08b0365727e4c203a   SPCXx                    settled                                             —                    0                    —                    9
+ base     0x32a9689c8be6a2cba780c1fd2a56232b8a9b685c   42                       check_failed                                       27                    0                    —                   27
+ base     0x32e8da0dc9aaf6444c74304c48f4fd5c4ced157c   XMAS                     settled                                             —                    0                    —                 9999
+ base     0x33c62b565ae68c38ddbf2c1559e0b3960710f17c   SHIB (t.me/s/shib_pool)  settled                                             —                    0                    —             84500000
+ base     0x35bcab0f106bf16e871234ce6f81ff7ccbca32de   GOAL                     check_failed                                        1                    0                    —                    1
+ base     0x36e31cb885dafd469f699be7e85217bfda9772b7   VERSA                    check_failed                                        1                    0                    —                    1
+ base     0x3820588b5ebc5bd3f78cf18ebb3e435a01b8b52b   SOLS                     check_failed                                       25                    0                    —                   25
+ base     0x3b9efc6f8165812c033618f45a5145cb07548712   USGR                     check_failed                                       25                    0                    —                   25
+ base     0x3e80dcb1f630fe68d9b327eedfbf748504290a50   GWEI                     settled                                             —                    0                    —                    9
+ base     0x4081a3d66a9092325e52bc969e946d2c4c5271e4   (t.me/s/US_POOL) *claim… settled                                             —                    0                    —                 1000
+ base     0x412c2ddddb42e59dff2a4b1091f469c68d0ea757   NEXARION                 check_failed                                       10                    0                    —                   10
+✗base     0x4200000000000000000000000000000000000006   WETH                     amount_mismatch                  0.006775339472498977 0.006775339472498977                    0                    —
+ base     0x458759e81f8da8ce552162da6f631fdd36e7347f   BDGA                     check_failed                                       15                    0                    —                   15
+ base     0x486f662020286e17e7469df4e5f2cf2415f36662   AI                       check_failed                                        1                    0                    —                    1
+ base     0x494e8951094d2c5700c4fe09bd3ea24e8fe9727e   ARMA                     check_failed                                       25                    0                    —                   25
+ base     0x4995f6876ad120efdc8962691278efdcfadfaebb   LIMAS                    check_failed                                       25                    0                    —                   25
+ base     0x49c32c82b4c2320be180b267bb3b111758e7a328   ROSS                     check_failed                                       25                    0                    —                   25
+ base     0x4b545661b3a21a7d4ae98c91499884f94a66c444   PTT                      settled                                             —                    0                    —                10000
+ base     0x4c0546c198b5f2134abe1527f71e9d1f504edcf4   VROF                     check_failed                                       20                    0                    —                   20
+ base     0x4c3a205240cdd2336573c0ed5bb25676a3cc427b   PICKLE                   settled                                             —                    0                    —                    1
+ base     0x4d61857bb6919b20b6b6fdd48034260b34c939da   STEVEN                   check_failed                                        1                    0                    —                    1
+ base     0x50f1094e6fbd914ad146111e5a97258cf6c6948d   LUNA                     check_failed                                        1                    0                    —                    1
+ base     0x51b92122fe58883601fba4e99fc6f7f98ce0d1e0   MAGA                     check_failed                                        4                    0                    —                    4
+ base     0x52ca825d762a97205aedc0cd8b9509bc03b73543   USWR                     check_failed                                       25                    0                    —                   25
+ base     0x5364e2b7cabdb67607895900a70716b266736fe3   USTOF                    check_failed                                        6                    0                    —                    6
+ base     0x57894437f05640ca014e2c4723fa18fd79b4c9e1   PENGUIN                  check_failed                                        9                    0                    —                    9
+ base     0x58a02270bbeb487eee7da422be3fdf0cd9b6d8c8   BDGA                     check_failed                                       20                    0                    —                   20
+ base     0x58d477bb21c27a2e2a918569e0da580785ed21f3   USCC                     check_failed                                       50                    0                    —                   50
+✗base     0x59dca05b6c26dbd64b5381374aaac5cd05644c28   variableDebtBasUSDC      amount_mismatch                           4525.010431           4430.60644                    0                    —
+ base     0x5bc7d3f4db6d32e7a2876965e4cf1c5809503c08   LYTHERA                  check_failed                                       10                    0                    —                   10
+ base     0x61e030a56d33e8260fdd81f03b162a79fe3449cd   FLUID                    agrees                           10.8554432156642993… 10.8554432156642993… 10.8554432156642993…                    —
+ base     0x623f111197db4380e04fc26517d46c9ea6a3b444   DOG                      settled                                             —                    0                    —                    1
+ base     0x625b2c48020901df23a95136cdfd173220b6fbbd   2026                     check_failed                                      111                    0                    —                  111
+ base     0x67467d3d235597768b102c442c2dfb5725c220ad   www.baser.cfd            settled                                             —                    0                    —                 6586
+ base     0x6808c0a865094dc0c257536f707accf8cdee2e4a   gRONALDO                 check_failed                                       10                    0                    —                   10
+ base     0x68e0acc6a24007718a9d1877ed2f41a2f9561004   LIGHT                    check_failed                                        2                    0                    —                    2
+ base     0x6ab0beb71a0c420035e861ee6834db4ccd2ff71f   SXC                      check_failed                                        1                    0                    —                    1
+ base     0x6abc46cb32d8dff95b0af7b746a2fa5d0d8b25ae   GBT                      check_failed                                        1                    0                    —                    1
+ base     0x6b8d803d55ec5cb74f8bb121e01ff2c49668d620   ANSEM                    check_failed                                       20                    0                    —                   20
+ base     0x6e96d8316004313439be46d0f0af40bf61cfe38e   POOM                     check_failed                                       20                    0                    —                   20
+ base     0x72dcc25e16f813933ace984ff58a540d3c409229   ꓴꓢꓓC                     settled                                             —                    0                    —                  200
+ base     0x78cdbef65ede022351f2dd635abc41ac74788cbd   GENESIS                  check_failed                                       15                    0                    —                   15
+ base     0x7992e1da2c11be520584f51a04e06753e4ee533e   $WDC                     check_failed                                      100                    0                    —                  100
+ base     0x79eb0fdfd3a12c9987685a71b11ecb8ddc76ecbe   XOGE                     check_failed                                        9                    0                    —                    9
+ base     0x7c5f5a4bbd8fd63184577525326123b519429bdc   UNI-V4-POSM              settled                                             —                    0                    —                    1
+ base     0x818eecdd2fec8a11bcd3d9470639d544eaf101bf   BOUNTYLIFE               check_failed                                       25                    0                    —                   25
+ base     0x831533c8a24cb220c4d3718edb9a617fa58813bd   OSCAR                    settled                                             —                    0                    —                    1
+✗base     0x833589fcd6edb6e08f4c7c32d4f71b54bda02913   USDC                     amount_mismatch                             13.888232            13.888232           696.733131                    —
+ base     0x84975d56b036f6a7b3d34ea73cc73782ba6d9a3c   LOS                      settled                                             —                    0                    —                 8888
+ base     0x85285167f790f71e7c11cc73563755cdcae89e28   NOVA                     check_failed                                       16                    0                    —                   16
+ base     0x8859f06f83e23c801efd6359eadde89018a5f3d7   SOB                      settled                                             —                    0                    —                 9999
+ base     0x8bb0ac8ae1033cdee8a45b1fa669b0fad5b40278   USOR                     check_failed                                        1                    0                    —                    1
+ base     0x8cf96465366b8d903094deaec95ffcc6270f724f   VDR                      check_failed                                       20                    0                    —                   20
+ base     0x8f3b6ad619d85f99e4b32d41bc86a03f9c61879c   TRUMP                    settled                                             —                    0                    —                 9999
+ base     0x91139e10899c7f38678cf370555d688d957b2c8f   ROOT                     check_failed                                       20                    0                    —                   20
+ base     0x91dd54aa8ba9dfde8b956cfb709a7c418f870e21   GM: BTC/USD [WBTC-USDC]  settled                                             —                    0                    —           487.044886
+ base     0x9272d6153133175175bc276512b2336be3931ce9   fWETH                    check_failed                     0.035487091373563734                    0                    — 0.035487091373563734
+ base     0x92b6ba60726ffb1ac0aceb333e38e7134d3e9440   USWR                     check_failed                                       25                    0                    —                   25
+ base     0x95908c3fa801d71dccd80022006245418d1d1064   FED                      check_failed                                       10                    0                    —                   10
+ base     0x97d0d02f643e6dc0651452932a0f18e0c41e597e   DRONE                    check_failed                                       25                    0                    —                   25
+ base     0xa033488bbe5ab8e5d2e4549be25f2b86279dc08e   WWW.BTCFORUMS.XYZ        settled                                             —                    0                    —                  100
+ base     0xa1adabc461af106d9e210c2f8e93d4e8b7bfd5d7   ÚSDС                    settled                                             —                    0                    —           219.814862
+ base     0xa1f8ea4ad00538d92654b7a1408b242b5d1acea5   PIZZA                    check_failed                                       25                    0                    —                   25
+ base     0xb70695a052c02ca2f6eda07ccf4a66a3f5cc612c   NVIDIA                   check_failed                                       10                    0                    —                   10
+ base     0xb9a0c47adea84b1cf17a787c429bdeeeac01ccd7   (t.me/s/US_POOL) *claim… settled                                             —                    0                    —                 1250
+ base     0xba1429a6b3e5a7ad94e622d0282fb355edb1b92b   AORIE                    check_failed                                       25                    0                    —                   25
+ base     0xbdb9300b7cde636d9cd4aff00f6f009ffbbc8ee6   aBascbBTC                explained_receipt                           0.1121924                    0                    —           0.11219062
+ base     0xbde6973d36a668c8346523b514d798ad79cfb425   EXY                      check_failed                                       20                    0                    —                   20
+ base     0xc19e4dad3218aec0573b9882ef683d73f8004f75   $ZORA                    check_failed                                        1                    0                    —                    1
+ base     0xc2722ac13daf6d8eda72c677e5eb865e475edfb3   Santa                    check_failed                                      1.1                    0                    —                  1.1
+ base     0xc2fad67ceadbde7001ca70236cde9f672edc573b   t.me/s/US_POOL | claim … settled                                             —                    0                    —                 3980
+ base     0xc3f1d238d436ba63dfc692c17733f77f3556cc27   $SPX                     check_failed                                       15                    0                    —                   15
+ base     0xc5b4f0fd831b93a76316a02fe8509404af8c8635   USDC                     settled                                             —                    0                    —             4.345307
+ base     0xc5ce8f730d540d4dbc210235933c51c0e5917ce5   ESP                      check_failed                                        9                    0                    —                    9
+ base     0xc753e0b5a7682fc93a1094303c3578eea72a6bda   SBS                      check_failed                                      100                    0                    —                  100
+ base     0xc8f4cc5426f948bb3b4cf2f49cc2a73b0d56388d   EDDL                     check_failed                                        1                    0                    —                    1
+ base     0xc970c50bee2ffd114f5d65ee18520b66da5f62c1   LOKI                     settled                                             —                    0                    —                   99
+ base     0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf   cbBTC                    ledger_only                                         —                    0           0.00030003                    —
+ base     0xcc336e1a6454c734ccba34dc3a51972766274451   PENGU                    check_failed                                        1                    0                    —                    1
+ base     0xccde439de3de2df88b0b8c7043e8e110c5f81f5d   USSR                     check_failed                                       25                    0                    —                   25
+ base     0xccfd27324fdf87186afc4d6599c8a690242ff875   rCAP                     check_failed                                        9                    0                    —                    9
+ base     0xcdd42e83688e46e17ef6e330ff694afe950d36fe   SZNP                     check_failed                                        9                    0                    —                    9
+ base     0xcf90628ab96fa93101ba92ef796224257f05e30f   XMAS                     check_failed                                        1                    0                    —                    1
+ base     0xd1286c41d0308e3dfeec0f43fb3cc7fe22ef0c1f   TRIA                     settled                                             —                    0                    —                    9
+ base     0xd15cc42e0113d94e4c529079580e90bcb9c4c923   BUTERBEAR                check_failed                                      100                    0                    —                  100
+ base     0xd177e58b02e68b2d13f792288385db41569b104f   USDC                     settled                                             —                    0                    —                   25
+ base     0xd2b6878973dedc61ca5407c0194ff3b996b37134   NNWR                     check_failed                                       15                    0                    —                   15
+ base     0xd4a0e0b9149bcee3c920d2e00b5de09138fd8bb7   aBasWETH                 explained_receipt                 2.92088021685397812                    0                    — 2.916392024735209484
+ base     0xd5fb4dd6ec8dc12176c151d4be3b33af3da8d274   NEFE                     settled                                             —                    0                    —                    9
+ base     0xd74c7095742c0645ca83f9b4a2d599d67008de3f   $LE                      check_failed                                       25                    0                    —                   25
+ base     0xd8860c4a780d9b1c8f972a025304d143681b8519   USWR                     check_failed                                       18                    0                    —                   18
+ base     0xd90487d529bff1b7c28ffdd3e3388eb377ee073d   wDINO                    check_failed                                   16.873                    0                    —               16.873
+ base     0xdb9d15e484368facb45f5784a99a0a5feceed624   NTFS                     check_failed                                       21                    0                    —                   21
+ base     0xdd2e30c43bd10b4546b67e47d2a4473c821ee31d   U S D C ✅Visit to cla…   check_failed                                        1                    0                    —                  980
+ base     0xe7e875c78853b00b4df6e7569f20e60aecea06cc   BULL                     settled                                             —                    0                    —                 1000
+ base     0xe8a2e29c8199ecef54e20b7766de65a5c5591c6b   TEA                      check_failed                                        2                    0                    —                    2
+ base     0xe8f7bb9bb7ed57db3f1561d0da987861a25725cf   SURGE                    check_failed                                       80                    0                    —                   80
+ base     0xe95c429d2e4e1129074c68d4e8e6973ea0156594   DOGE                     check_failed                                     1985                    0                    —                 1985
+ base     0xeb9caafc9cd52434fc906dc6ef28f24509d9b309   UЅDС                     check_failed                                   7478.1                    0                    —           419.814862
+ base     0xec5292103b193a9b0993fedd6672afefc723426c   Visit: t.me/s/US_POOL |… settled                                             —                    0                    —                 2840
+ base     0xede04208539758ee3fb43b9bac9aad48fa8d97c8   UЅDC                     settled                                             —                    0                    —                 2800
+ base     0xf124e18c84248f1502da7ef4626c631c698f1e3b   Bountywork               check_failed                                        5                    0                    —                    5
+ base     0xf17ffaef3de6148a0ef8c96d502a65df6e89e76f   EURO                     check_failed                                        1                    0                    —                    1
+ base     0xf1fabf37b5319881b7ffd2ca56efa9eae2494703   TGC                      check_failed                                    10000                    0                    —                10000
+ base     0xf2b2c2a4e4eae02ba07decece8d831b11bd7a350   BONK                     check_failed                                        2                    0                    —                    2
+ base     0xf42f5795d9ac7e9d757db633d693cd548cfd9169   fUSDC                    explained_receipt                         4227.480672                    0                    —          6948.405888
+ base     0xf56834d3ff89dd7f3ee3547b2f1488b209edfdb0   HEUBEU                   check_failed                                        1                    0                    —                    1
+ base     0xf5e2a99b19fe65c5355746765a42647984ca9aed   PIMPBALL                 check_failed                                     9999                    0                    —                 9999
+ base     0xf707fdafae8427c3dc2acc691bc598260893fae3   TESLA                    check_failed                                       20                    0                    —                   20
+ base     0xf9f8a1638f6a868d783fc9cf39c20dfd14a03b80   GOAT                     check_failed                                        1                    0                    —                    1
+ base     0xfae7d01301e2eeede488f0953547e712a56c5e1d   OracleAI                 check_failed                                        3                    0                    —                    3
+ base     0xfb9bd838721c959a87055d35fe7b9a1d86894363   USEDTESLA                check_failed                                       25                    0                    —                   25
+ base     0xfcff5015627b8ce9ceaa7f5b38a6679f65fe39a7   GM: ETH/USD [WETH-USDC]  settled                                             —                    0                    —           915.326326
+ base     0xfd724781411285a1db6e3ea83c136032f0a93569   USSR                     check_failed                                       25                    0                    —                   25
+ base     0xfe3a3f6677df1834bc9638067f28eb9cf8f4497b   $DRB                     check_failed                                        1                    0                    —                    1
+ base     0xff2ab362df2e52852a88ad210ff3c6fa2fe1fe5d   BASEVARIABLE             check_failed                                       25                    0                    —                   25
+✗base     native                                       ETH                      amount_mismatch                  0.000972107593600205 -0.0068846084081431… 0.934097253752991962                    —
+ ethereum 0x1c9b1717181f12b26a2b1b9d93d41e3085df54ed   XERO                     settled                                             —                    0                    —                    1
+ ethereum 0x692cd1cce74bfb88947a3e02f6993ce677d54638   xAI                      settled                                             —                    0                    —                   10
+ ethereum 0x86863490f091864b224f431cbef28d428b7ad32f   FIRE                     settled                                             —                    0                    —                    1
+ ethereum 0x9347e04ea939b15f5965dd1adb5e496423d21956   PICKLE                   check_failed                                        1                    0                    —                    1
+ ethereum 0x9e351a9d94d7a0727f273450f4a75f2b062e479b   KIB                      settled                                             —                    0                    —                    1
+✗ethereum 0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48   USDC                     unexplained_missing_from_ledger           1133.711587          1133.711587                    —                    —
+ ethereum 0xcdb9f907bd8828be9643b39cd4638d362fd6e9c4   KEKIUS                   check_failed                                        1                    0                    —                    1
+ ethereum native                                       ETH                      agrees                           0.000022656926547054 -0.0010137923502744… 0.000022656926547054                    —
+
+── SUMMARY
+     agrees                             3
+     amount_mismatch                    5
+     check_failed                       103
+     explained_receipt                  3
+     ledger_only                        2
+     settled                            36
+     unexplained_missing_from_ledger    1
+     check findings                     17
+     checks not run                     0
+
+VERDICT: DOES NOT ADD UP — 6 red row(s), 17 check finding(s).
+exit status 1
