@@ -82,3 +82,9 @@ temp/
 
 # Git worktrees
 .worktrees/
+
+# Provider position snapshots — real wallet addresses and balances.
+# The reconciliation report (#61) takes these as its second input; keep them
+# local. The committed files under docs/reconcile/ carry contracts and
+# quantities only, never an address.
+docs/reconcile/*snapshot*.json
