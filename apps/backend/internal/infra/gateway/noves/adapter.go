@@ -84,6 +84,7 @@ func convertTransaction(tx Transaction, domainChain string) (sync.DecodedTransac
 
 	var (
 		transfers    []sync.DecodedTransfer
+		rejected     []sync.RejectedLeg
 		legActions   []string
 		nftTokenID   string
 		needsReview  bool
@@ -130,7 +131,17 @@ func convertTransaction(tx Transaction, domainChain string) (sync.DecodedTransac
 		// arrives as an NFT-only leg on Uniswap V3, carrying no symbol and no
 		// contract but carrying the position id that LP tracking is keyed on;
 		// dropping it earlier would discard the id along with the receipt.
+		//
+		// The leg is RECORDED as rejected rather than vanishing (issue #60). The
+		// receipt token is real and quoted, so the provider reports a POSITION in
+		// it; with the leg gone without trace, reconciliation compared that
+		// position against a net flow of zero and flagged the chain for a balance
+		// the rule had deliberately and correctly excluded. Keeping the identity
+		// here — the one place it still exists, since the raw is written from what
+		// this function returns — is what lets the delta and the report explain
+		// that position the same way.
 		if sync.IsReceiptLeg(t.Action) {
+			rejected = append(rejected, rejectedLeg(t, domainChain, dir, sync.RejectionReceipt))
 			return
 		}
 
@@ -163,6 +174,7 @@ func convertTransaction(tx Transaction, domainChain string) (sync.DecodedTransac
 		OperationType: mapOperationType(tx.ClassificationData.Type),
 		Protocol:      protocolName(tx),
 		Transfers:     transfers,
+		RejectedLegs:  rejected,
 		LegActions:    legActions,
 		Fee:           fee,
 		MinedAt:       time.Unix(tx.RawTransactionData.Timestamp, 0).UTC(),
@@ -204,6 +216,43 @@ func convertTransfer(t Transfer, dir sync.TransferDirection) (sync.DecodedTransf
 		Recipient:       partyAddress(t.To),
 		Action:          t.Action,
 	}, review
+}
+
+// rejectedLeg records a leg that a rule kept out of the ledger, preserving the
+// asset identity the rule acted on (issue #60).
+//
+// It deliberately does NOT reuse convertTransfer. A rejected leg is not a
+// transfer: it must never be mistaken for one by anything that later reads a
+// []DecodedTransfer, and the two carry different fields — a rejection needs the
+// reason and the action, and has no use for sender, recipient or price.
+//
+// chain is passed in rather than taken from the transaction because a leg's
+// chain is not always the observed one; the caller knows which applies.
+func rejectedLeg(t Transfer, chain string, dir sync.TransferDirection, reason sync.RejectionReason) sync.RejectedLeg {
+	decimals := 0
+	symbol := ""
+	contract := ""
+	if t.Token != nil {
+		decimals = t.Token.Decimals
+		symbol = t.Token.Symbol
+		contract = normalizeContract(t.Token.Address)
+	}
+
+	// The truncation flag is dropped on purpose: a rejected leg is never booked,
+	// so an inexact amount cannot corrupt a balance. It is reported for size, and
+	// a truncated size is still the right order of magnitude.
+	amount, _ := amountToBaseUnits(t.Amount, decimals, symbol)
+
+	return sync.RejectedLeg{
+		ChainID:         chain,
+		ContractAddress: contract,
+		AssetSymbol:     symbol,
+		Decimals:        decimals,
+		Amount:          amount,
+		Direction:       dir,
+		Reason:          reason,
+		Action:          t.Action,
+	}
 }
 
 // convertFee maps the raw transaction fee to a domain DecodedFee. Returns nil

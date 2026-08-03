@@ -86,6 +86,16 @@ type ReconcileResult struct {
 	// rather than merely count them. "Filter silently" was rejected in the
 	// decision precisely because a count with no detail cannot be investigated.
 	Excluded []ExcludedPosition
+
+	// Explained lists every position that IS in the ledger's asset universe but
+	// deliberately carries no ledger balance, because a rule rejected its legs
+	// (issue #60) — a protocol receipt above all.
+	//
+	// It is separate from Excluded because the two are different facts with
+	// different remedies. Excluded means "we do not know this asset"; Explained
+	// means "we know it perfectly well and chose not to book it". Merging them
+	// would tell a reader to go check whether an aToken is spam.
+	Explained []ExplainedPosition
 }
 
 // ExcludedPosition is one on-chain position kept out of reconciliation by the
@@ -98,6 +108,29 @@ type ExcludedPosition struct {
 	Status      KnownnessStatus
 	// Checked distinguishes "checked: unknown" from "could not check yet".
 	Checked bool
+}
+
+// ExplainedPosition is an on-chain position whose absence from the ledger is
+// accounted for by a rule, carried with the rule that accounts for it.
+//
+// This is the shape the reconciliation report (#61) needs for the "in P, not in
+// L" category, which decision #49 established can no longer be red by default:
+// after genesis was switched off that category fills up on every wallet with
+// DeFi or spam, and only the rows NOTHING explains are a real finding. The
+// attribution travels with the position rather than being re-derived downstream,
+// so the report and the per-chain flag are reading one answer, not two
+// independently computed ones that may drift apart.
+type ExplainedPosition struct {
+	ChainID     string
+	AssetSymbol string
+	Contract    string
+	Quantity    *big.Int
+
+	// Reasons names every rule that rejected a leg of this asset. Plural because
+	// one asset can be rejected by different rules in different transactions —
+	// an aToken is a receipt when supplied and could equally be unknown to the
+	// price provider.
+	Reasons []RejectionReason
 }
 
 // Reconcile compares calculated flows from raw transactions with on-chain
@@ -125,15 +158,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (Reconcile
 		return result, fmt.Errorf("failed to get raw transactions: %w", err)
 	}
 
-	// Calculate net flows from raw transactions
-	flows, err := calculateNetFlows(raws)
+	// Calculate net flows from raw transactions, EXCLUDING every leg that a rule
+	// keeps out of the ledger (issue #60). Both sides of the comparison then
+	// describe the same set of assets, which is the only way the delta can mean
+	// what it claims to mean.
+	flow, err := calculateNetFlows(raws, newRejectionResolver(ctx, r.knownFilter, r.logger))
 	if err != nil {
 		return result, fmt.Errorf("failed to calculate net flows: %w", err)
 	}
 
 	r.logger.Info("calculated net flows",
 		"wallet_id", w.ID,
-		"assets", len(flows))
+		"assets", len(flow.flows),
+		"rejected_assets", len(flow.rejected))
 
 	// Fetch on-chain positions per enabled chain. The rows of wallet_chain_sync
 	// ARE the wallet chain set (issue #27), so reconciliation iterates exactly
@@ -200,14 +237,60 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (Reconcile
 			continue
 		}
 
-		result.PositionsChecked++
+		posKey := NewAssetKey(pos.ChainID, pos.ContractAddress)
 
-		flowKey := pos.ChainID + ":" + pos.AssetSymbol
-		flow, exists := flows[flowKey]
+		// A position in an asset that some rule kept out of the ledger is
+		// EXPLAINED, not discrepant (issue #60). The clearest case is a protocol
+		// receipt: the aToken is a real, quoted, perfectly known asset — the
+		// known-asset filter says so correctly — so the exclusion above does not
+		// catch it, and its net flow is zero because the receipt rule dropped the
+		// leg at the provider boundary. Comparing the two produced a delta equal
+		// to the entire balance and flagged the chain, on the first sync of any
+		// wallet that ever supplied to a lending market.
+		//
+		// It is skipped with the rule NAMED rather than silently, because that
+		// attribution is the whole content of the answer: "absent from the ledger
+		// because a rule excluded it" is correct behaviour, while "absent for no
+		// reason anyone can state" is the one case that is genuinely red. The
+		// reconciliation report (#61) makes the same distinction from the same
+		// field, so the flag and the report cannot disagree about a given asset.
+		assetFlow, exists := flow.flows[posKey]
+
+		// The exemption is exact: it applies only when EVERY leg of this asset
+		// was rejected, which is what `!exists` means — no leg of it was ever
+		// booked, so the ledger holds no balance to compare and the position is
+		// accounted for in full by the rule that rejected it.
+		//
+		// An asset with rejected legs AND booked legs stays under comparison.
+		// Excusing it wholesale would be the same failure this ticket removes,
+		// merely inverted: a single rejected leg would make the asset
+		// permanently unflaggable, and a real discrepancy in the part that WAS
+		// booked would be silently absorbed — "молча заклеено", the outcome
+		// genesis was switched off (#49, #53) to stop producing. The delta must
+		// stop counting rejected LEGS, not stop watching the asset.
+		if reasons, explained := flow.explains(posKey); explained && !exists {
+			r.logger.Info("position explained by leg rejection: not a discrepancy",
+				"wallet_id", w.ID,
+				"chain_id", pos.ChainID,
+				"asset", pos.AssetSymbol,
+				"contract", posKey.Contract,
+				"quantity", pos.Quantity.String(),
+				"rejection_reasons", reasons)
+			result.Explained = append(result.Explained, ExplainedPosition{
+				ChainID:     pos.ChainID,
+				AssetSymbol: pos.AssetSymbol,
+				Contract:    posKey.Contract,
+				Quantity:    pos.Quantity,
+				Reasons:     reasons,
+			})
+			continue
+		}
+
+		result.PositionsChecked++
 
 		var netFlow *big.Int
 		if exists {
-			netFlow = flow.NetFlow()
+			netFlow = assetFlow.NetFlow()
 		} else {
 			netFlow = big.NewInt(0)
 		}
@@ -219,16 +302,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (Reconcile
 		// garbage, so it is flagged as its own discrepancy and the position skipped
 		// — there is no comparable delta to report.
 		// Only meaningful when a flow exists (no flow => nothing to compare against).
-		if exists && flow.Decimals != pos.Decimals {
+		if exists && assetFlow.Decimals != pos.Decimals {
 			r.logger.Error("decimals mismatch between calculated flow and on-chain position",
 				"wallet_id", w.ID,
 				"chain_id", pos.ChainID,
 				"asset", pos.AssetSymbol,
-				"flow_decimals", flow.Decimals,
+				"flow_decimals", assetFlow.Decimals,
 				"position_decimals", pos.Decimals)
 			r.flagChain(ctx, w.ID, pos.ChainID, fmt.Sprintf(
 				"decimals mismatch for %s on %s: flow=%d position=%d",
-				pos.AssetSymbol, pos.ChainID, flow.Decimals, pos.Decimals))
+				pos.AssetSymbol, pos.ChainID, assetFlow.Decimals, pos.Decimals))
 			flaggedCount++
 			continue
 		}
@@ -272,6 +355,55 @@ func (r *Reconciler) Reconcile(ctx context.Context, w *wallet.Wallet) (Reconcile
 		"skipped_pending", result.SkippedPending)
 
 	return result, nil
+}
+
+// newRejectionResolver returns the predicate calculateNetFlows uses to decide
+// whether a leg still present in the raw is nonetheless kept out of the ledger.
+//
+// It re-derives the known-asset verdict (#58) rather than reading a stored
+// rejection, and the reason is a matter of WHEN, not of taste: on an initial
+// sync the pipeline runs collect → reconcile → process, so at reconcile time the
+// processing phase that records the knownness rejection has not run for a single
+// raw. A reconciler that waited for that record would be checking an empty set
+// on exactly the sync the acceptance criteria are about.
+//
+// Re-deriving is sound here and only here because the verdict is a pure function
+// of a local table: the same filter, the same key, the same answer, with no
+// network call. The receipt rule is the opposite — it is applied and destroyed
+// at the provider boundary — which is why that one is READ from what the adapter
+// recorded, and why one uniform mechanism for both was not available.
+//
+// A nil filter yields a nil predicate: nothing is rejected, matching the
+// fail-open convention of the transaction path.
+func newRejectionResolver(
+	ctx context.Context,
+	filter *KnownAssetFilter,
+	log *logger.Logger,
+) func(chain, contract, symbol string) (RejectionReason, bool) {
+	if filter == nil {
+		return nil
+	}
+
+	return func(chain, contract, symbol string) (RejectionReason, bool) {
+		key := NewAssetKey(chain, contract)
+		verdict, err := filter.Resolve(ctx, key, symbol)
+		if err != nil {
+			// Fail OPEN, exactly as the ledger path does: an unreadable registry
+			// must not silently shrink the flow. Counting the leg can at worst
+			// produce a visible discrepancy; dropping it would produce a clean
+			// reconciliation that hides one.
+			log.Warn("known-asset filter failed, counting leg in net flow",
+				"chain", key.Chain,
+				"contract", key.Contract,
+				"asset", symbol,
+				"error", err)
+			return "", false
+		}
+		if verdict.Known {
+			return "", false
+		}
+		return RejectionUnknownAsset, true
+	}
 }
 
 // excludePosition asks the known-asset filter whether a position takes part in
@@ -338,34 +470,184 @@ func (r *Reconciler) flagChain(ctx context.Context, walletID uuid.UUID, chain, r
 	}
 }
 
-// calculateNetFlows processes raw transactions and computes net flows per asset.
-// Key: "chain_id:asset_symbol"
-func calculateNetFlows(raws []*RawTransaction) (map[string]*AssetFlow, error) {
-	flows := make(map[string]*AssetFlow)
+// flowResult is what a pass over the collected raws produces: the net flow per
+// asset identity, plus every leg the collected history deliberately kept out of
+// the ledger.
+//
+// The two travel together because they answer one question between them. A
+// position is explained by the flow when the numbers agree, and it is explained
+// by a rejection when they do not but a rule says the asset was never meant to
+// be in the ledger at all. Computing them in separate passes would let the two
+// halves be built from different subsets of the same raws — the one way this
+// check can silently agree with itself.
+type flowResult struct {
+	// flows is keyed by AssetKey: the asset's on-chain identity.
+	flows map[AssetKey]*AssetFlow
+
+	// rejected maps an asset identity to what was rejected under it.
+	rejected map[AssetKey]*rejectionTally
+}
+
+// rejectionTally accumulates what the rules kept out of the ledger for one asset
+// identity.
+//
+// It records the reasons as a SET rather than a count because the report
+// attributes an absence to a rule, and one asset can be rejected by different
+// rules in different transactions. It also keeps the metadata and the summed
+// magnitude, because an asset whose every leg was rejected has no flow entry to
+// borrow a name or a size from — and #41 requires those assets listed by name
+// with quantities, not as anonymous rows.
+type rejectionTally struct {
+	reasons  map[RejectionReason]bool
+	symbol   string
+	decimals int
+	amount   *big.Int
+}
+
+// explains reports whether some rule excluded a leg of this asset from the
+// ledger, and which rules. The boolean is the reconciler's question; the reasons
+// are the report's.
+//
+// It answers about REJECTION only. Whether the rejection fully accounts for the
+// asset having no ledger balance is a second question — the caller must also
+// establish that no leg of it was booked — and the two are kept apart so neither
+// can be mistaken for the other.
+//
+// The reasons come out in a fixed order rather than in map order, so two runs
+// over the same history produce byte-identical output; diffing two report runs
+// is the main way this check is used.
+func (f flowResult) explains(key AssetKey) ([]RejectionReason, bool) {
+	tally, ok := f.rejected[key]
+	if !ok || len(tally.reasons) == 0 {
+		return nil, false
+	}
+	out := make([]RejectionReason, 0, len(tally.reasons))
+	for _, r := range []RejectionReason{RejectionReceipt, RejectionUnknownAsset} {
+		if tally.reasons[r] {
+			out = append(out, r)
+		}
+	}
+	return out, true
+}
+
+// calculateNetFlows processes raw transactions and computes the net flow per
+// asset IDENTITY — (chain, contract) — together with the legs that were rejected
+// from the ledger.
+//
+// The key is the AssetKey and emphatically not the ticker (issue #60). Keying by
+// symbol let two different contracts sharing a ticker sum into one flow, and the
+// measurement that produced this change found exactly that on real data: the
+// wallet's real USDC on base nets to 13888232 base units, matching the on-chain
+// position to the unit, while the symbol-keyed flow reported
+// 25000000000018233539 because two spam contracts also called "USDC" — one of
+// them with 18 decimals — were being added to the same bucket. The chain was
+// flagged for a discrepancy that consisted entirely of other assets' amounts.
+// The identity registry already decided this question for the ledger in #59;
+// reconciliation was the last place still adding up tickers.
+//
+// resolveRejection, when non-nil, is asked whether a leg still present in the
+// raw must nonetheless stay out of the ledger. It exists because the two
+// rejection rules differ in kind. The receipt rule (#57) is applied inside the
+// provider adapter, BEFORE the raw is written, so its legs are already absent
+// here and can only be known from what the adapter recorded — hence
+// dt.RejectedLegs. The known-asset filter (#58) runs later, in the processing
+// phase, which on an initial sync has not run yet when reconciliation happens;
+// its verdict is a pure function of a local table, so it is re-derived here from
+// the leg that is still in the raw. Neither rule could serve the other's shape.
+func calculateNetFlows(
+	raws []*RawTransaction,
+	resolveRejection func(chain, contract, symbol string) (RejectionReason, bool),
+) (flowResult, error) {
+	result := flowResult{
+		flows:    make(map[AssetKey]*AssetFlow),
+		rejected: make(map[AssetKey]*rejectionTally),
+	}
+
+	// markRejected records one rejected leg under its asset identity, keeping the
+	// metadata and adding up the magnitude so an asset that never reaches the
+	// ledger can still be reported by name and by size.
+	markRejected := func(key AssetKey, reason RejectionReason, symbol string, decimals int, amount *big.Int) {
+		tally, ok := result.rejected[key]
+		if !ok {
+			tally = &rejectionTally{
+				reasons: make(map[RejectionReason]bool, 1),
+				amount:  big.NewInt(0),
+			}
+			result.rejected[key] = tally
+		}
+		tally.reasons[reason] = true
+		// First non-empty wins, matching how AssetFlow fixes its metadata from
+		// the first leg seen.
+		if tally.symbol == "" {
+			tally.symbol = symbol
+		}
+		if tally.decimals == 0 {
+			tally.decimals = decimals
+		}
+		if amount != nil {
+			tally.amount.Add(tally.amount, new(big.Int).Abs(amount))
+		}
+	}
 
 	for _, raw := range raws {
 		var dt DecodedTransaction
 		if err := json.Unmarshal(raw.RawJSON, &dt); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal raw tx %s: %w", raw.ExternalID, err)
+			return flowResult{}, fmt.Errorf("failed to unmarshal raw tx %s: %w", raw.ExternalID, err)
 		}
 
 		chainID := dt.ChainID
 
+		// Legs the adapter already rejected. They contribute NO flow — they never
+		// reached the ledger — but their identity is recorded, so a position in
+		// that asset is explained rather than flagged.
+		for _, rl := range dt.RejectedLegs {
+			chain := rl.ChainID
+			if chain == "" {
+				chain = chainID
+			}
+			markRejected(NewAssetKey(chain, rl.ContractAddress), rl.Reason,
+				rl.AssetSymbol, rl.Decimals, rl.Amount)
+		}
+
 		for _, t := range dt.Transfers {
-			key := chainID + ":" + t.AssetSymbol
-			flow, exists := flows[key]
+			// A leg's chain is the destination chain for the inbound side of a
+			// stitched bridge — the same attribution the identity resolve and the
+			// known-asset filter use, so all three agree on which chain's asset
+			// this is.
+			chain := chainID
+			if dt.DestChainID != "" && t.Direction == DirectionIn {
+				chain = dt.DestChainID
+			}
+			key := NewAssetKey(chain, t.ContractAddress)
+
+			// A leg that will not enter the ledger must not enter the flow it is
+			// compared against. Counting it produced the defect this ticket
+			// exists for: the leg is excluded from L, still counted in F, and the
+			// resulting delta flags the chain for a difference the filter created
+			// deliberately.
+			if resolveRejection != nil {
+				if reason, rejectedLeg := resolveRejection(chain, t.ContractAddress, t.AssetSymbol); rejectedLeg {
+					markRejected(key, reason, t.AssetSymbol, t.Decimals, t.Amount)
+					continue
+				}
+			}
+
+			flow, exists := result.flows[key]
 			if !exists {
 				flow = &AssetFlow{
-					ChainID:         chainID,
+					ChainID:         chain,
 					AssetSymbol:     t.AssetSymbol,
-					ContractAddress: t.ContractAddress,
+					ContractAddress: key.Contract,
 					Decimals:        t.Decimals,
 					Inflow:          big.NewInt(0),
 					Outflow:         big.NewInt(0),
 				}
-				flows[key] = flow
+				result.flows[key] = flow
 			}
 
+			if t.Amount == nil {
+				continue
+			}
 			if t.Direction == DirectionIn {
 				flow.Inflow.Add(flow.Inflow, t.Amount)
 			} else {
@@ -373,23 +655,26 @@ func calculateNetFlows(raws []*RawTransaction) (map[string]*AssetFlow, error) {
 			}
 		}
 
-		// Count fees as outflow for the native asset
+		// Count fees as outflow for the native coin. Gas is paid in the chain's
+		// native coin by construction, so the identity is the native sentinel and
+		// not the fee's ticker — the same reason the fee leg is never filtered.
 		if dt.Fee != nil && dt.Fee.Amount != nil && dt.Fee.Amount.Sign() > 0 {
-			feeKey := chainID + ":" + dt.Fee.AssetSymbol
-			flow, exists := flows[feeKey]
+			feeKey := NewAssetKey(chainID, NativeContract)
+			flow, exists := result.flows[feeKey]
 			if !exists {
 				flow = &AssetFlow{
-					ChainID:     chainID,
-					AssetSymbol: dt.Fee.AssetSymbol,
-					Decimals:    dt.Fee.Decimals,
-					Inflow:      big.NewInt(0),
-					Outflow:     big.NewInt(0),
+					ChainID:         chainID,
+					AssetSymbol:     dt.Fee.AssetSymbol,
+					ContractAddress: NativeContract,
+					Decimals:        dt.Fee.Decimals,
+					Inflow:          big.NewInt(0),
+					Outflow:         big.NewInt(0),
 				}
-				flows[feeKey] = flow
+				result.flows[feeKey] = flow
 			}
 			flow.Outflow.Add(flow.Outflow, dt.Fee.Amount)
 		}
 	}
 
-	return flows, nil
+	return result, nil
 }

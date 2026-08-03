@@ -248,7 +248,23 @@ func (s *Service) syncWallet(ctx context.Context, w *wallet.Wallet) error {
 				"flagged", res.Flagged,
 				"positions_checked", res.PositionsChecked,
 				"skipped_unknown", res.SkippedUnknown,
-				"skipped_pending", res.SkippedPending)
+				"skipped_pending", res.SkippedPending,
+				"explained_by_rejection", len(res.Explained))
+
+			// Positions whose absence from the ledger a rule accounts for (#60).
+			// Surfaced by name for the same reason as the excluded ones: this is
+			// the category decision #49 established can no longer be red by
+			// default, so it has to be readable, or "not flagged" becomes
+			// indistinguishable from "not looked at".
+			for _, ex := range res.Explained {
+				s.logger.Info("reconciliation position explained by leg rejection",
+					"wallet_id", w.ID,
+					"chain_id", ex.ChainID,
+					"asset", ex.AssetSymbol,
+					"contract", ex.Contract,
+					"quantity", ex.Quantity.String(),
+					"rejection_reasons", ex.Reasons)
+			}
 
 			// Each excluded position is surfaced INDIVIDUALLY, not just counted.
 			// A count alone cannot be investigated: it says a position was left

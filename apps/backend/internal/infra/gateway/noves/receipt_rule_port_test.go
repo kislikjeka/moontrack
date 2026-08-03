@@ -339,3 +339,50 @@ func TestPort_RewardsReceived_StaysAPosition(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"USDC", "ETH"}, symbols)
 }
+
+// TestPort_RejectedReceipt_IsRecordedWithItsIdentity is the #60 half of the
+// receipt rule: the leg must not merely be dropped, it must leave its identity
+// behind.
+//
+// The rule runs inside this adapter, and the raw transaction stored downstream
+// is built from what this function returns — so the moment the receipt leg
+// disappears here without a trace, its contract exists nowhere in the system.
+// The consequence was measured on the live database: the provider still reports
+// a POSITION in the receipt token, reconciliation found a net flow of zero for
+// it, and the chain went into sync error over a balance the rule had excluded on
+// purpose (`aBascbBTC on base: on_chain=11219239 calculated=0`).
+//
+// LegActions cannot serve. It preserves THAT a receipt happened, as a flat list
+// of action strings, and reconciliation needs to know WHICH asset — a position
+// is matched by (chain, contract), and a rejection with no contract explains
+// nothing.
+func TestPort_RejectedReceipt_IsRecordedWithItsIdentity(t *testing.T) {
+	dt := convert(t, "lending_supply.json", "base")
+
+	// The receipt is still out of the ledger's way.
+	for _, tr := range dt.Transfers {
+		assert.NotEqual(t, "aBascbBTC", tr.AssetSymbol,
+			"the receipt must not become a transfer")
+	}
+
+	require.Len(t, dt.RejectedLegs, 1,
+		"the dropped receipt must be recorded, not vanish")
+	rejected := dt.RejectedLegs[0]
+
+	assert.Equal(t, sync.RejectionReceipt, rejected.Reason)
+	assert.Equal(t, "collateralSharesMinted", rejected.Action,
+		"the evidence for the drop travels with it")
+	assert.Equal(t, "aBascbBTC", rejected.AssetSymbol)
+
+	// The identity is the point of the record. This is the key reconciliation
+	// matches an on-chain position against.
+	assert.Equal(t, sync.NewAssetKey("base", "0xbdb9300b7cde636d9cd4aff00f6f009ffbbc8ee6"),
+		rejected.Key(),
+		"a rejection without the contract cannot explain a position")
+
+	// The amount is carried so the report can show the size of what was
+	// dropped: 0.00199564 at 8 decimals.
+	require.NotNil(t, rejected.Amount)
+	assert.Equal(t, "199564", rejected.Amount.String())
+	assert.Equal(t, sync.DirectionIn, rejected.Direction)
+}

@@ -235,6 +235,19 @@ func (p *TxBuilder) filterKnownLegs(ctx context.Context, tx DecodedTransaction) 
 		}
 
 		dropped++
+
+		// The rejection is deliberately NOT recorded on the transaction here
+		// (issue #60). It would be a write nobody reads: raw_json is produced
+		// once, by the collector, and this function operates on a value copy
+		// during processing that is never written back — so the record would be
+		// dropped on the floor while its presence suggested otherwise.
+		//
+		// Reconciliation gets this fact by RE-DERIVING the verdict from the same
+		// local table (see rejectionResolver), which it must do regardless: on an
+		// initial sync the order is collect → reconcile → process, so at reconcile
+		// time no raw has been through this function at all. The receipt rule is
+		// the opposite case and is recorded, because it runs inside the provider
+		// adapter and destroys its evidence before the raw is written.
 		p.logger.Info("leg excluded from ledger: asset not known",
 			"tx_hash", price.SanitizeLogField(tx.TxHash),
 			"chain", price.SanitizeLogField(key.Chain),

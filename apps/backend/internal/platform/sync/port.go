@@ -207,6 +207,95 @@ type DecodedTransaction struct {
 	// populated by MoonTrack's own bridge stitching (issue #33), which is the
 	// only thing that can know both chains.
 	DestChainID string
+
+	// RejectedLegs records every leg this transaction carried that was
+	// deliberately kept OUT of the ledger, with the identity of the asset and the
+	// rule that rejected it (issue #60).
+	//
+	// It exists because rejection happens PER LEG while the raw's
+	// processing_status describes the whole transaction: one transaction routinely
+	// carries a principal leg that is booked and a receipt or spam leg that is
+	// not, and `processed` cannot say that. Without this field the fact is
+	// unrecoverable — the receipt rule (#57) drops its leg inside the provider
+	// adapter, before the raw is ever written, so nothing downstream can
+	// re-derive what was dropped. LegActions preserves THAT a receipt existed but
+	// not WHICH asset it was, and the asset is precisely what reconciliation needs
+	// in order to match the rejection against an on-chain position.
+	//
+	// It is a SEPARATE slice rather than a flag on Transfers on purpose. Transfers
+	// means "principal legs eligible for the ledger" and is read by the
+	// classifier, the bridge stitcher and every builder; re-admitting rejected
+	// legs to it under a flag would put the burden of remembering to skip them on
+	// forty-odd call sites, and one forgotten check books spam into the ledger.
+	// Kept apart, the default stays correct everywhere and only the two readers
+	// that WANT rejections look.
+	//
+	// Empty for an ordinary transaction, so it costs nothing on the common path.
+	RejectedLegs []RejectedLeg
+}
+
+// RejectionReason names the rule that kept a leg out of the ledger.
+//
+// It is carried rather than collapsed to a boolean because the reconciliation
+// report (#41, #61) must ATTRIBUTE an absence, not merely observe it: a position
+// absent from the ledger because it is a protocol receipt is correct
+// double-entry, a position absent because its asset is unknown is a filter
+// decision to be listed by name, and a position absent for NEITHER reason is the
+// only red one. One shared vocabulary is what lets the report and the per-chain
+// flag explain the same fact the same way.
+type RejectionReason string
+
+const (
+	// RejectionReceipt — the receipt rule (#57): a token the protocol minted to
+	// record a position it is already holding for the user. Booking it beside the
+	// principal it was minted against counts one supply twice.
+	RejectionReceipt RejectionReason = "receipt"
+
+	// RejectionUnknownAsset — the known-asset filter (#58): the asset has no
+	// verdict yet, or a verdict of unknown, so it may not enter the ledger.
+	RejectionUnknownAsset RejectionReason = "unknown_asset"
+)
+
+// RejectedLeg is one leg excluded from the ledger, carried far enough to explain
+// the exclusion afterwards.
+//
+// The identity fields are the whole point. Reconciliation compares a rejection
+// against an on-chain POSITION, and a position is identified by (chain,
+// contract); a rejection recorded without its contract explains nothing.
+type RejectedLeg struct {
+	// ChainID and ContractAddress form the AssetKey the rejection applies to.
+	// ChainID is carried explicitly rather than inherited from the transaction
+	// because a stitched bridge's inbound leg belongs to the DESTINATION chain,
+	// which is the same attribution the identity resolve and the known-asset
+	// filter already use.
+	ChainID         string
+	ContractAddress string
+
+	// AssetSymbol and Decimals are display metadata, never identifiers — the
+	// same rule the ledger has followed since #59. Decimals travels with the
+	// amount because a base-unit magnitude cannot be rendered without it.
+	AssetSymbol string
+	Decimals    int
+
+	// Amount is the leg's quantity in base units and Direction is which way it
+	// moved, kept so the report can show the SIZE of what was dropped rather than
+	// only its name. Amount is nil for a leg the provider sent with no
+	// convertible amount, such as an NFT-only receipt.
+	Amount    *big.Int
+	Direction TransferDirection
+
+	// Reason names the rule that rejected the leg.
+	Reason RejectionReason
+
+	// Action is the provider's own name for what the leg did. It is kept for a
+	// receipt so the EVIDENCE for the drop outlives the leg itself; empty for a
+	// rejection that did not turn on the action.
+	Action string
+}
+
+// Key returns the asset identity this rejection applies to.
+func (r RejectedLeg) Key() AssetKey {
+	return NewAssetKey(r.ChainID, r.ContractAddress)
 }
 
 // DecodedTransfer represents a single token movement within a decoded transaction
