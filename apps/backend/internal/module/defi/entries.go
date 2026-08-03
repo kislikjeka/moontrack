@@ -24,8 +24,8 @@ import (
 //	DEBIT  wallet.{wID}.{chain}.{asset}   (asset_increase)
 //	CREDIT clearing.{chain}.{asset}       (clearing)
 //
-// Includes USD price fallback: if an IN transfer has usd_price=0 but OUT transfers have
-// a price, compute the price from total OUT USD value / IN amount.
+// Includes USD price fallback: if an IN transfer has no price but every OUT transfer
+// has one, compute the price from total OUT USD value / IN amount.
 func generateSwapLikeEntries(txn *DeFiTransaction) []*ledger.Entry {
 	transfersOut := txn.TransfersOut()
 	transfersIn := txn.TransfersIn()
@@ -35,13 +35,15 @@ func generateSwapLikeEntries(txn *DeFiTransaction) []*ledger.Entry {
 	walletIDStr := txn.WalletID.String()
 	chainIDStr := txn.ChainID
 
-	// Compute total OUT USD value for price fallback
-	totalOutUSDValue := new(big.Int)
-	for _, tr := range transfersOut {
-		usdRate := tr.USDPrice.ToBigInt()
-		usdValue := money.CalcUSDValue(tr.Amount.ToBigInt(), usdRate, tr.Decimals)
-		totalOutUSDValue.Add(totalOutUSDValue, usdValue)
-	}
+	// Compute total OUT USD value for price fallback.
+	//
+	// nil means "the total is not known" and is NOT the same as zero (#74, #77).
+	// The total is only known when every OUT leg is priced: a partial sum
+	// understates what left the wallet, and feeding it to the fallback below
+	// would invent an IN rate that is confidently wrong. One unpriced OUT leg
+	// therefore makes the whole total unknown, the fallback stays silent, and
+	// the backfill worker resolves the IN price later.
+	totalOutUSDValue := totalKnownOutUSDValue(transfersOut)
 
 	metadata := buildBaseMetadata(txn)
 
@@ -104,8 +106,11 @@ func generateSwapLikeEntries(txn *DeFiTransaction) []*ledger.Entry {
 		amount := tr.Amount.ToBigInt()
 		usdRate := tr.USDPrice.ToBigInt()
 
-		// USD price fallback: if IN has no price but we have OUT value, compute it
-		if usdRate.Sign() == 0 && totalOutUSDValue.Sign() > 0 && amount.Sign() > 0 {
+		// USD price fallback: if IN has no price but we have a known OUT value,
+		// compute it. An unknown IN rate (nil) is a candidate for the fallback,
+		// but only a known, positive OUT total may supply it — otherwise the
+		// rate stays nil and travels to the lot as an honest "not known yet".
+		if isUnknownOrZero(usdRate) && totalOutUSDValue != nil && totalOutUSDValue.Sign() > 0 && amount.Sign() > 0 {
 			// usdRate = (totalOutUSDValue * 10^decimals) / amount
 			scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(tr.Decimals)), nil)
 			usdRate = new(big.Int).Mul(totalOutUSDValue, scale)
@@ -163,6 +168,32 @@ func generateSwapLikeEntries(txn *DeFiTransaction) []*ledger.Entry {
 	}
 
 	return entries
+}
+
+// totalKnownOutUSDValue sums the USD value of the OUT legs, or returns nil when
+// any leg's price is unknown.
+//
+// money.CalcUSDValue returns nil for an unknown rate (#74), and big.Int.Add
+// panics on a nil operand — that panic killed the backend process mid-resync
+// (#77). Short-circuiting to nil fixes the crash and states the right thing:
+// a total that is missing one of its terms is unknown, not partial.
+func totalKnownOutUSDValue(transfersOut []DeFiTransfer) *big.Int {
+	total := new(big.Int)
+	for _, tr := range transfersOut {
+		usdValue := money.CalcUSDValue(tr.Amount.ToBigInt(), tr.USDPrice.ToBigInt(), tr.Decimals)
+		if usdValue == nil {
+			return nil
+		}
+		total.Add(total, usdValue)
+	}
+	return total
+}
+
+// isUnknownOrZero reports whether a rate carries no usable price — either
+// unknown (nil) or an explicit zero. Both are eligible for the OUT-side
+// fallback; neither may be dereferenced without this check.
+func isUnknownOrZero(rate *big.Int) bool {
+	return rate == nil || rate.Sign() == 0
 }
 
 // generateGasFeeEntries generates gas fee entries if the transaction has a fee.

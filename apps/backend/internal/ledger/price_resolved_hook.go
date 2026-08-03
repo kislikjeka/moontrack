@@ -33,6 +33,15 @@ type PriceResolvedHook func(ctx context.Context, assetID uuid.UUID, at time.Time
 func NewPriceResolvedHook(repo TaxLotRepository, log *logger.Logger) PriceResolvedHook {
 	hlog := log.WithField("component", "price_resolved_hook")
 	return func(ctx context.Context, assetID uuid.UUID, at time.Time, price *big.Int, source CostBasisSource) error {
+		// A nil price is not a resolution. Passing it on would flip lots to
+		// price_status='resolved' while carrying no cost basis — the same lie
+		// #74 removed, and price.String() below would panic on the way (#77).
+		// Callers reach here only on a successful resolve, so nil is a broken
+		// contract and must be refused loudly rather than written.
+		if price == nil {
+			return ErrNilResolvedPrice
+		}
+
 		// 1. Resolve pending tax lots (cost basis side).
 		lots, err := repo.ListPendingLotsByAssetAndTime(ctx, assetID, at)
 		if err != nil {

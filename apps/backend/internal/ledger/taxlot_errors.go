@@ -13,4 +13,9 @@ var (
 	// price_status that is not 'pending', so no backfill worker would ever
 	// resolve it, causing downstream nil panics.
 	ErrCannotClearOverrideOnPendingAuto = errors.New("cannot clear override: lot has no auto cost basis")
+
+	// ErrNilResolvedPrice is returned when PriceResolvedHook is handed a nil
+	// price. "Resolved" asserts that the price is known, so a nil one has
+	// nothing to write and would mark lots resolved with no cost basis (#77).
+	ErrNilResolvedPrice = errors.New("resolved price is nil")
 )

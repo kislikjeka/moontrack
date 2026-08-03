@@ -103,13 +103,11 @@ func (h *Handler) ValidateData(_ context.Context, data map[string]interface{}) e
 func (h *Handler) generateEntries(txn *GenesisBalanceTransaction) ([]*ledger.Entry, error) {
 	amount := txn.Amount.ToBigInt()
 
+	// An absent rate is nil, not zero (#74). Multiplying by it panicked and took
+	// the whole process down (#77); money.CalcUSDValue returns nil instead, so
+	// an unknown rate yields an unknown value and the lot is created pending.
 	usdRate := txn.USDRate.ToBigInt()
-
-	usdValue := new(big.Int).Mul(amount, usdRate)
-	if usdRate.Sign() > 0 && txn.Decimals > 0 {
-		divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(txn.Decimals)), nil)
-		usdValue.Div(usdValue, divisor)
-	}
+	usdValue := money.CalcUSDValue(amount, usdRate, txn.Decimals)
 
 	now := time.Now().UTC()
 	// The asset segment of an account code is the registry UUID's string form

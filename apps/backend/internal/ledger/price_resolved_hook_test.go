@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"testing"
 	"time"
@@ -228,5 +229,47 @@ func TestPriceResolvedHook_OnlyTouchesLotsForAssetID(t *testing.T) {
 	}
 	if gotBnb.AutoCostBasisPerUnit != nil {
 		t.Errorf("bnb lot must not have been priced, got %s", gotBnb.AutoCostBasisPerUnit)
+	}
+}
+
+// TestPriceResolvedHook_NilPriceRefused verifies that a nil price is refused
+// rather than written. "Resolved" asserts that the price is known, so writing a
+// nil one would mark lots resolved with no cost basis — the same false claim
+// #74 removed — and price.String() would panic on the way there (#77).
+func TestPriceResolvedHook_NilPriceRefused(t *testing.T) {
+	ctx := context.Background()
+	at := time.Now().UTC().Truncate(time.Minute)
+
+	pendingLot := &TaxLot{
+		ID:                   uuid.New(),
+		TransactionID:        uuid.New(),
+		AccountID:            uuid.New(),
+		Asset:                testasset.ForTicker("TOKEN"),
+		QuantityAcquired:     big.NewInt(1000),
+		QuantityRemaining:    big.NewInt(1000),
+		AcquiredAt:           at,
+		AutoCostBasisPerUnit: nil,
+		AutoCostBasisSource:  CostBasisFMVAtTransfer,
+		PriceStatus:          PriceStatusPending,
+		CreatedAt:            time.Now(),
+	}
+
+	repo := &mockTaxLotRepo{lots: []*TaxLot{pendingLot}}
+	hook := NewPriceResolvedHook(repo, newTestLogger())
+
+	err := hook(ctx, pendingLot.Asset, at, nil, CostBasisFMVAtTransfer)
+	if !errors.Is(err, ErrNilResolvedPrice) {
+		t.Fatalf("expected ErrNilResolvedPrice, got %v", err)
+	}
+
+	got, err := repo.GetTaxLot(ctx, pendingLot.ID)
+	if err != nil {
+		t.Fatalf("failed to re-fetch lot: %v", err)
+	}
+	if got.PriceStatus != PriceStatusPending {
+		t.Errorf("lot must stay pending after a refused resolution, got %q", got.PriceStatus)
+	}
+	if got.AutoCostBasisPerUnit != nil {
+		t.Errorf("lot must carry no cost basis, got %s", got.AutoCostBasisPerUnit)
 	}
 }
