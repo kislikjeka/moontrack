@@ -1,9 +1,9 @@
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { formatUSD, formatPercent } from '@/lib/format'
+import { EM_DASH, formatUSD, formatPercent } from '@/lib/format'
 
 interface PnLValueProps {
-  value: number | string
+  value: number | string | null | undefined
   isPercent?: boolean
   showIcon?: boolean
   showSign?: boolean
@@ -19,16 +19,23 @@ export function PnLValue({
   className,
   size = 'default',
 }: PnLValueProps) {
-  const numValue = typeof value === 'string' ? parseFloat(value) : value
-  const isPositive = numValue > 0
-  const isNegative = numValue < 0
-  const isZero = numValue === 0
+  /* An unknown PnL is neither a profit nor a loss nor a break-even: it gets no
+     sign, no colour and no trend icon, only a dash (#79). Treating it as zero
+     would paint "we could not compute this" as "you came out exactly even". */
+  const parsed = typeof value === 'string' ? parseFloat(value) : value
+  const numValue = parsed == null || isNaN(parsed) ? null : parsed
+  const isKnown = numValue !== null
+  const isPositive = isKnown && numValue > 0
+  const isNegative = isKnown && numValue < 0
+  const isZero = isKnown && numValue === 0
 
-  const formattedValue = isPercent
-    ? formatPercent(numValue)
-    : showSign && isPositive
-      ? `+${formatUSD(numValue)}`
-      : formatUSD(numValue)
+  const formattedValue = !isKnown
+    ? EM_DASH
+    : isPercent
+      ? formatPercent(numValue)
+      : showSign && isPositive
+        ? `+${formatUSD(numValue)}`
+        : formatUSD(numValue)
 
   const sizeClasses = {
     sm: 'text-sm',

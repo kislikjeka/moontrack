@@ -6,6 +6,39 @@ interface PortfolioSummaryProps {
   portfolio?: PortfolioSummaryType
 }
 
+/**
+ * Says that the total above was computed over an incomplete set of prices (#79).
+ *
+ * The backend counts the unpriced lots and the wire carries the counts; without
+ * this the user reads a confidently-rendered total that silently omits them —
+ * the same "absence presented as fact" the dash fixes one level down.
+ *
+ * Rendered from the counts rather than from `pnl_is_partial`: the backend
+ * derives that flag from pending lots alone, so it is false for a portfolio
+ * whose lots are all permanently unpriceable — the case that most needs saying,
+ * since it never resolves on its own.
+ */
+function PartialTotalNotice({ portfolio }: { portfolio: PortfolioSummaryType }) {
+  const pending = portfolio.pending_lot_count ?? 0
+  const unpriceable = portfolio.unpriceable_lot_count ?? 0
+  const total = pending + unpriceable
+
+  if (total === 0) return null
+
+  // The two causes call for different user action, so they are named separately
+  // rather than summed into one opaque number.
+  const causes = [
+    pending > 0 ? `${pending} awaiting pricing` : null,
+    unpriceable > 0 ? `${unpriceable} with no price source` : null,
+  ].filter(Boolean)
+
+  return (
+    <p className="text-xs text-muted-foreground pt-1">
+      Partial: excludes {total} {total === 1 ? 'lot' : 'lots'} ({causes.join(', ')})
+    </p>
+  )
+}
+
 export function PortfolioSummary({ portfolio }: PortfolioSummaryProps) {
   if (!portfolio) {
     return (
@@ -33,6 +66,7 @@ export function PortfolioSummary({ portfolio }: PortfolioSummaryProps) {
             <p className="text-3xl font-bold tracking-tight">
               {formatUSD(portfolio.total_usd_value)}
             </p>
+            <PartialTotalNotice portfolio={portfolio} />
           </div>
 
           {/* Stats */}

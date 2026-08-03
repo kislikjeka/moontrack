@@ -12,8 +12,9 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CostBasisOverrideDialog } from '@/components/domain/CostBasisOverrideDialog'
+import { CostBasisCell } from '@/components/domain/CostBasisCell'
 import { useTransactionLots } from '@/hooks/useTaxLots'
-import { formatDate, formatUSD, formatAssetLabel } from '@/lib/format'
+import { EM_DASH, formatDate, formatUSD, formatAssetLabel } from '@/lib/format'
 import type { TaxLot, CostBasisSource } from '@/types/taxlot'
 
 interface TransactionLotImpactSectionProps {
@@ -25,6 +26,7 @@ const sourceBadgeVariants: Record<CostBasisSource, { label: string; variant: 'de
   fmv_at_transfer: { label: 'FMV', variant: 'secondary' },
   linked_transfer: { label: 'Linked', variant: 'outline' },
   genesis_approximation: { label: 'Genesis', variant: 'destructive' },
+  lending_carry_over: { label: 'Lending', variant: 'outline' },
 }
 
 export function TransactionLotImpactSection({ transactionId }: TransactionLotImpactSectionProps) {
@@ -78,11 +80,12 @@ export function TransactionLotImpactSection({ transactionId }: TransactionLotImp
                       </TableCell>
                       <TableCell className="text-right font-mono">{lot.quantity_acquired}</TableCell>
                       <TableCell className="text-right font-mono">{lot.quantity_remaining}</TableCell>
-                      <TableCell className="text-right font-mono">
-                        {formatUSD(lot.effective_cost_basis_per_unit)}
-                        {lot.override_cost_basis_per_unit && (
-                          <span className="ml-1 text-xs text-muted-foreground">(override)</span>
-                        )}
+                      <TableCell className="text-right">
+                        <CostBasisCell
+                          value={lot.effective_cost_basis_per_unit}
+                          status={lot.price_status}
+                          isOverridden={Boolean(lot.override_cost_basis_per_unit)}
+                        />
                       </TableCell>
                       <TableCell>
                         <Badge variant={source.variant}>{source.label}</Badge>
@@ -126,7 +129,14 @@ export function TransactionLotImpactSection({ transactionId }: TransactionLotImp
               </TableHeader>
               <TableBody>
                 {data.disposals.map((disposal) => {
-                  const isPositive = !disposal.realized_gain_loss.startsWith('-')
+                  /* A PnL the backend could not compute has no sign and no
+                     colour. Reading the sign off the raw string made an unknown
+                     gain/loss render as a green "+$0.00" — "sold at exactly
+                     break-even", stated with more confidence than a realised
+                     profit — and on a null it threw outright (#79). */
+                  const pnl = disposal.realized_gain_loss
+                  const pnlKnown = !disposal.pnl_excluded && pnl !== null && pnl !== ''
+                  const isPositive = pnlKnown && !pnl.startsWith('-')
 
                   return (
                     <TableRow key={disposal.id}>
@@ -139,11 +149,27 @@ export function TransactionLotImpactSection({ transactionId }: TransactionLotImp
                         )}
                       </TableCell>
                       <TableCell className="text-right font-mono">{disposal.quantity_disposed}</TableCell>
-                      <TableCell className="text-right font-mono">{formatUSD(disposal.lot_cost_basis_per_unit)}</TableCell>
-                      <TableCell className="text-right font-mono">{formatUSD(disposal.proceeds_per_unit)}</TableCell>
-                      <TableCell className={`text-right font-mono ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                        {isPositive ? '+' : ''}{formatUSD(disposal.realized_gain_loss)}
+                      <TableCell className="text-right">
+                        <CostBasisCell value={disposal.lot_cost_basis_per_unit} />
                       </TableCell>
+                      <TableCell className="text-right">
+                        <CostBasisCell
+                          value={disposal.proceeds_per_unit}
+                          status={disposal.proceeds_status}
+                        />
+                      </TableCell>
+                      {pnlKnown ? (
+                        <TableCell
+                          className={`text-right font-mono ${isPositive ? 'text-green-600' : 'text-red-600'}`}
+                        >
+                          {isPositive ? '+' : ''}
+                          {formatUSD(pnl)}
+                        </TableCell>
+                      ) : (
+                        <TableCell className="text-right text-muted-foreground">
+                          {EM_DASH}
+                        </TableCell>
+                      )}
                     </TableRow>
                   )
                 })}

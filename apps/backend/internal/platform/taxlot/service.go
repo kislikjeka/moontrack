@@ -359,22 +359,38 @@ func (s *Service) GetWAC(ctx context.Context, userID uuid.UUID, walletID *uuid.U
 		})
 	}
 
-	// Compute aggregated WAC per (wallet_id, asset)
+	return append(result, aggregateWACAcrossChains(result)...), nil
+}
+
+// aggregateWACAcrossChains rolls per-chain positions up into one row per
+// (wallet, asset), carrying "cost unknown" through the rollup.
+//
+// Split out of GetWAC so the arithmetic can be tested without standing up three
+// repositories: the rule that a fully pending position aggregates to a nil WAC
+// rather than a zero one (#79) is the whole point of the function.
+func aggregateWACAcrossChains(positions []WACPosition) []WACPosition {
 	type aggKey struct {
 		WalletID uuid.UUID
 		Asset    uuid.UUID
 	}
 	agg := make(map[aggKey]struct {
-		totalQty   *big.Int
-		costSum    *big.Int // SUM(qty * wac)
-		walletName string
+		totalQty *big.Int
+		costSum  *big.Int // SUM(qty * wac) over resolved positions only
+		// resolvedQty is the quantity behind costSum. It is the divisor rather
+		// than totalQty because a pending position contributes quantity but no
+		// cost: dividing by totalQty would dilute the known cost across unknown
+		// quantity and understate the WAC. Matches how migration 000027 builds
+		// the view, which excludes pending lots from both sides of the ratio.
+		resolvedQty *big.Int
+		walletName  string
 	})
-	for _, p := range result {
+	for _, p := range positions {
 		k := aggKey{p.WalletID, p.Asset}
 		entry, ok := agg[k]
 		if !ok {
 			entry.totalQty = new(big.Int)
 			entry.costSum = new(big.Int)
+			entry.resolvedQty = new(big.Int)
 			entry.walletName = p.WalletName
 		}
 		entry.totalQty.Add(entry.totalQty, p.TotalQuantity)
@@ -384,16 +400,21 @@ func (s *Service) GetWAC(ctx context.Context, userID uuid.UUID, walletID *uuid.U
 		// contributing positions are pending.
 		if p.WeightedAvgCost != nil {
 			entry.costSum.Add(entry.costSum, new(big.Int).Mul(p.TotalQuantity, p.WeightedAvgCost))
+			entry.resolvedQty.Add(entry.resolvedQty, p.TotalQuantity)
 		}
 		agg[k] = entry
 	}
 
+	aggregated := make([]WACPosition, 0, len(agg))
 	for k, v := range agg {
-		wac := new(big.Int)
-		if v.totalQty.Sign() > 0 {
-			wac.Div(v.costSum, v.totalQty)
+		// nil, not new(big.Int): with every contributing position pending,
+		// costSum is 0 and a zero WAC would claim the whole position was
+		// acquired for free — the unknown has to survive the aggregation (#79).
+		var wac *big.Int
+		if v.resolvedQty.Sign() > 0 {
+			wac = new(big.Int).Div(v.costSum, v.resolvedQty)
 		}
-		result = append(result, WACPosition{
+		aggregated = append(aggregated, WACPosition{
 			WalletID:        k.WalletID,
 			WalletName:      v.walletName,
 			AccountID:       uuid.Nil,
@@ -404,7 +425,7 @@ func (s *Service) GetWAC(ctx context.Context, userID uuid.UUID, walletID *uuid.U
 		})
 	}
 
-	return result, nil
+	return aggregated
 }
 
 // verifyLotOwnership checks lot → account → wallet → user chain.

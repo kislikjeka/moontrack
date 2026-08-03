@@ -127,7 +127,7 @@ export function TransactionListTable({
                 </TableCell>
                 <TableCell className="text-right">
                   <Link to={`/transactions/${tx.id}`}>
-                    {tx.usd_value ? formatUSD(tx.usd_value) : '-'}
+                    {formatUSD(tx.usd_value)}
                   </Link>
                 </TableCell>
                 <TableCell className="text-right text-muted-foreground">

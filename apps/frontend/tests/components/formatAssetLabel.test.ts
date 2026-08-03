@@ -3,8 +3,12 @@ import { formatAssetLabel } from '../../src/lib/format'
 
 // formatAssetLabel is the single rule behind "show the contract only where the
 // ticker is ambiguous" (#42). It is pure string logic, so it is testable without
-// a DOM — unlike the component tests in this directory, which are blocked on the
-// missing DOM environment (#67).
+// a DOM.
+//
+// This comment used to claim the component tests in this directory were blocked
+// on a missing DOM environment (#67). That is no longer true — vite.config.ts
+// sets `environment: 'jsdom'` and the component tests here run, so a rendering
+// test is a fair thing to write.
 describe('formatAssetLabel', () => {
   const contract = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'
 
