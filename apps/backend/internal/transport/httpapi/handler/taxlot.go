@@ -57,23 +57,31 @@ func NewTaxLotHandler(taxLotService TaxLotServiceInterface, assets assetregistry
 // UUID and nothing else, so a client could either render the UUID at the user or
 // issue one /assets lookup per lot to find the ticker.
 type TaxLotResponse struct {
-	ID                        string  `json:"id"`
-	TransactionID             string  `json:"transaction_id"`
-	AccountID                 string  `json:"account_id"`
-	ChainID                   string  `json:"chain_id,omitempty"`
-	Asset                     string  `json:"asset"`
-	AssetSymbol               string  `json:"asset_symbol"`
-	AssetContract             string  `json:"asset_contract"`
-	SymbolAmbiguous           bool    `json:"symbol_ambiguous"`
-	QuantityAcquired          string  `json:"quantity_acquired"`
-	QuantityRemaining         string  `json:"quantity_remaining"`
-	AcquiredAt                string  `json:"acquired_at"`
-	AutoCostBasisPerUnit      string  `json:"auto_cost_basis_per_unit"`
-	AutoCostBasisSource       string  `json:"auto_cost_basis_source"`
-	OverrideCostBasisPerUnit  *string `json:"override_cost_basis_per_unit,omitempty"`
-	OverrideReason            *string `json:"override_reason,omitempty"`
-	OverrideAt                *string `json:"override_at,omitempty"`
-	EffectiveCostBasisPerUnit string  `json:"effective_cost_basis_per_unit"`
+	ID                string `json:"id"`
+	TransactionID     string `json:"transaction_id"`
+	AccountID         string `json:"account_id"`
+	ChainID           string `json:"chain_id,omitempty"`
+	Asset             string `json:"asset"`
+	AssetSymbol       string `json:"asset_symbol"`
+	AssetContract     string `json:"asset_contract"`
+	SymbolAmbiguous   bool   `json:"symbol_ambiguous"`
+	QuantityAcquired  string `json:"quantity_acquired"`
+	QuantityRemaining string `json:"quantity_remaining"`
+	AcquiredAt        string `json:"acquired_at"`
+	// AutoCostBasisPerUnit and EffectiveCostBasisPerUnit are null when the lot's
+	// price has not been resolved yet — null means "not known", NOT zero (#79).
+	// They are deliberately not omitempty: a missing field reads as "no cost
+	// basis exists", while an explicit null says the value is still pending.
+	// Check PriceStatus before using either for PnL.
+	AutoCostBasisPerUnit     *string `json:"auto_cost_basis_per_unit"`
+	AutoCostBasisSource      string  `json:"auto_cost_basis_source"`
+	OverrideCostBasisPerUnit *string `json:"override_cost_basis_per_unit,omitempty"`
+	OverrideReason           *string `json:"override_reason,omitempty"`
+	OverrideAt               *string `json:"override_at,omitempty"`
+	// PriceStatus is "resolved", "pending" or "unpriceable". Clients should
+	// treat the lot as having no usable cost basis unless it is "resolved".
+	PriceStatus               string  `json:"price_status"`
+	EffectiveCostBasisPerUnit *string `json:"effective_cost_basis_per_unit"`
 	LinkedSourceLotID         *string `json:"linked_source_lot_id,omitempty"`
 }
 
@@ -89,7 +97,10 @@ type PositionWACResponse struct {
 	AssetContract   string `json:"asset_contract"`
 	SymbolAmbiguous bool   `json:"symbol_ambiguous"`
 	TotalQuantity   string `json:"total_quantity"`
-	WeightedAvgCost string `json:"weighted_avg_cost"`
+	// WeightedAvgCost is null when no lot backing the position has a resolved
+	// price — the quantity is known, its cost is not (#79). Not omitempty: the
+	// field stays present so the client sees an explicit unknown.
+	WeightedAvgCost *string `json:"weighted_avg_cost"`
 }
 
 // --- Envelope types ---
@@ -116,7 +127,9 @@ type DisposalDetailResponse struct {
 	ID               string `json:"id"`
 	LotID            string `json:"lot_id"`
 	QuantityDisposed string `json:"quantity_disposed"`
-	ProceedsPerUnit  string `json:"proceeds_per_unit"`
+	// ProceedsPerUnit is null while the proceeds price is unresolved — null is
+	// "not known", not zero (#79). ProceedsStatus says which.
+	ProceedsPerUnit *string `json:"proceeds_per_unit"`
 	// ProceedsStatus is "resolved", "pending" or "unpriceable". Clients
 	// should treat the disposal as having no proceeds-driven PnL unless
 	// ProceedsStatus == "resolved".
@@ -128,9 +141,12 @@ type DisposalDetailResponse struct {
 	LotAssetContract string `json:"lot_asset_contract"`
 	SymbolAmbiguous  bool   `json:"symbol_ambiguous"`
 	LotAcquiredAt    string `json:"lot_acquired_at"`
-	LotCostBasis     string `json:"lot_cost_basis_per_unit"`
-	LotAutoSource    string `json:"lot_auto_cost_basis_source"`
-	RealizedGainLoss string `json:"realized_gain_loss"`
+	// LotCostBasis is null when the source lot is itself still pending, and
+	// RealizedGainLoss is null when it cannot be computed. Zero in either
+	// field would read as a real figure and make PnL look complete (#79).
+	LotCostBasis     *string `json:"lot_cost_basis_per_unit"`
+	LotAutoSource    string  `json:"lot_auto_cost_basis_source"`
+	RealizedGainLoss *string `json:"realized_gain_loss"`
 	// PnLExcluded is true when RealizedGainLoss is not meaningful (e.g.,
 	// the disposal is still pending price resolution).
 	PnLExcluded bool `json:"pnl_excluded"`
@@ -317,7 +333,7 @@ func (h *TaxLotHandler) GetWAC(w http.ResponseWriter, r *http.Request) {
 			AssetContract:   desc.contract,
 			SymbolAmbiguous: desc.ambiguous,
 			TotalQuantity:   money.FromBaseUnits(p.TotalQuantity, desc.decimals),
-			WeightedAvgCost: money.FormatUSD(p.WeightedAvgCost),
+			WeightedAvgCost: money.FormatUSDPtr(p.WeightedAvgCost),
 		})
 	}
 
@@ -376,7 +392,7 @@ func (h *TaxLotHandler) GetTransactionLots(w http.ResponseWriter, r *http.Reques
 			ID:               d.ID.String(),
 			LotID:            d.LotID.String(),
 			QuantityDisposed: money.FromBaseUnits(d.QuantityDisposed, desc.decimals),
-			ProceedsPerUnit:  money.FormatUSD(d.ProceedsPerUnit),
+			ProceedsPerUnit:  money.FormatUSDPtr(d.ProceedsPerUnit),
 			ProceedsStatus:   status,
 			DisposalType:     string(d.DisposalType),
 			DisposedAt:       d.DisposedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -385,9 +401,9 @@ func (h *TaxLotHandler) GetTransactionLots(w http.ResponseWriter, r *http.Reques
 			LotAssetContract: desc.contract,
 			SymbolAmbiguous:  desc.ambiguous,
 			LotAcquiredAt:    d.LotAcquiredAt.Format("2006-01-02T15:04:05Z07:00"),
-			LotCostBasis:     money.FormatUSD(d.LotEffectiveCostBasisPerUnit),
+			LotCostBasis:     money.FormatUSDPtr(d.LotEffectiveCostBasisPerUnit),
 			LotAutoSource:    string(d.LotAutoSource),
-			RealizedGainLoss: money.FormatUSD(d.RealizedGainLoss),
+			RealizedGainLoss: money.FormatUSDPtr(d.RealizedGainLoss),
 			PnLExcluded:      d.RealizedGainLoss == nil || status != "resolved",
 		})
 	}
@@ -469,27 +485,35 @@ func (h *TaxLotHandler) fallbackDescription(ctx context.Context) assetDescriptio
 func toTaxLotResponse(lot *ledger.TaxLot, desc assetDescription) TaxLotResponse {
 	decimals := desc.decimals
 
-	resp := TaxLotResponse{
-		ID:                        lot.ID.String(),
-		TransactionID:             lot.TransactionID.String(),
-		AccountID:                 lot.AccountID.String(),
-		ChainID:                   lot.ChainID,
-		Asset:                     lot.Asset.String(),
-		AssetSymbol:               desc.symbol,
-		AssetContract:             desc.contract,
-		SymbolAmbiguous:           desc.ambiguous,
-		QuantityAcquired:          money.FromBaseUnits(lot.QuantityAcquired, decimals),
-		QuantityRemaining:         money.FromBaseUnits(lot.QuantityRemaining, decimals),
-		AcquiredAt:                lot.AcquiredAt.Format("2006-01-02T15:04:05Z07:00"),
-		AutoCostBasisPerUnit:      money.FormatUSD(lot.AutoCostBasisPerUnit),
-		AutoCostBasisSource:       string(lot.AutoCostBasisSource),
-		EffectiveCostBasisPerUnit: money.FormatUSD(lot.EffectiveCostBasisPerUnit()),
+	// A lot read straight from the ledger without a status set is a resolved one:
+	// PriceStatus was added in migration 000025, and rows predating it carry the
+	// resolved default. Mirrors how ProceedsStatus is defaulted below.
+	priceStatus := string(lot.PriceStatus)
+	if priceStatus == "" {
+		priceStatus = string(ledger.PriceStatusResolved)
 	}
 
-	if lot.OverrideCostBasisPerUnit != nil {
-		formatted := money.FormatUSD(lot.OverrideCostBasisPerUnit)
-		resp.OverrideCostBasisPerUnit = &formatted
+	resp := TaxLotResponse{
+		ID:                lot.ID.String(),
+		TransactionID:     lot.TransactionID.String(),
+		AccountID:         lot.AccountID.String(),
+		ChainID:           lot.ChainID,
+		Asset:             lot.Asset.String(),
+		AssetSymbol:       desc.symbol,
+		AssetContract:     desc.contract,
+		SymbolAmbiguous:   desc.ambiguous,
+		QuantityAcquired:  money.FromBaseUnits(lot.QuantityAcquired, decimals),
+		QuantityRemaining: money.FromBaseUnits(lot.QuantityRemaining, decimals),
+		AcquiredAt:        lot.AcquiredAt.Format("2006-01-02T15:04:05Z07:00"),
+		// FormatUSDPtr, not FormatUSD: a pending lot has no cost basis, and
+		// "0.00" would tell the client it was acquired for free (#79).
+		AutoCostBasisPerUnit:      money.FormatUSDPtr(lot.AutoCostBasisPerUnit),
+		AutoCostBasisSource:       string(lot.AutoCostBasisSource),
+		PriceStatus:               priceStatus,
+		EffectiveCostBasisPerUnit: money.FormatUSDPtr(lot.EffectiveCostBasisPerUnit()),
 	}
+
+	resp.OverrideCostBasisPerUnit = money.FormatUSDPtr(lot.OverrideCostBasisPerUnit)
 
 	if lot.OverrideReason != nil {
 		resp.OverrideReason = lot.OverrideReason

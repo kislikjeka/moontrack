@@ -1,11 +1,38 @@
 import { CHAIN_CONFIG } from '@/types/wallet'
 
 /**
- * Format a number as USD currency
+ * The one spelling of "this value is not known" in the UI (#79).
+ *
+ * Every formatter below returns it rather than a zero, and components render it
+ * instead of inventing their own dash. Three spellings used to coexist
+ * (`&mdash;`, a literal em dash, an ASCII hyphen), which made "unknown" look
+ * like three different states.
  */
-export function formatUSD(value: number | string): string {
+export const EM_DASH = '—'
+
+/**
+ * Parse a money/quantity value that the backend may legitimately not know.
+ *
+ * Returns `null` for absent (`null`/`undefined`/empty string) and unparseable
+ * input, and a number for everything else — INCLUDING zero. That distinction is
+ * the whole point of #79: `"0.00"` is the assertion "this cost nothing", while
+ * `null` is "we have no price yet". Collapsing them into one rendered `$0.00`
+ * told the user a lot acquired at an unknown price was free.
+ */
+function parseMoney(value: number | string | null | undefined): number | null {
+  if (value === null || value === undefined || value === '') return null
   const num = typeof value === 'string' ? parseFloat(value) : value
-  if (isNaN(num)) return '$0.00'
+  return isNaN(num) ? null : num
+}
+
+/**
+ * Format a number as USD currency.
+ *
+ * An unknown value renders as an em dash, never as `$0.00` — see `parseMoney`.
+ */
+export function formatUSD(value: number | string | null | undefined): string {
+  const num = parseMoney(value)
+  if (num === null) return EM_DASH
 
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -18,9 +45,9 @@ export function formatUSD(value: number | string): string {
 /**
  * Format a number as compact USD (e.g., $1.2M)
  */
-export function formatUSDCompact(value: number | string): string {
-  const num = typeof value === 'string' ? parseFloat(value) : value
-  if (isNaN(num)) return '$0'
+export function formatUSDCompact(value: number | string | null | undefined): string {
+  const num = parseMoney(value)
+  if (num === null) return EM_DASH
 
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -33,9 +60,9 @@ export function formatUSDCompact(value: number | string): string {
 /**
  * Format a crypto amount with appropriate precision
  */
-export function formatCrypto(value: number | string, decimals = 6): string {
-  const num = typeof value === 'string' ? parseFloat(value) : value
-  if (isNaN(num)) return '0'
+export function formatCrypto(value: number | string | null | undefined, decimals = 6): string {
+  const num = parseMoney(value)
+  if (num === null) return EM_DASH
 
   // For small values, show more decimals
   if (Math.abs(num) < 0.001 && num !== 0) {
@@ -52,9 +79,9 @@ export function formatCrypto(value: number | string, decimals = 6): string {
 /**
  * Format a percentage value
  */
-export function formatPercent(value: number | string): string {
-  const num = typeof value === 'string' ? parseFloat(value) : value
-  if (isNaN(num)) return '0%'
+export function formatPercent(value: number | string | null | undefined): string {
+  const num = parseMoney(value)
+  if (num === null) return EM_DASH
 
   const sign = num >= 0 ? '+' : ''
   return `${sign}${num.toFixed(2)}%`
@@ -144,7 +171,7 @@ export function formatAssetLabel(
   ambiguous?: boolean
 ): string {
   if (!symbol) {
-    return contract && contract !== 'native' ? truncateAddress(contract) : '—'
+    return contract && contract !== 'native' ? truncateAddress(contract) : EM_DASH
   }
   if (!ambiguous || !contract || contract === 'native') {
     return symbol

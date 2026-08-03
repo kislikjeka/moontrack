@@ -12,7 +12,7 @@ import {
 import { AssetIcon } from '@/components/domain/AssetIcon'
 import { ChainIcon } from '@/components/domain/ChainIcon'
 import { LotDetailTable } from '@/components/domain/LotDetailTable'
-import { formatUSD, formatCrypto, formatAssetLabel } from '@/lib/format'
+import { EM_DASH, formatUSD, formatCrypto, formatAssetLabel } from '@/lib/format'
 import { getChainName } from '@/types/wallet'
 import type { HoldingGroup, ChainHolding } from '@/types/portfolio'
 
@@ -166,7 +166,7 @@ function AssetGroupRows({
           {group.aggregated_wac ? (
             <span className="font-mono">{formatUSD(group.aggregated_wac)}</span>
           ) : (
-            <span className="text-muted-foreground">&mdash;</span>
+            <span className="text-muted-foreground">{EM_DASH}</span>
           )}
         </TableCell>
       </TableRow>
@@ -237,7 +237,7 @@ function ChainRows({
           {chain.wac ? (
             <span className="font-mono">{formatUSD(chain.wac)}</span>
           ) : (
-            <span className="text-muted-foreground">&mdash;</span>
+            <span className="text-muted-foreground">{EM_DASH}</span>
           )}
         </TableCell>
       </TableRow>

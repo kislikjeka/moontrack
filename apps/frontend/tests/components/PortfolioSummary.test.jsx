@@ -62,7 +62,11 @@ describe('PortfolioSummary', () => {
     expect(screen.getByText(/\$1,250,000,000\.00/i)).toBeInTheDocument();
   });
 
-  test('handles invalid total_usd_value gracefully', () => {
+  // Updated for #79: an unreadable total is not a total of zero. This used to
+  // assert "$0.00", which is precisely the confusion the issue removes — a
+  // portfolio whose value could not be determined must not report itself as
+  // empty. A real zero is covered by the other cases here.
+  test('renders an unreadable total as a dash, not as $0.00', () => {
     const invalidPortfolio = {
       total_usd_value: 'invalid',
       total_assets: 0,
@@ -71,7 +75,67 @@ describe('PortfolioSummary', () => {
       last_updated: '2026-01-11T10:30:00Z',
     };
     render(<PortfolioSummary portfolio={invalidPortfolio} />);
-    expect(screen.getByText(/\$0\.00/i)).toBeInTheDocument();
+    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(screen.queryByText(/\$0\.00/i)).not.toBeInTheDocument();
+  });
+
+  // The partial-total notice (#79). The backend counts the lots it could not
+  // price; without surfacing them the user reads a confident total that silently
+  // omits some holdings — the same defect as the "$0.00" dash, one level up.
+  describe('partial total notice', () => {
+    test('stays silent when every lot is priced', () => {
+      render(
+        <PortfolioSummary
+          portfolio={{
+            ...mockPortfolio,
+            pnl_is_partial: false,
+            pending_lot_count: 0,
+            unpriceable_lot_count: 0,
+          }}
+        />
+      );
+      expect(screen.queryByText(/partial/i)).not.toBeInTheDocument();
+    });
+
+    test('names both causes when lots are pending and unpriceable', () => {
+      render(
+        <PortfolioSummary
+          portfolio={{
+            ...mockPortfolio,
+            pnl_is_partial: true,
+            pending_lot_count: 3,
+            unpriceable_lot_count: 1,
+          }}
+        />
+      );
+      expect(screen.getByText(/excludes 4 lots/i)).toBeInTheDocument();
+      expect(screen.getByText(/3 awaiting pricing/i)).toBeInTheDocument();
+      expect(screen.getByText(/1 with no price source/i)).toBeInTheDocument();
+    });
+
+    test('still warns when lots are only unpriceable', () => {
+      // The backend derives pnl_is_partial from PENDING lots alone, so it is
+      // false here. Gating the notice on that flag would hide the one case that
+      // never resolves on its own — so the notice keys off the counts.
+      render(
+        <PortfolioSummary
+          portfolio={{
+            ...mockPortfolio,
+            pnl_is_partial: false,
+            pending_lot_count: 0,
+            unpriceable_lot_count: 5,
+          }}
+        />
+      );
+      expect(screen.getByText(/excludes 5 lots/i)).toBeInTheDocument();
+      expect(screen.getByText(/no price source/i)).toBeInTheDocument();
+    });
+
+    test('stays silent for a backend that does not send the counts', () => {
+      // Absent is read as "nothing known to be missing", not as a warning.
+      render(<PortfolioSummary portfolio={mockPortfolio} />);
+      expect(screen.queryByText(/partial/i)).not.toBeInTheDocument();
+    });
   });
 
   test('shows message when no portfolio data', () => {

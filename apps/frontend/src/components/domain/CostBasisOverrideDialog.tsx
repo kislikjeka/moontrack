@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useOverrideCostBasis } from '@/hooks/useTaxLots'
-import { formatAssetLabel } from '@/lib/format'
+import { formatAssetLabel, formatUSD } from '@/lib/format'
 import { toast } from 'sonner'
 import type { TaxLot } from '@/types/taxlot'
 
@@ -33,7 +33,9 @@ export function CostBasisOverrideDialog({
 
   const handleOpen = (isOpen: boolean) => {
     if (isOpen && lot) {
-      setCostBasis(lot.effective_cost_basis_per_unit)
+      // An unpriced lot seeds an empty field, not the string "null": there is no
+      // current value to edit, and the submit button already refuses a blank.
+      setCostBasis(lot.effective_cost_basis_per_unit ?? '')
       setReason('')
     }
     onOpenChange(isOpen)
@@ -84,7 +86,9 @@ export function CostBasisOverrideDialog({
             </div>
             <div>
               <p className="text-muted-foreground">Auto Cost Basis</p>
-              <p className="font-mono">${lot.auto_cost_basis_per_unit}</p>
+              {/* formatUSD, not `${...}`: interpolating an unpriced lot rendered
+                  the literal "$null" at the user (#79). */}
+              <p className="font-mono">{formatUSD(lot.auto_cost_basis_per_unit)}</p>
             </div>
             <div>
               <p className="text-muted-foreground">Source</p>
@@ -138,6 +142,7 @@ function formatSource(source: string): string {
     fmv_at_transfer: 'FMV',
     linked_transfer: 'Linked',
     genesis_approximation: 'Genesis',
+    lending_carry_over: 'Lending',
   }
   return labels[source] || source
 }

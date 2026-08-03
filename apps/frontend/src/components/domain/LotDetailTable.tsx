@@ -13,7 +13,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { CostBasisOverrideDialog } from './CostBasisOverrideDialog'
-import { formatDate, formatUSD } from '@/lib/format'
+import { CostBasisCell } from './CostBasisCell'
+import { EM_DASH, formatDate } from '@/lib/format'
 import type { TaxLot, CostBasisSource } from '@/types/taxlot'
 
 interface LotDetailTableProps {
@@ -27,6 +28,7 @@ const sourceBadgeVariants: Record<CostBasisSource, { label: string; variant: 'de
   fmv_at_transfer: { label: 'FMV', variant: 'secondary' },
   linked_transfer: { label: 'Linked', variant: 'outline' },
   genesis_approximation: { label: 'Genesis', variant: 'destructive' },
+  lending_carry_over: { label: 'Lending', variant: 'outline' },
 }
 
 export function LotDetailTable({ walletId, asset, chainId }: LotDetailTableProps) {
@@ -81,14 +83,15 @@ export function LotDetailTable({ walletId, asset, chainId }: LotDetailTableProps
               <TableRow key={lot.id}>
                 <TableCell className="text-muted-foreground">{index + 1}</TableCell>
                 <TableCell>{formatDate(lot.acquired_at)}</TableCell>
-                {!chainId && <TableCell className="capitalize text-muted-foreground">{lot.chain_id || '—'}</TableCell>}
+                {!chainId && <TableCell className="capitalize text-muted-foreground">{lot.chain_id || EM_DASH}</TableCell>}
                 <TableCell className="text-right font-mono">{lot.quantity_acquired}</TableCell>
                 <TableCell className="text-right font-mono">{lot.quantity_remaining}</TableCell>
-                <TableCell className="text-right font-mono">
-                  {formatUSD(lot.effective_cost_basis_per_unit)}
-                  {lot.override_cost_basis_per_unit && (
-                    <span className="ml-1 text-xs text-muted-foreground">(override)</span>
-                  )}
+                <TableCell className="text-right">
+                  <CostBasisCell
+                    value={lot.effective_cost_basis_per_unit}
+                    status={lot.price_status}
+                    isOverridden={Boolean(lot.override_cost_basis_per_unit)}
+                  />
                 </TableCell>
                 <TableCell>
                   <Badge variant={source.variant}>{source.label}</Badge>

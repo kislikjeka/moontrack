@@ -9,7 +9,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
-import { formatUSD, formatAssetLabel } from '@/lib/format'
+import { EM_DASH, formatUSD, formatAssetLabel } from '@/lib/format'
 import type { LedgerEntry } from '@/types/transaction'
 
 interface LedgerEntriesTableProps {
@@ -98,15 +98,15 @@ export function LedgerEntriesTable({ entries }: LedgerEntriesTableProps) {
                 <TableCell className="text-right font-mono">
                   {entry.display_amount}
                 </TableCell>
+                {/* A CREDIT row's Debit cell is structurally empty — the entry
+                    simply has no debit side — which is why the side is checked
+                    before the value. formatUSD covers the other case: a value on
+                    the right side that the backend could not price. */}
                 <TableCell className="text-right">
-                  {entry.debit_credit === 'DEBIT' && entry.usd_value
-                    ? formatUSD(entry.usd_value)
-                    : '-'}
+                  {entry.debit_credit === 'DEBIT' ? formatUSD(entry.usd_value) : EM_DASH}
                 </TableCell>
                 <TableCell className="text-right">
-                  {entry.debit_credit === 'CREDIT' && entry.usd_value
-                    ? formatUSD(entry.usd_value)
-                    : '-'}
+                  {entry.debit_credit === 'CREDIT' ? formatUSD(entry.usd_value) : EM_DASH}
                 </TableCell>
               </TableRow>
             ))}

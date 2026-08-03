@@ -35,6 +35,14 @@ type PortfolioSummaryResponse struct {
 	AssetHoldings  []AssetHoldingResponse  `json:"asset_holdings"`
 	WalletBalances []WalletBalanceResponse `json:"wallet_balances"`
 	LastUpdated    string                  `json:"last_updated"` // ISO 8601
+	// PnLIsPartial says the totals above are computed over an incomplete set of
+	// prices: at least one lot is still pending or could not be priced, so the
+	// portfolio value understates reality (#79). The counts let a client say how
+	// incomplete. The service already computes all three — they were simply not
+	// reaching the wire.
+	PnLIsPartial        bool `json:"pnl_is_partial"`
+	PendingLotCount     int  `json:"pending_lot_count"`
+	UnpriceableLotCount int  `json:"unpriceable_lot_count"`
 }
 
 // AssetHoldingResponse represents an asset holding in the API response
@@ -183,11 +191,14 @@ func (h *PortfolioHandler) GetPortfolioSummary(w http.ResponseWriter, r *http.Re
 	}
 
 	response := PortfolioSummaryResponse{
-		TotalUSDValue:  money.FormatUSD(summary.TotalUSDValue),
-		TotalAssets:    summary.TotalAssets,
-		AssetHoldings:  assetHoldings,
-		WalletBalances: walletBalances,
-		LastUpdated:    time.Now().Format(time.RFC3339),
+		TotalUSDValue:       money.FormatUSD(summary.TotalUSDValue),
+		TotalAssets:         summary.TotalAssets,
+		AssetHoldings:       assetHoldings,
+		WalletBalances:      walletBalances,
+		LastUpdated:         time.Now().Format(time.RFC3339),
+		PnLIsPartial:        summary.PnLIsPartial,
+		PendingLotCount:     summary.PendingLotCount,
+		UnpriceableLotCount: summary.UnpriceableLotCount,
 	}
 
 	respondWithJSON(w, http.StatusOK, response)
