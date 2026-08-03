@@ -22,10 +22,7 @@ func generateGasFeeEntries(txn *LendingTransaction) []*ledger.Entry {
 	}
 
 	feeAmount := txn.FeeAmount.ToBigInt()
-	feeUSDRate := big.NewInt(0)
-	if txn.FeeUSDPrice != nil && !txn.FeeUSDPrice.IsNil() {
-		feeUSDRate = txn.FeeUSDPrice.ToBigInt()
-	}
+	feeUSDRate := txn.FeeUSDPrice.ToBigInt()
 	feeDecimals := txn.FeeDecimals
 	if feeDecimals == 0 {
 		feeDecimals = 18
@@ -46,8 +43,8 @@ func generateGasFeeEntries(txn *LendingTransaction) []*ledger.Entry {
 			EntryType:   ledger.EntryTypeGasFee,
 			Amount:      new(big.Int).Set(feeAmount),
 			AssetID:     feeAsset,
-			USDRate:     new(big.Int).Set(feeUSDRate),
-			USDValue:    new(big.Int).Set(feeUSDValue),
+			USDRate:     money.CopyRate(feeUSDRate),
+			USDValue:    money.CopyRate(feeUSDValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
@@ -62,8 +59,8 @@ func generateGasFeeEntries(txn *LendingTransaction) []*ledger.Entry {
 			EntryType:   ledger.EntryTypeAssetDecrease,
 			Amount:      new(big.Int).Set(feeAmount),
 			AssetID:     feeAsset,
-			USDRate:     new(big.Int).Set(feeUSDRate),
-			USDValue:    new(big.Int).Set(feeUSDValue),
+			USDRate:     money.CopyRate(feeUSDRate),
+			USDValue:    money.CopyRate(feeUSDValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
@@ -208,8 +205,8 @@ func buildLendingPair(txn *LendingTransaction, item *LendingTransferItem, r entr
 		EntryType:   r.debitType,
 		Amount:      new(big.Int).Set(amount),
 		AssetID:     item.AssetID,
-		USDRate:     new(big.Int).Set(usdRate),
-		USDValue:    new(big.Int).Set(usdValue),
+		USDRate:     money.CopyRate(usdRate),
+		USDValue:    money.CopyRate(usdValue),
 		OccurredAt:  txn.OccurredAt,
 		CreatedAt:   time.Now().UTC(),
 		Metadata:    metaFor(r.debitAccount),
@@ -220,8 +217,8 @@ func buildLendingPair(txn *LendingTransaction, item *LendingTransferItem, r entr
 		EntryType:   r.creditType,
 		Amount:      new(big.Int).Set(amount),
 		AssetID:     item.AssetID,
-		USDRate:     new(big.Int).Set(usdRate),
-		USDValue:    new(big.Int).Set(usdValue),
+		USDRate:     money.CopyRate(usdRate),
+		USDValue:    money.CopyRate(usdValue),
 		OccurredAt:  txn.OccurredAt,
 		CreatedAt:   time.Now().UTC(),
 		Metadata:    metaFor(r.creditAccount),

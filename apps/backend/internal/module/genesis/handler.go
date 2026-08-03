@@ -103,10 +103,7 @@ func (h *Handler) ValidateData(_ context.Context, data map[string]interface{}) e
 func (h *Handler) generateEntries(txn *GenesisBalanceTransaction) ([]*ledger.Entry, error) {
 	amount := txn.Amount.ToBigInt()
 
-	usdRate := big.NewInt(0)
-	if txn.USDRate != nil && !txn.USDRate.IsNil() {
-		usdRate = txn.USDRate.ToBigInt()
-	}
+	usdRate := txn.USDRate.ToBigInt()
 
 	usdValue := new(big.Int).Mul(amount, usdRate)
 	if usdRate.Sign() > 0 && txn.Decimals > 0 {
@@ -129,8 +126,8 @@ func (h *Handler) generateEntries(txn *GenesisBalanceTransaction) ([]*ledger.Ent
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      new(big.Int).Set(amount),
 			AssetID:     txn.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    new(big.Int).Set(usdValue),
+			USDRate:     money.CopyRate(usdRate),
+			USDValue:    money.CopyRate(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   now,
 			Metadata: map[string]interface{}{
@@ -145,8 +142,8 @@ func (h *Handler) generateEntries(txn *GenesisBalanceTransaction) ([]*ledger.Ent
 			EntryType:   ledger.EntryTypeIncome,
 			Amount:      new(big.Int).Set(amount),
 			AssetID:     txn.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    new(big.Int).Set(usdValue),
+			USDRate:     money.CopyRate(usdRate),
+			USDValue:    money.CopyRate(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   now,
 			Metadata: map[string]interface{}{

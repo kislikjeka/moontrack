@@ -10,6 +10,7 @@ import (
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
 	"github.com/kislikjeka/moontrack/pkg/logger"
+	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
 // AssetAdjustmentHandler handles asset balance adjustments
@@ -87,13 +88,11 @@ func (h *AssetAdjustmentHandler) generateEntries(ctx context.Context, tx *AssetA
 		return nil, fmt.Errorf("no adjustment needed: balance already matches target")
 	}
 
-	// Get or fetch USD rate
+	// USD rate as supplied by the caller. nil means the price is not known;
+	// it is left nil rather than replaced with a zero placeholder, so the lot
+	// this adjustment creates is recorded pending and the backfill worker can
+	// fill it in later (#74).
 	usdRate := tx.GetUSDRate()
-	if usdRate == nil {
-		// TODO: Fetch from price service when implemented in Phase 5
-		// For now, use 0 as placeholder
-		usdRate = big.NewInt(0)
-	}
 
 	entries := make([]*ledger.Entry, 0, 2)
 
@@ -107,7 +106,7 @@ func (h *AssetAdjustmentHandler) generateEntries(ctx context.Context, tx *AssetA
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      new(big.Int).Set(difference),
 			AssetID:     tx.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
+			USDRate:     money.CopyRate(usdRate),
 			USDValue:    calculateUSDValue(difference, usdRate, tx.Decimals),
 			OccurredAt:  tx.OccurredAt,
 		})
@@ -122,7 +121,7 @@ func (h *AssetAdjustmentHandler) generateEntries(ctx context.Context, tx *AssetA
 			EntryType:   ledger.EntryTypeIncome,
 			Amount:      new(big.Int).Set(difference),
 			AssetID:     tx.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
+			USDRate:     money.CopyRate(usdRate),
 			USDValue:    calculateUSDValue(difference, usdRate, tx.Decimals),
 			OccurredAt:  tx.OccurredAt,
 		})
@@ -138,7 +137,7 @@ func (h *AssetAdjustmentHandler) generateEntries(ctx context.Context, tx *AssetA
 			EntryType:   ledger.EntryTypeAssetDecrease,
 			Amount:      new(big.Int).Set(absDifference),
 			AssetID:     tx.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
+			USDRate:     money.CopyRate(usdRate),
 			USDValue:    calculateUSDValue(absDifference, usdRate, tx.Decimals),
 			OccurredAt:  tx.OccurredAt,
 		})
@@ -153,7 +152,7 @@ func (h *AssetAdjustmentHandler) generateEntries(ctx context.Context, tx *AssetA
 			EntryType:   ledger.EntryTypeExpense,
 			Amount:      new(big.Int).Set(absDifference),
 			AssetID:     tx.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
+			USDRate:     money.CopyRate(usdRate),
 			USDValue:    calculateUSDValue(absDifference, usdRate, tx.Decimals),
 			OccurredAt:  tx.OccurredAt,
 		})
@@ -184,13 +183,10 @@ func (h *AssetAdjustmentHandler) unmarshalData(data map[string]interface{}) (*As
 	return &tx, nil
 }
 
-// calculateUSDValue calculates USD value: (amount * usd_rate) / 10^decimals — result is USD value scaled by 10^8
+// calculateUSDValue calculates USD value: (amount * usd_rate) / 10^decimals — result is USD value scaled by 10^8.
+//
+// Delegates to money.CalcUSDValue: this was a byte-for-byte copy of it that
+// had to be found and changed separately when nil stopped meaning zero (#74).
 func calculateUSDValue(amount, usdRate *big.Int, decimals int) *big.Int {
-	if usdRate == nil || usdRate.Sign() == 0 {
-		return big.NewInt(0)
-	}
-
-	value := new(big.Int).Mul(amount, usdRate)
-	divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
-	return value.Div(value, divisor)
+	return money.CalcUSDValue(amount, usdRate, decimals)
 }

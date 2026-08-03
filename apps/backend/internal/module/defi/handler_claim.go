@@ -115,10 +115,7 @@ func (h *DeFiClaimHandler) GenerateEntries(ctx context.Context, txn *DeFiTransac
 
 	for _, tr := range transfersIn {
 		amount := tr.Amount.ToBigInt()
-		usdRate := big.NewInt(0)
-		if tr.USDPrice != nil && !tr.USDPrice.IsNil() {
-			usdRate = tr.USDPrice.ToBigInt()
-		}
+		usdRate := tr.USDPrice.ToBigInt()
 		usdValue := money.CalcUSDValue(amount, usdRate, tr.Decimals)
 
 		walletMeta := mergeMetadata(baseMeta, map[string]interface{}{
@@ -138,8 +135,8 @@ func (h *DeFiClaimHandler) GenerateEntries(ctx context.Context, txn *DeFiTransac
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      new(big.Int).Set(amount),
 			AssetID:     tr.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    new(big.Int).Set(usdValue),
+			USDRate:     money.CopyRate(usdRate),
+			USDValue:    money.CopyRate(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata:    walletMeta,
@@ -160,8 +157,8 @@ func (h *DeFiClaimHandler) GenerateEntries(ctx context.Context, txn *DeFiTransac
 			EntryType:   ledger.EntryTypeIncome,
 			Amount:      new(big.Int).Set(amount),
 			AssetID:     tr.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    new(big.Int).Set(usdValue),
+			USDRate:     money.CopyRate(usdRate),
+			USDValue:    money.CopyRate(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata:    incomeMeta,

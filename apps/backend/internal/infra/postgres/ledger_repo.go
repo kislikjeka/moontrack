@@ -342,6 +342,18 @@ func (r *LedgerRepository) createEntry(ctx context.Context, entry *ledger.Entry)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
 
+	// nil rate/value mean "price not known" and are stored as SQL NULL, which
+	// is the only encoding that keeps them distinct from a real zero (#74).
+	// .String() on a nil *big.Int would panic, so this is also the nil guard
+	// the previous code lacked.
+	var usdRateArg, usdValueArg interface{}
+	if entry.USDRate != nil {
+		usdRateArg = entry.USDRate.String()
+	}
+	if entry.USDValue != nil {
+		usdValueArg = entry.USDValue.String()
+	}
+
 	q := r.getQueryer(ctx)
 	_, err = q.Exec(ctx, query,
 		entry.ID,
@@ -351,8 +363,8 @@ func (r *LedgerRepository) createEntry(ctx context.Context, entry *ledger.Entry)
 		string(entry.EntryType),
 		entry.Amount.String(), // Store big.Int as string (NUMERIC in DB)
 		entry.AssetID,
-		entry.USDRate.String(),
-		entry.USDValue.String(),
+		usdRateArg,
+		usdValueArg,
 		entry.OccurredAt,
 		entry.CreatedAt,
 		metadataJSON,
@@ -710,7 +722,9 @@ func (r *LedgerRepository) GetEntriesByAccount(ctx context.Context, accountID uu
 // scanEntry scans a single entry from a row
 func (r *LedgerRepository) scanEntry(row pgx.Row) (*ledger.Entry, error) {
 	var entry ledger.Entry
-	var amountStr, usdRateStr, usdValueStr string
+	var amountStr string
+	// Nullable since #74: NULL is "price not known", distinct from a rate of 0.
+	var usdRateStr, usdValueStr *string
 	var metadataJSON []byte
 
 	err := row.Scan(
@@ -738,17 +752,24 @@ func (r *LedgerRepository) scanEntry(row pgx.Row) (*ledger.Entry, error) {
 	}
 	entry.Amount = amount
 
-	usdRate, ok := new(big.Int).SetString(usdRateStr, 10)
-	if !ok {
-		return nil, fmt.Errorf("failed to parse usd_rate: %s", usdRateStr)
+	// A NULL column stays nil on the model: the caller must be able to see that
+	// the price is unknown rather than receive a zero it cannot distinguish
+	// from a real one.
+	if usdRateStr != nil {
+		usdRate, ok := new(big.Int).SetString(*usdRateStr, 10)
+		if !ok {
+			return nil, fmt.Errorf("failed to parse usd_rate: %s", *usdRateStr)
+		}
+		entry.USDRate = usdRate
 	}
-	entry.USDRate = usdRate
 
-	usdValue, ok := new(big.Int).SetString(usdValueStr, 10)
-	if !ok {
-		return nil, fmt.Errorf("failed to parse usd_value: %s", usdValueStr)
+	if usdValueStr != nil {
+		usdValue, ok := new(big.Int).SetString(*usdValueStr, 10)
+		if !ok {
+			return nil, fmt.Errorf("failed to parse usd_value: %s", *usdValueStr)
+		}
+		entry.USDValue = usdValue
 	}
-	entry.USDValue = usdValue
 
 	// Parse metadata
 	if len(metadataJSON) > 0 {

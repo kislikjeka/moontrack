@@ -122,6 +122,15 @@ func NewTaxLotHook(repo TaxLotRepository, ledgerRepo Repository, log *logger.Log
 
 		// --- Process acquisitions ---
 		for _, a := range acquisitions {
+			// A nil USD rate means the price for this moment is not known yet;
+			// the lot is created pending and PriceResolvedHook fills the basis
+			// in when the backfill worker answers.
+			//
+			// This branch was unreachable until #74: Entry.Validate() rejected a
+			// nil rate, so every acquisition arrived carrying a zero that had
+			// been substituted upstream, and every lot was written 'resolved'
+			// with a cost basis of 0 — a value that was both wrong and marked
+			// final, so no backfill would ever revisit it.
 			var costBasisPerUnit *big.Int
 			priceStatus := PriceStatusResolved
 			if a.entry.USDRate != nil {
@@ -139,6 +148,12 @@ func NewTaxLotHook(repo TaxLotRepository, ledgerRepo Repository, log *logger.Log
 
 					// Carry over weighted-average cost basis from consumed source lots
 					// instead of using FMV at transfer time.
+					//
+					// A nil result means every source lot is itself still
+					// pending, so there is nothing to carry. Leaving the status
+					// as computed above is deliberate: the lot stays pending and
+					// gets its basis from the backfill, rather than inheriting a
+					// fabricated zero from unpriced ancestors (#74).
 					waCost := weightedAvgCostBasis(ctx, repo, dr.disposals)
 					if waCost != nil {
 						costBasisPerUnit = waCost

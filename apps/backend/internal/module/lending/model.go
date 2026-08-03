@@ -55,11 +55,8 @@ func (t *LendingTransferItem) GetAmount() *big.Int {
 	return t.Amount.ToBigInt()
 }
 
-// GetUSDRate returns the USD rate as *big.Int (zero when absent).
+// GetUSDRate returns the USD rate as *big.Int, or nil when unknown (#74).
 func (t *LendingTransferItem) GetUSDRate() *big.Int {
-	if t.USDRate == nil {
-		return big.NewInt(0)
-	}
 	return t.USDRate.ToBigInt()
 }
 

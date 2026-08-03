@@ -13,6 +13,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/ledger/accountcode"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
 	"github.com/kislikjeka/moontrack/pkg/logger"
+	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
 // InternalTransferHandler handles transfers between user's own wallets
@@ -118,18 +119,10 @@ func (h *InternalTransferHandler) ValidateData(ctx context.Context, data map[str
 // source_chain and dest_chain are equal for an ordinary internal transfer and
 // differ for a bridge of the user's own funds across chains (ADR-0002).
 func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *InternalTransferTransaction) ([]*ledger.Entry, error) {
-	// Get USD rate for transferred asset
+	// USD rate for the transferred asset. nil means the price is not known yet
+	// and stays nil into the entries (#74).
 	usdRate := txn.GetUSDRate()
-	if usdRate == nil {
-		usdRate = big.NewInt(0)
-	}
-
-	// Calculate USD value for transfer: (amount * usd_rate) / 10^decimals
-	usdValue := new(big.Int).Mul(txn.GetAmount(), usdRate)
-	if usdRate.Sign() > 0 {
-		divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(txn.Decimals)), nil)
-		usdValue.Div(usdValue, divisor)
-	}
+	usdValue := money.CalcUSDValue(txn.GetAmount(), usdRate, txn.Decimals)
 
 	entries := make([]*ledger.Entry, 0, 4)
 
@@ -151,8 +144,8 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 		EntryType:   ledger.EntryTypeAssetIncrease,
 		Amount:      new(big.Int).Set(txn.GetAmount()),
 		AssetID:     txn.AssetID,
-		USDRate:     new(big.Int).Set(usdRate),
-		USDValue:    new(big.Int).Set(usdValue),
+		USDRate:     money.CopyRate(usdRate),
+		USDValue:    money.CopyRate(usdValue),
 		OccurredAt:  txn.OccurredAt,
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
@@ -176,8 +169,8 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 		EntryType:   ledger.EntryTypeAssetDecrease,
 		Amount:      new(big.Int).Set(txn.GetAmount()),
 		AssetID:     txn.AssetID,
-		USDRate:     new(big.Int).Set(usdRate),
-		USDValue:    new(big.Int).Set(usdValue),
+		USDRate:     money.CopyRate(usdRate),
+		USDValue:    money.CopyRate(usdValue),
 		OccurredAt:  txn.OccurredAt,
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
@@ -197,9 +190,6 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 	gasAmount := txn.GetGasAmount()
 	if gasAmount != nil && gasAmount.Sign() > 0 {
 		gasUSDRate := txn.GetGasUSDRate()
-		if gasUSDRate == nil {
-			gasUSDRate = big.NewInt(0)
-		}
 
 		// Get gas decimals (default to 18 for native tokens)
 		gasDecimals := txn.GasDecimals
@@ -207,12 +197,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			gasDecimals = 18
 		}
 
-		// Calculate gas USD value
-		gasUSDValue := new(big.Int).Mul(gasAmount, gasUSDRate)
-		if gasUSDRate.Sign() > 0 {
-			divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(gasDecimals)), nil)
-			gasUSDValue.Div(gasUSDValue, divisor)
-		}
+		gasUSDValue := money.CalcUSDValue(gasAmount, gasUSDRate, gasDecimals)
 
 		// No default here — see TransferOutHandler for why "ETH" was wrong on
 		// every chain that is not Ethereum (#59).
@@ -234,8 +219,8 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			EntryType:   ledger.EntryTypeGasFee,
 			Amount:      new(big.Int).Set(gasAmount),
 			AssetID:     nativeAssetID,
-			USDRate:     new(big.Int).Set(gasUSDRate),
-			USDValue:    new(big.Int).Set(gasUSDValue),
+			USDRate:     money.CopyRate(gasUSDRate),
+			USDValue:    money.CopyRate(gasUSDValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
@@ -254,8 +239,8 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			EntryType:   ledger.EntryTypeAssetDecrease,
 			Amount:      new(big.Int).Set(gasAmount),
 			AssetID:     nativeAssetID,
-			USDRate:     new(big.Int).Set(gasUSDRate),
-			USDValue:    new(big.Int).Set(gasUSDValue),
+			USDRate:     money.CopyRate(gasUSDRate),
+			USDValue:    money.CopyRate(gasUSDValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{

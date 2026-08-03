@@ -14,6 +14,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
 	"github.com/kislikjeka/moontrack/pkg/logger"
+	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
 // TransferInHandler handles incoming blockchain transfers
@@ -136,17 +137,11 @@ func (h *TransferInHandler) collectItems(txn *TransferInTransaction) []TransferI
 
 // entriesForItem emits one balanced debit/credit pair for a single asset.
 func (h *TransferInHandler) entriesForItem(txn *TransferInTransaction, item *TransferItem) []*ledger.Entry {
+	// nil rate = price not known yet; it stays nil all the way into the entry
+	// so the tax-lot hook can record the lot as pending rather than as a
+	// resolved cost basis of zero (#74).
 	usdRate := item.GetUSDRate()
-	if usdRate == nil {
-		usdRate = big.NewInt(0)
-	}
-
-	// USD value = (amount * usd_rate) / 10^decimals
-	usdValue := new(big.Int).Mul(item.GetAmount(), usdRate)
-	if usdRate.Sign() > 0 {
-		divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(item.Decimals)), nil)
-		usdValue.Div(usdValue, divisor)
-	}
+	usdValue := money.CalcUSDValue(item.GetAmount(), usdRate, item.Decimals)
 
 	return []*ledger.Entry{
 		// DEBIT wallet account (asset increases)
@@ -157,8 +152,8 @@ func (h *TransferInHandler) entriesForItem(txn *TransferInTransaction, item *Tra
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      new(big.Int).Set(item.GetAmount()),
 			AssetID:     item.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    new(big.Int).Set(usdValue),
+			USDRate:     money.CopyRate(usdRate),
+			USDValue:    money.CopyRate(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
@@ -180,8 +175,8 @@ func (h *TransferInHandler) entriesForItem(txn *TransferInTransaction, item *Tra
 			EntryType:   ledger.EntryTypeIncome,
 			Amount:      new(big.Int).Set(item.GetAmount()),
 			AssetID:     item.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    new(big.Int).Set(usdValue),
+			USDRate:     money.CopyRate(usdRate),
+			USDValue:    money.CopyRate(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{

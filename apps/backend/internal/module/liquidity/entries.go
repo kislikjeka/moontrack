@@ -21,10 +21,7 @@ func generateSwapLikeEntries(txn *LPTransaction) []*ledger.Entry {
 
 	for _, tr := range txn.Transfers {
 		amount := tr.Amount.ToBigInt()
-		usdRate := big.NewInt(0)
-		if tr.USDPrice != nil && !tr.USDPrice.IsNil() {
-			usdRate = tr.USDPrice.ToBigInt()
-		}
+		usdRate := tr.USDPrice.ToBigInt()
 		usdValue := money.CalcUSDValue(amount, usdRate, tr.Decimals)
 
 		if tr.Direction == "out" {
@@ -36,8 +33,8 @@ func generateSwapLikeEntries(txn *LPTransaction) []*ledger.Entry {
 				EntryType:   ledger.EntryTypeAssetDecrease,
 				Amount:      new(big.Int).Set(amount),
 				AssetID:     tr.AssetID,
-				USDRate:     new(big.Int).Set(usdRate),
-				USDValue:    new(big.Int).Set(usdValue),
+				USDRate:     money.CopyRate(usdRate),
+				USDValue:    money.CopyRate(usdValue),
 				OccurredAt:  txn.OccurredAt,
 				CreatedAt:   time.Now().UTC(),
 				Metadata: map[string]any{
@@ -58,8 +55,8 @@ func generateSwapLikeEntries(txn *LPTransaction) []*ledger.Entry {
 				EntryType:   ledger.EntryTypeClearing,
 				Amount:      new(big.Int).Set(amount),
 				AssetID:     tr.AssetID,
-				USDRate:     new(big.Int).Set(usdRate),
-				USDValue:    new(big.Int).Set(usdValue),
+				USDRate:     money.CopyRate(usdRate),
+				USDValue:    money.CopyRate(usdValue),
 				OccurredAt:  txn.OccurredAt,
 				CreatedAt:   time.Now().UTC(),
 				Metadata: map[string]any{
@@ -79,8 +76,8 @@ func generateSwapLikeEntries(txn *LPTransaction) []*ledger.Entry {
 				EntryType:   ledger.EntryTypeAssetIncrease,
 				Amount:      new(big.Int).Set(amount),
 				AssetID:     tr.AssetID,
-				USDRate:     new(big.Int).Set(usdRate),
-				USDValue:    new(big.Int).Set(usdValue),
+				USDRate:     money.CopyRate(usdRate),
+				USDValue:    money.CopyRate(usdValue),
 				OccurredAt:  txn.OccurredAt,
 				CreatedAt:   time.Now().UTC(),
 				Metadata: map[string]any{
@@ -101,8 +98,8 @@ func generateSwapLikeEntries(txn *LPTransaction) []*ledger.Entry {
 				EntryType:   ledger.EntryTypeClearing,
 				Amount:      new(big.Int).Set(amount),
 				AssetID:     tr.AssetID,
-				USDRate:     new(big.Int).Set(usdRate),
-				USDValue:    new(big.Int).Set(usdValue),
+				USDRate:     money.CopyRate(usdRate),
+				USDValue:    money.CopyRate(usdValue),
 				OccurredAt:  txn.OccurredAt,
 				CreatedAt:   time.Now().UTC(),
 				Metadata: map[string]any{
@@ -133,10 +130,7 @@ func generateLPClaimEntries(txn *LPTransaction) []*ledger.Entry {
 		}
 
 		amount := tr.Amount.ToBigInt()
-		usdRate := big.NewInt(0)
-		if tr.USDPrice != nil && !tr.USDPrice.IsNil() {
-			usdRate = tr.USDPrice.ToBigInt()
-		}
+		usdRate := tr.USDPrice.ToBigInt()
 		usdValue := money.CalcUSDValue(amount, usdRate, tr.Decimals)
 
 		// DEBIT wallet (asset increase)
@@ -147,8 +141,8 @@ func generateLPClaimEntries(txn *LPTransaction) []*ledger.Entry {
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      new(big.Int).Set(amount),
 			AssetID:     tr.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    new(big.Int).Set(usdValue),
+			USDRate:     money.CopyRate(usdRate),
+			USDValue:    money.CopyRate(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]any{
@@ -169,8 +163,8 @@ func generateLPClaimEntries(txn *LPTransaction) []*ledger.Entry {
 			EntryType:   ledger.EntryTypeIncome,
 			Amount:      new(big.Int).Set(amount),
 			AssetID:     tr.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    new(big.Int).Set(usdValue),
+			USDRate:     money.CopyRate(usdRate),
+			USDValue:    money.CopyRate(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]any{
@@ -192,10 +186,7 @@ func generateGasFeeEntries(txn *LPTransaction) []*ledger.Entry {
 	}
 
 	feeAmount := txn.FeeAmount.ToBigInt()
-	feeUSDRate := big.NewInt(0)
-	if txn.FeeUSDPrice != nil && !txn.FeeUSDPrice.IsNil() {
-		feeUSDRate = txn.FeeUSDPrice.ToBigInt()
-	}
+	feeUSDRate := txn.FeeUSDPrice.ToBigInt()
 	feeDecimals := txn.FeeDecimals
 	if feeDecimals == 0 {
 		feeDecimals = 18
@@ -214,8 +205,8 @@ func generateGasFeeEntries(txn *LPTransaction) []*ledger.Entry {
 			EntryType:   ledger.EntryTypeGasFee,
 			Amount:      new(big.Int).Set(feeAmount),
 			AssetID:     txn.FeeAsset,
-			USDRate:     new(big.Int).Set(feeUSDRate),
-			USDValue:    new(big.Int).Set(feeUSDValue),
+			USDRate:     money.CopyRate(feeUSDRate),
+			USDValue:    money.CopyRate(feeUSDValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]any{
@@ -232,8 +223,8 @@ func generateGasFeeEntries(txn *LPTransaction) []*ledger.Entry {
 			EntryType:   ledger.EntryTypeAssetDecrease,
 			Amount:      new(big.Int).Set(feeAmount),
 			AssetID:     txn.FeeAsset,
-			USDRate:     new(big.Int).Set(feeUSDRate),
-			USDValue:    new(big.Int).Set(feeUSDValue),
+			USDRate:     money.CopyRate(feeUSDRate),
+			USDValue:    money.CopyRate(feeUSDValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]any{

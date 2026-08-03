@@ -359,34 +359,40 @@ func corpus() []corpusCase {
 			},
 		},
 		// collateral. (five segments) + wallet. + gas.
+		//
+		// Supply and withdraw are the pair that split on live data (#73): the
+		// provider named the protocol on one leg and left it empty on the
+		// other, so the two must be spelled differently here or the corpus
+		// cannot show that both now reach the same collateral account.
 		{
 			name:    "lending_supply",
 			handler: lending.NewLendingSupplyHandler(repo, log),
-			data:    lendingData("0xaab1", testasset.USDC, "USDC", "1000000000", float64(6), true),
+			data:    lendingData("0xaab1", testasset.USDC, "USDC", "1000000000", float64(6), true, "Fluid USD Coin"),
 		},
 		// collateral. (five segments) + wallet.
 		{
 			name:    "lending_withdraw",
 			handler: lending.NewLendingWithdrawHandler(repo, log),
-			data:    lendingData("0xaab2", testasset.USDC, "USDC", "1000000000", float64(6), false),
+			data:    lendingData("0xaab2", testasset.USDC, "USDC", "1000000000", float64(6), false, "fluid usd coin"),
 		},
 		// liability. (five segments) + wallet.
 		{
 			name:    "lending_borrow",
 			handler: lending.NewLendingBorrowHandler(repo, log),
-			data:    lendingData("0xaab3", testasset.DAI, "DAI", "1000000000000000000", float64(18), false),
+			data:    lendingData("0xaab3", testasset.DAI, "DAI", "1000000000000000000", float64(18), false, "Aave v3.1"),
 		},
-		// liability. (five segments) + wallet.
+		// liability. (five segments) + wallet. Empty protocol: the provider
+		// often omits it entirely, which is what produced the empty segment.
 		{
 			name:    "lending_repay",
 			handler: lending.NewLendingRepayHandler(repo, log),
-			data:    lendingData("0xaab4", testasset.DAI, "DAI", "1000000000000000000", float64(18), false),
+			data:    lendingData("0xaab4", testasset.DAI, "DAI", "1000000000000000000", float64(18), false, ""),
 		},
 		// income.lending. variant + wallet.
 		{
 			name:    "lending_claim",
 			handler: lending.NewLendingClaimHandler(repo, log),
-			data:    lendingData("0xaab5", testasset.AAVE, "AAVE", "2000000000000000000", float64(18), false),
+			data:    lendingData("0xaab5", testasset.AAVE, "AAVE", "2000000000000000000", float64(18), false, "Aave V3"),
 		},
 		// income.genesis. variant + wallet.
 		{
@@ -413,13 +419,19 @@ func corpus() []corpusCase {
 // id is what the account code is built from since #59, and deriving it from the
 // ticker here would give a ticker two identities if any other fixture names the
 // same asset by its testasset constant.
-func lendingData(txHash string, assetID uuid.UUID, symbol, amount string, decimals float64, withGas bool) map[string]interface{} {
+//
+// proto is the raw provider-supplied protocol name, deliberately NOT
+// pre-normalised. The corpus used to hardcode "aave-v3" — a spelling no
+// provider emits — so the golden file never saw the raw display names and
+// empty values that actually arrive, and could not have caught #73. Handing it
+// the real inputs is what makes the golden file guard the normalisation.
+func lendingData(txHash string, assetID uuid.UUID, symbol, amount string, decimals float64, withGas bool, proto string) map[string]interface{} {
 	data := map[string]interface{}{
 		"wallet_id":   walletID.String(),
 		"tx_hash":     txHash,
 		"chain_id":    "arbitrum",
 		"occurred_at": occurredAt.Format(time.RFC3339),
-		"protocol":    "aave-v3",
+		"protocol":    proto,
 		// No "direction" key: LendingTransferItem declares the field but no
 		// lending entry builder reads it — the operation itself decides the
 		// account pair. Setting it would imply a distinction that is not there.

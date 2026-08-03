@@ -32,8 +32,77 @@
 package accountcode
 
 import (
+	"strings"
+
 	"github.com/google/uuid"
 )
+
+// UnknownProtocol is the segment used when a protocol-scoped code is built
+// without a protocol name.
+//
+// It exists because an empty segment is not a neutral choice: it collapses
+// "collateral..{wallet}.{chain}.{asset}" and produces a code that still has
+// five segments but names nothing, and — worse — is a *different string* from
+// the code the same position gets once the provider does supply a name. That
+// split the same lending position across two accounts on live data: a supply
+// landed on the named account, the matching withdraw looked for the empty one,
+// found a zero balance and failed the whole transaction (#73). A visible
+// sentinel keeps the arity constant and makes the missing name legible in the
+// code itself rather than as a hole between two dots.
+const UnknownProtocol = "unknown"
+
+// protocolSlug normalises a provider-supplied protocol name into a stable
+// account-code segment.
+//
+// Two properties matter, and they are the reason this lives in the constructor
+// rather than in each caller:
+//
+//   - The result carries no dot. Account codes are parsed by splitting on '.',
+//     so a name like "Aave v3.1" would silently add a segment and change the
+//     code's arity — collateral.aave-v3.1.{wallet}… reads as six segments, and
+//     any consumer counting them is then wrong about which field is which.
+//   - The mapping is many-to-one and idempotent. "Fluid USD Coin", "fluid usd
+//     coin" and "Fluid  USD  Coin" all become "fluid-usd-coin", so the same
+//     position cannot land on two accounts because the provider changed its
+//     capitalisation or spacing between two syncs.
+//
+// The alphabet is [a-z0-9-]: letters and digits are lowercased and kept, every
+// other rune becomes a separator, runs of separators collapse to one dash, and
+// leading/trailing dashes are trimmed. A name that contains nothing usable
+// (punctuation only) degrades to UnknownProtocol rather than to an empty
+// segment, for the same reason an absent name does.
+func protocolSlug(proto string) string {
+	var b strings.Builder
+	b.Grow(len(proto))
+	pendingDash := false
+
+	for _, r := range proto {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			if pendingDash && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			pendingDash = false
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			if pendingDash && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			pendingDash = false
+			b.WriteRune(r - 'A' + 'a')
+		default:
+			// Any other rune — space, dot, slash, non-ASCII letter — is a
+			// separator. Deferring the dash until the next kept rune is what
+			// collapses runs and drops trailing ones.
+			pendingDash = true
+		}
+	}
+
+	if b.Len() == 0 {
+		return UnknownProtocol
+	}
+	return b.String()
+}
 
 // WalletCode addresses the asset balance a wallet holds on a chain.
 //
@@ -104,9 +173,13 @@ func ClearingCode(chain, asset string) string {
 // Unlike the wallet namespace it is scoped by protocol, because the same asset
 // supplied to two protocols is two distinct positions.
 //
+// The protocol segment is normalised by protocolSlug; chain and asset are
+// still passed through verbatim, since those are internal identifiers rather
+// than provider display names.
+//
 //	collateral.{proto}.{walletID}.{chain}.{asset}
 func CollateralCode(proto string, walletID uuid.UUID, chain, asset string) string {
-	return "collateral." + proto + "." + walletID.String() + "." + chain + "." + asset
+	return "collateral." + protocolSlug(proto) + "." + walletID.String() + "." + chain + "." + asset
 }
 
 // LiabilityCode addresses a debt a wallet owes a lending protocol, scoped by
@@ -114,5 +187,5 @@ func CollateralCode(proto string, walletID uuid.UUID, chain, asset string) strin
 //
 //	liability.{proto}.{walletID}.{chain}.{asset}
 func LiabilityCode(proto string, walletID uuid.UUID, chain, asset string) string {
-	return "liability." + proto + "." + walletID.String() + "." + chain + "." + asset
+	return "liability." + protocolSlug(proto) + "." + walletID.String() + "." + chain + "." + asset
 }

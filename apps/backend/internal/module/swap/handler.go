@@ -116,10 +116,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 	// Outgoing transfers (asset leaving wallet)
 	for _, tr := range txn.TransfersOut {
 		amount := tr.Amount.ToBigInt()
-		usdRate := big.NewInt(0)
-		if tr.USDPrice != nil && !tr.USDPrice.IsNil() {
-			usdRate = tr.USDPrice.ToBigInt()
-		}
+		usdRate := tr.USDPrice.ToBigInt()
 		usdValue := money.CalcUSDValue(amount, usdRate, tr.Decimals)
 
 		// CREDIT wallet (asset decrease)
@@ -130,8 +127,8 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			EntryType:   ledger.EntryTypeAssetDecrease,
 			Amount:      new(big.Int).Set(amount),
 			AssetID:     tr.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    new(big.Int).Set(usdValue),
+			USDRate:     money.CopyRate(usdRate),
+			USDValue:    money.CopyRate(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
@@ -152,8 +149,8 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			EntryType:   ledger.EntryTypeClearing,
 			Amount:      new(big.Int).Set(amount),
 			AssetID:     tr.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    new(big.Int).Set(usdValue),
+			USDRate:     money.CopyRate(usdRate),
+			USDValue:    money.CopyRate(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
@@ -169,10 +166,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 	// Incoming transfers (asset entering wallet)
 	for _, tr := range txn.TransfersIn {
 		amount := tr.Amount.ToBigInt()
-		usdRate := big.NewInt(0)
-		if tr.USDPrice != nil && !tr.USDPrice.IsNil() {
-			usdRate = tr.USDPrice.ToBigInt()
-		}
+		usdRate := tr.USDPrice.ToBigInt()
 		usdValue := money.CalcUSDValue(amount, usdRate, tr.Decimals)
 
 		// DEBIT wallet (asset increase)
@@ -183,8 +177,8 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			EntryType:   ledger.EntryTypeAssetIncrease,
 			Amount:      new(big.Int).Set(amount),
 			AssetID:     tr.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    new(big.Int).Set(usdValue),
+			USDRate:     money.CopyRate(usdRate),
+			USDValue:    money.CopyRate(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
@@ -205,8 +199,8 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			EntryType:   ledger.EntryTypeClearing,
 			Amount:      new(big.Int).Set(amount),
 			AssetID:     tr.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    new(big.Int).Set(usdValue),
+			USDRate:     money.CopyRate(usdRate),
+			USDValue:    money.CopyRate(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
@@ -222,10 +216,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 	// Gas fee entries (if present)
 	feeAmount := txn.getFeeAmount()
 	if feeAmount != nil && feeAmount.Sign() > 0 {
-		feeUSDRate := big.NewInt(0)
-		if txn.FeeUSDPrice != nil && !txn.FeeUSDPrice.IsNil() {
-			feeUSDRate = txn.FeeUSDPrice.ToBigInt()
-		}
+		feeUSDRate := txn.FeeUSDPrice.ToBigInt()
 		feeDecimals := txn.FeeDecimals
 		if feeDecimals == 0 {
 			feeDecimals = 18 // Default to 18 for native tokens
@@ -245,8 +236,8 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			EntryType:   ledger.EntryTypeGasFee,
 			Amount:      new(big.Int).Set(feeAmount),
 			AssetID:     feeAsset,
-			USDRate:     new(big.Int).Set(feeUSDRate),
-			USDValue:    new(big.Int).Set(feeUSDValue),
+			USDRate:     money.CopyRate(feeUSDRate),
+			USDValue:    money.CopyRate(feeUSDValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
@@ -264,8 +255,8 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			EntryType:   ledger.EntryTypeAssetDecrease,
 			Amount:      new(big.Int).Set(feeAmount),
 			AssetID:     feeAsset,
-			USDRate:     new(big.Int).Set(feeUSDRate),
-			USDValue:    new(big.Int).Set(feeUSDValue),
+			USDRate:     money.CopyRate(feeUSDRate),
+			USDValue:    money.CopyRate(feeUSDValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{

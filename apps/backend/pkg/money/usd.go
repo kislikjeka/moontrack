@@ -2,9 +2,28 @@ package money
 
 import "math/big"
 
-// CalcUSDValue computes (amount * usdRate) / 10^decimals — result is USD value scaled by 10^8
+// CopyRate returns an independent copy of a USD rate, preserving nil.
+//
+// nil means "the price at this moment is not known" and must survive the copy:
+// entry builders used to write new(big.Int).Set(rate), which panics on nil and
+// so forced every caller to substitute zero first. That substitution is what
+// froze cost basis at 0 with price_status='resolved' (#74). Use this wherever a
+// rate is copied into an Entry.
+func CopyRate(rate *big.Int) *big.Int {
+	if rate == nil {
+		return nil
+	}
+	return new(big.Int).Set(rate)
+}
+
+// CalcUSDValue computes (amount * usdRate) / 10^decimals — result is USD value
+// scaled by 10^8. Returns nil when usdRate is nil: an unknown rate yields an
+// unknown value, not a zero one (#74).
 func CalcUSDValue(amount, usdRate *big.Int, decimals int) *big.Int {
-	if usdRate == nil || usdRate.Sign() == 0 {
+	if usdRate == nil {
+		return nil
+	}
+	if usdRate.Sign() == 0 {
 		return big.NewInt(0)
 	}
 	value := new(big.Int).Mul(amount, usdRate)

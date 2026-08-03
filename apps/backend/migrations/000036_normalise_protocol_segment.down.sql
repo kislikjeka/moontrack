@@ -1,0 +1,13 @@
+-- No-op by necessity.
+--
+-- Normalisation is many-to-one: "Fluid USD Coin", "fluid usd coin" and an
+-- empty protocol all map to one segment, and the up migration merges the
+-- accounts they had split into. The original spellings are not recorded
+-- anywhere, so there is nothing to restore them from — and un-merging would
+-- have to invent which entries belonged to which spelling.
+--
+-- Leaving the normalised codes in place is also harmless: they are exactly what
+-- accountcode now produces, so a rolled-back binary that still emits raw
+-- protocol names would create new accounts alongside them rather than corrupt
+-- these.
+SELECT 1;

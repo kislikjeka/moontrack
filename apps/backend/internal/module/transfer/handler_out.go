@@ -13,6 +13,7 @@ import (
 	"github.com/kislikjeka/moontrack/internal/ledger/accountcode"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
 	"github.com/kislikjeka/moontrack/pkg/logger"
+	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
 // TransferOutHandler handles outgoing blockchain transfers
@@ -115,17 +116,10 @@ func (h *TransferOutHandler) GenerateEntries(ctx context.Context, txn *TransferO
 	// Add gas fee entries if gas is present
 	gasAmount := txn.GetGasAmount()
 	if gasAmount != nil && gasAmount.Sign() > 0 {
+		// nil rate = gas price not known yet, and it stays nil (#74).
 		gasUSDRate := txn.GetGasUSDRate()
-		if gasUSDRate == nil {
-			gasUSDRate = big.NewInt(0)
-		}
-
-		// Calculate gas USD value (native token, always 18 decimals)
-		gasUSDValue := new(big.Int).Mul(gasAmount, gasUSDRate)
-		if gasUSDRate.Sign() > 0 {
-			divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(18)), nil)
-			gasUSDValue.Div(gasUSDValue, divisor)
-		}
+		// Gas is paid in the native token, always 18 decimals.
+		gasUSDValue := money.CalcUSDValue(gasAmount, gasUSDRate, 18)
 
 		// The chain's native asset must be resolved before gas can be booked.
 		// The old code defaulted to "ETH" here, which charged every non-Ethereum
@@ -145,8 +139,8 @@ func (h *TransferOutHandler) GenerateEntries(ctx context.Context, txn *TransferO
 			EntryType:   ledger.EntryTypeGasFee,
 			Amount:      new(big.Int).Set(gasAmount),
 			AssetID:     nativeAssetID,
-			USDRate:     new(big.Int).Set(gasUSDRate),
-			USDValue:    new(big.Int).Set(gasUSDValue),
+			USDRate:     money.CopyRate(gasUSDRate),
+			USDValue:    money.CopyRate(gasUSDValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
@@ -165,8 +159,8 @@ func (h *TransferOutHandler) GenerateEntries(ctx context.Context, txn *TransferO
 			EntryType:   ledger.EntryTypeAssetDecrease,
 			Amount:      new(big.Int).Set(gasAmount),
 			AssetID:     nativeAssetID,
-			USDRate:     new(big.Int).Set(gasUSDRate),
-			USDValue:    new(big.Int).Set(gasUSDValue),
+			USDRate:     money.CopyRate(gasUSDRate),
+			USDValue:    money.CopyRate(gasUSDValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
@@ -206,17 +200,10 @@ func (h *TransferOutHandler) collectItems(txn *TransferOutTransaction) []Transfe
 // entriesForItem emits one balanced debit/credit pair for a single outgoing
 // asset movement.
 func (h *TransferOutHandler) entriesForItem(txn *TransferOutTransaction, item *TransferItem) []*ledger.Entry {
+	// nil rate = price not known yet; preserved into the entry so the lot is
+	// recorded pending rather than as a resolved zero (#74).
 	usdRate := item.GetUSDRate()
-	if usdRate == nil {
-		usdRate = big.NewInt(0)
-	}
-
-	// USD value = (amount * usd_rate) / 10^decimals
-	usdValue := new(big.Int).Mul(item.GetAmount(), usdRate)
-	if usdRate.Sign() > 0 {
-		divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(item.Decimals)), nil)
-		usdValue.Div(usdValue, divisor)
-	}
+	usdValue := money.CalcUSDValue(item.GetAmount(), usdRate, item.Decimals)
 
 	return []*ledger.Entry{
 		// DEBIT expense account (records expense)
@@ -227,8 +214,8 @@ func (h *TransferOutHandler) entriesForItem(txn *TransferOutTransaction, item *T
 			EntryType:   ledger.EntryTypeExpense,
 			Amount:      new(big.Int).Set(item.GetAmount()),
 			AssetID:     item.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    new(big.Int).Set(usdValue),
+			USDRate:     money.CopyRate(usdRate),
+			USDValue:    money.CopyRate(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
@@ -249,8 +236,8 @@ func (h *TransferOutHandler) entriesForItem(txn *TransferOutTransaction, item *T
 			EntryType:   ledger.EntryTypeAssetDecrease,
 			Amount:      new(big.Int).Set(item.GetAmount()),
 			AssetID:     item.AssetID,
-			USDRate:     new(big.Int).Set(usdRate),
-			USDValue:    new(big.Int).Set(usdValue),
+			USDRate:     money.CopyRate(usdRate),
+			USDValue:    money.CopyRate(usdValue),
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{

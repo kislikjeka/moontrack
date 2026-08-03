@@ -53,11 +53,15 @@ func (ti *TransferItem) GetAmount() *big.Int {
 	return ti.Amount.ToBigInt()
 }
 
-// GetUSDRate returns the USD rate as *big.Int (zero when absent).
+// GetUSDRate returns the USD rate as *big.Int, or nil when the price for this
+// leg is not known.
+//
+// nil, not zero (#74). Sync omits usd_rate from raw_data precisely when it has
+// no price and has enqueued a backfill job for it; substituting zero here made
+// that indistinguishable from an asset genuinely worth nothing, and the zero
+// travelled all the way into tax_lots.auto_cost_basis_per_unit with
+// price_status='resolved' — a cost basis that was both wrong and marked final.
 func (ti *TransferItem) GetUSDRate() *big.Int {
-	if ti.USDRate == nil {
-		return big.NewInt(0)
-	}
 	return ti.USDRate.ToBigInt()
 }
 
@@ -136,11 +140,8 @@ func (t *TransferInTransaction) GetAmount() *big.Int {
 	return t.Amount.ToBigInt()
 }
 
-// GetUSDRate returns the USD rate as *big.Int
+// GetUSDRate returns the USD rate as *big.Int, or nil when unknown (#74).
 func (t *TransferInTransaction) GetUSDRate() *big.Int {
-	if t.USDRate == nil {
-		return big.NewInt(0)
-	}
 	return t.USDRate.ToBigInt()
 }
 
@@ -225,11 +226,8 @@ func (t *TransferOutTransaction) GetAmount() *big.Int {
 	return t.Amount.ToBigInt()
 }
 
-// GetUSDRate returns the USD rate as *big.Int
+// GetUSDRate returns the USD rate as *big.Int, or nil when unknown (#74).
 func (t *TransferOutTransaction) GetUSDRate() *big.Int {
-	if t.USDRate == nil {
-		return big.NewInt(0)
-	}
 	return t.USDRate.ToBigInt()
 }
 
@@ -241,11 +239,8 @@ func (t *TransferOutTransaction) GetGasAmount() *big.Int {
 	return t.GasAmount.ToBigInt()
 }
 
-// GetGasUSDRate returns the gas USD rate as *big.Int
+// GetGasUSDRate returns the gas USD rate as *big.Int, or nil when unknown (#74).
 func (t *TransferOutTransaction) GetGasUSDRate() *big.Int {
-	if t.GasUSDRate == nil {
-		return big.NewInt(0)
-	}
 	return t.GasUSDRate.ToBigInt()
 }
 
@@ -356,11 +351,8 @@ func (t *InternalTransferTransaction) GetAmount() *big.Int {
 	return t.Amount.ToBigInt()
 }
 
-// GetUSDRate returns the USD rate as *big.Int
+// GetUSDRate returns the USD rate as *big.Int, or nil when unknown (#74).
 func (t *InternalTransferTransaction) GetUSDRate() *big.Int {
-	if t.USDRate == nil {
-		return big.NewInt(0)
-	}
 	return t.USDRate.ToBigInt()
 }
 
@@ -372,10 +364,7 @@ func (t *InternalTransferTransaction) GetGasAmount() *big.Int {
 	return t.GasAmount.ToBigInt()
 }
 
-// GetGasUSDRate returns the gas USD rate as *big.Int
+// GetGasUSDRate returns the gas USD rate as *big.Int, or nil when unknown (#74).
 func (t *InternalTransferTransaction) GetGasUSDRate() *big.Int {
-	if t.GasUSDRate == nil {
-		return big.NewInt(0)
-	}
 	return t.GasUSDRate.ToBigInt()
 }

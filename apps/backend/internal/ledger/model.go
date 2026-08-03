@@ -306,11 +306,23 @@ func (e *Entry) Validate() error {
 		return ErrNegativeAmount
 	}
 
-	if e.USDRate == nil || e.USDRate.Sign() < 0 {
+	// A nil USD rate means "the price at this moment is not known yet" — the
+	// backfill worker has been asked for it and has not answered. It is NOT the
+	// same as a rate of zero, and this validation used to conflate them by
+	// rejecting nil outright (#74). That rejection is what made the tax-lot
+	// hook's price_status='pending' branch unreachable: no entry could carry an
+	// unknown price, so every lot was created 'resolved', and 157/157 lots on
+	// live data claimed a resolved cost basis of exactly 0 while the real
+	// prices sat unused in price_history. A negative rate is still a genuine
+	// error and still rejected.
+	if e.USDRate != nil && e.USDRate.Sign() < 0 {
 		return ErrNegativeUSDRate
 	}
 
-	if e.USDValue == nil || e.USDValue.Sign() < 0 {
+	// USDValue is derived from USDRate, so it is unknown exactly when the rate
+	// is. Requiring a value for an entry whose rate is nil would reintroduce
+	// the same false zero one level down.
+	if e.USDValue != nil && e.USDValue.Sign() < 0 {
 		return ErrNegativeUSDValue
 	}
 
