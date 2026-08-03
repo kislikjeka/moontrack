@@ -91,8 +91,11 @@ func NewRouter(cfg Config) *chi.Mux {
 
 				// Portfolio routes
 				if cfg.PortfolioHandler != nil {
+					// GET /portfolio/assets is gone (#42): it had no caller on
+					// the frontend and no asset page to serve, and the wallet
+					// breakdown it returned is already carried by
+					// /portfolio's wallet_balances.
 					r.Get("/portfolio", cfg.PortfolioHandler.GetPortfolioSummary)
-					r.Get("/portfolio/assets", cfg.PortfolioHandler.GetAssetBreakdown)
 				}
 
 				// Tax lot routes

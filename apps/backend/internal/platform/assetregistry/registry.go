@@ -40,14 +40,28 @@ var ErrNotFound = errors.New("asset not found in registry")
 // CoinGeckoID is flattened from a nullable column to the empty string. A NULL
 // slug and an unset slug mean the same thing to every consumer — "this asset is
 // not addressable at CoinGecko" — so a pointer would only add a nil check.
+// SymbolAmbiguous says another registry row on the SAME chain carries the same
+// ticker, so the ticker alone does not name this asset to a human. It is a
+// property of the asset, computed globally over the registry — not a property of
+// the response (#42). Were it scoped to the rows in one answer, the same token
+// would be labelled "USDC" in one wallet and "USDC · 0xaf88…" in another,
+// because the label would depend on what else happened to be in view.
+//
+// The comparison is per-chain on purpose. "USDC on Base" versus "USDC on
+// Ethereum" is not the ambiguity worth surfacing: chain is already a separate
+// axis in the UI, so the two are told apart without touching the ticker. The
+// case that reads as an application bug is two contracts on ONE chain sharing a
+// ticker — a rebrand/migration (USDC ↔ USDC.e) or a manual knownness override.
+// Spam homoglyphs do not reach the registry at all; #58 rejects them on entry.
 type Asset struct {
-	ID          uuid.UUID
-	Chain       string
-	Contract    string
-	Symbol      string
-	Name        string
-	Decimals    int
-	CoinGeckoID string
+	ID              uuid.UUID
+	Chain           string
+	Contract        string
+	Symbol          string
+	Name            string
+	Decimals        int
+	CoinGeckoID     string
+	SymbolAmbiguous bool
 }
 
 // Reader reads registry rows for presentation.
@@ -59,6 +73,19 @@ type Asset struct {
 type Reader interface {
 	// Get returns the row with this id, or ErrNotFound.
 	Get(ctx context.Context, id uuid.UUID) (*Asset, error)
+
+	// GetMany returns the rows for these ids, keyed by id. Ids with no row are
+	// simply absent from the map rather than being an error — a caller
+	// rendering a list wants the rows that exist, not a failure because one
+	// identity is unknown.
+	//
+	// It exists because every consumer of this reader describes a LIST: lots,
+	// WAC positions, disposals, transactions. Calling Get per row turns one
+	// response into N queries, and each query carries the registry-wide window
+	// that computes SymbolAmbiguous — so the per-row shape is markedly more
+	// expensive here than a plain indexed lookup would be. One call per list
+	// keeps that cost paid once.
+	GetMany(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Asset, error)
 
 	// List returns rows filtered by symbol and/or chain. An empty filter half
 	// means "do not filter on it", so one call serves all four combinations

@@ -12,7 +12,7 @@ import {
 import { AssetIcon } from '@/components/domain/AssetIcon'
 import { ChainIcon } from '@/components/domain/ChainIcon'
 import { LotDetailTable } from '@/components/domain/LotDetailTable'
-import { formatUSD, formatCrypto } from '@/lib/format'
+import { formatUSD, formatCrypto, formatAssetLabel } from '@/lib/format'
 import { getChainName } from '@/types/wallet'
 import type { HoldingGroup, ChainHolding } from '@/types/portfolio'
 
@@ -137,9 +137,20 @@ function AssetGroupRows({
             {/* Holdings are principal assets only. A protocol receipt (aToken,
                 debt token, LP token) never reaches the ledger since #57, so
                 there is no receipt ticker left here to decode into an
-                underlying symbol and a Supplied/Borrowed badge. */}
-            <AssetIcon symbol={group.asset_id} size="sm" />
-            <span className="font-medium">{group.asset_id}</span>
+                underlying symbol and a Supplied/Borrowed badge.
+
+                The label comes from asset_symbol, never from asset_id: the row
+                is KEYED on the registry UUID (so two contracts sharing a ticker
+                stay two rows) but LABELLED with the ticker. Feeding the UUID
+                here is what rendered a raw id at the user before #42. */}
+            <AssetIcon symbol={group.asset_symbol} size="sm" />
+            <span className="font-medium">
+              {formatAssetLabel(
+                group.asset_symbol,
+                group.asset_contract,
+                group.symbol_ambiguous
+              )}
+            </span>
           </div>
         </TableCell>
         <TableCell className="text-right font-mono">

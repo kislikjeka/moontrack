@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/internal/platform/assetregistry"
 	"github.com/kislikjeka/moontrack/internal/platform/taxlot"
 	"github.com/kislikjeka/moontrack/internal/transport/httpapi/middleware"
 	"github.com/kislikjeka/moontrack/pkg/money"
@@ -27,29 +28,43 @@ type TaxLotServiceInterface interface {
 // TaxLotHandler handles tax lot HTTP requests.
 type TaxLotHandler struct {
 	taxLotService TaxLotServiceInterface
-	assets        taxlot.AssetDecimals   // nilable — see resolveDecimals
+	assets        assetregistry.Reader   // nilable — see describeAssets
 	resolver      *money.DecimalResolver // fallback when assets is unwired
 }
 
 // NewTaxLotHandler creates a new TaxLotHandler.
 //
-// assets resolves a lot's registry id to its decimals (#59). Lot quantities are
-// base-unit integers, so the wrong scale here misplaces a decimal point in every
-// quantity the endpoint renders — which is why it is a registry read and not a
-// ticker table lookup.
-func NewTaxLotHandler(taxLotService TaxLotServiceInterface, assets taxlot.AssetDecimals, resolver *money.DecimalResolver) *TaxLotHandler {
+// assets is the registry reader rather than the narrower decimals-only port the
+// tax-lot service uses. The endpoint needs two things off the same row — the
+// scale to render quantities by and the ticker to label them with (#42) — and a
+// port that answers only "decimals" cannot supply the second. Splitting them
+// across two lookups is what let the ticker and the scale describe different
+// assets before #59.
+//
+// Lot quantities are base-unit integers, so the wrong scale misplaces a decimal
+// point in every quantity the endpoint renders — which is why it is a registry
+// read and not a ticker table lookup.
+func NewTaxLotHandler(taxLotService TaxLotServiceInterface, assets assetregistry.Reader, resolver *money.DecimalResolver) *TaxLotHandler {
 	return &TaxLotHandler{taxLotService: taxLotService, assets: assets, resolver: resolver}
 }
 
 // --- Response types ---
 
 // TaxLotResponse is the JSON representation of a tax lot.
+//
+// Asset is the registry UUID. AssetSymbol, AssetContract and SymbolAmbiguous
+// ride alongside as presentation (#42): before them the endpoint shipped a bare
+// UUID and nothing else, so a client could either render the UUID at the user or
+// issue one /assets lookup per lot to find the ticker.
 type TaxLotResponse struct {
 	ID                        string  `json:"id"`
 	TransactionID             string  `json:"transaction_id"`
 	AccountID                 string  `json:"account_id"`
 	ChainID                   string  `json:"chain_id,omitempty"`
 	Asset                     string  `json:"asset"`
+	AssetSymbol               string  `json:"asset_symbol"`
+	AssetContract             string  `json:"asset_contract"`
+	SymbolAmbiguous           bool    `json:"symbol_ambiguous"`
 	QuantityAcquired          string  `json:"quantity_acquired"`
 	QuantityRemaining         string  `json:"quantity_remaining"`
 	AcquiredAt                string  `json:"acquired_at"`
@@ -70,6 +85,9 @@ type PositionWACResponse struct {
 	ChainID         string `json:"chain_id"`
 	IsAggregated    bool   `json:"is_aggregated"`
 	Asset           string `json:"asset"`
+	AssetSymbol     string `json:"asset_symbol"`
+	AssetContract   string `json:"asset_contract"`
+	SymbolAmbiguous bool   `json:"symbol_ambiguous"`
 	TotalQuantity   string `json:"total_quantity"`
 	WeightedAvgCost string `json:"weighted_avg_cost"`
 }
@@ -106,6 +124,9 @@ type DisposalDetailResponse struct {
 	DisposalType     string `json:"disposal_type"`
 	DisposedAt       string `json:"disposed_at"`
 	LotAsset         string `json:"lot_asset"`
+	LotAssetSymbol   string `json:"lot_asset_symbol"`
+	LotAssetContract string `json:"lot_asset_contract"`
+	SymbolAmbiguous  bool   `json:"symbol_ambiguous"`
 	LotAcquiredAt    string `json:"lot_acquired_at"`
 	LotCostBasis     string `json:"lot_cost_basis_per_unit"`
 	LotAutoSource    string `json:"lot_auto_cost_basis_source"`
@@ -171,10 +192,15 @@ func (h *TaxLotHandler) GetLots(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	assetIDs := make([]uuid.UUID, 0, len(lots))
+	for _, lot := range lots {
+		assetIDs = append(assetIDs, lot.Asset)
+	}
+	desc := h.describeAssets(r.Context(), assetIDs)
+
 	response := make([]TaxLotResponse, 0, len(lots))
 	for _, lot := range lots {
-		decimals := h.resolveDecimals(r.Context(), lot.Asset)
-		response = append(response, toTaxLotResponse(lot, decimals))
+		response = append(response, toTaxLotResponse(lot, desc.of(lot.Asset)))
 	}
 
 	respondWithJSON(w, http.StatusOK, TaxLotsListResponse{Lots: response})
@@ -271,9 +297,15 @@ func (h *TaxLotHandler) GetWAC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	assetIDs := make([]uuid.UUID, 0, len(positions))
+	for _, p := range positions {
+		assetIDs = append(assetIDs, p.Asset)
+	}
+	described := h.describeAssets(r.Context(), assetIDs)
+
 	response := make([]PositionWACResponse, 0, len(positions))
 	for _, p := range positions {
-		decimals := h.resolveDecimals(r.Context(), p.Asset)
+		desc := described.of(p.Asset)
 		response = append(response, PositionWACResponse{
 			WalletID:        p.WalletID.String(),
 			WalletName:      p.WalletName,
@@ -281,7 +313,10 @@ func (h *TaxLotHandler) GetWAC(w http.ResponseWriter, r *http.Request) {
 			ChainID:         p.ChainID,
 			IsAggregated:    p.AccountID == uuid.Nil,
 			Asset:           p.Asset.String(),
-			TotalQuantity:   money.FromBaseUnits(p.TotalQuantity, decimals),
+			AssetSymbol:     desc.symbol,
+			AssetContract:   desc.contract,
+			SymbolAmbiguous: desc.ambiguous,
+			TotalQuantity:   money.FromBaseUnits(p.TotalQuantity, desc.decimals),
 			WeightedAvgCost: money.FormatUSD(p.WeightedAvgCost),
 		})
 	}
@@ -314,15 +349,25 @@ func (h *TaxLotHandler) GetTransactionLots(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Both lists in one read — the disposals name the same assets as the lots
+	// they came from more often than not.
+	assetIDs := make([]uuid.UUID, 0, len(impact.AcquiredLots)+len(impact.Disposals))
+	for _, lot := range impact.AcquiredLots {
+		assetIDs = append(assetIDs, lot.Asset)
+	}
+	for _, d := range impact.Disposals {
+		assetIDs = append(assetIDs, d.LotAsset)
+	}
+	described := h.describeAssets(r.Context(), assetIDs)
+
 	acquiredLots := make([]TaxLotResponse, 0, len(impact.AcquiredLots))
 	for _, lot := range impact.AcquiredLots {
-		decimals := h.resolveDecimals(r.Context(), lot.Asset)
-		acquiredLots = append(acquiredLots, toTaxLotResponse(lot, decimals))
+		acquiredLots = append(acquiredLots, toTaxLotResponse(lot, described.of(lot.Asset)))
 	}
 
 	disposals := make([]DisposalDetailResponse, 0, len(impact.Disposals))
 	for _, d := range impact.Disposals {
-		decimals := h.resolveDecimals(r.Context(), d.LotAsset)
+		desc := described.of(d.LotAsset)
 		status := string(d.ProceedsStatus)
 		if status == "" {
 			status = "resolved"
@@ -330,12 +375,15 @@ func (h *TaxLotHandler) GetTransactionLots(w http.ResponseWriter, r *http.Reques
 		disposals = append(disposals, DisposalDetailResponse{
 			ID:               d.ID.String(),
 			LotID:            d.LotID.String(),
-			QuantityDisposed: money.FromBaseUnits(d.QuantityDisposed, decimals),
+			QuantityDisposed: money.FromBaseUnits(d.QuantityDisposed, desc.decimals),
 			ProceedsPerUnit:  money.FormatUSD(d.ProceedsPerUnit),
 			ProceedsStatus:   status,
 			DisposalType:     string(d.DisposalType),
 			DisposedAt:       d.DisposedAt.Format("2006-01-02T15:04:05Z07:00"),
 			LotAsset:         d.LotAsset.String(),
+			LotAssetSymbol:   desc.symbol,
+			LotAssetContract: desc.contract,
+			SymbolAmbiguous:  desc.ambiguous,
 			LotAcquiredAt:    d.LotAcquiredAt.Format("2006-01-02T15:04:05Z07:00"),
 			LotCostBasis:     money.FormatUSD(d.LotEffectiveCostBasisPerUnit),
 			LotAutoSource:    string(d.LotAutoSource),
@@ -351,27 +399,75 @@ func (h *TaxLotHandler) GetTransactionLots(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// resolveDecimals returns the scale for a lot's asset, keyed on its registry id.
+// assetDescription is how a lot's asset is rendered: the scale for its
+// quantities and the label for its identity.
+type assetDescription struct {
+	symbol    string
+	contract  string
+	ambiguous bool
+	decimals  int
+}
+
+// assetDescriber resolves the assets of one response in a single registry read.
 //
-// With the registry wired, that is the only source consulted — decimals are a
-// column on the row the id names. Without it (tests construct a bare handler)
-// it degrades to the symbol-keyed resolver with an empty symbol, which yields
-// the hardcoded default rather than a UUID-shaped cache miss.
-func (h *TaxLotHandler) resolveDecimals(ctx context.Context, assetID uuid.UUID) int {
-	if h.assets != nil {
-		if decimals, err := h.assets.GetDecimals(ctx, assetID.String()); err == nil {
-			return decimals
-		}
+// Every endpoint here renders a LIST, so the ids are all known before the first
+// row is formatted. Reading them one at a time would issue N queries, each
+// carrying the registry-wide window that computes the ambiguity flag; resolving
+// them together pays that once. The zero value is usable and answers every id
+// with the degraded description, which is what a handler built without a
+// registry (tests) needs.
+type assetDescriber struct {
+	byID     map[uuid.UUID]assetregistry.Asset
+	fallback assetDescription
+}
+
+// describeAssets resolves every id in one read.
+//
+// A registry error is not fatal: the endpoint degrades to unlabelled rows rather
+// than failing outright, because the quantities and cost bases it exists to
+// report do not depend on the registry.
+func (h *TaxLotHandler) describeAssets(ctx context.Context, ids []uuid.UUID) assetDescriber {
+	d := assetDescriber{fallback: h.fallbackDescription(ctx)}
+	if h.assets == nil || len(ids) == 0 {
+		return d
 	}
+	if byID, err := h.assets.GetMany(ctx, ids); err == nil {
+		d.byID = byID
+	}
+	return d
+}
+
+// of returns the description for one id.
+//
+// A miss leaves the symbol EMPTY rather than filling it with the UUID's string
+// form: a UUID where a ticker belongs is worse than a blank, because it reads as
+// data. The scale then falls back to the resolver's default rather than a
+// UUID-shaped lookup miss.
+func (d assetDescriber) of(assetID uuid.UUID) assetDescription {
+	a, ok := d.byID[assetID]
+	if !ok {
+		return d.fallback
+	}
+	return assetDescription{
+		symbol:    a.Symbol,
+		contract:  a.Contract,
+		ambiguous: a.SymbolAmbiguous,
+		decimals:  a.Decimals,
+	}
+}
+
+// fallbackDescription is what an unresolvable asset renders as.
+func (h *TaxLotHandler) fallbackDescription(ctx context.Context) assetDescription {
 	if h.resolver != nil {
-		return h.resolver.ResolveSymbolOnly(ctx, "")
+		return assetDescription{decimals: h.resolver.ResolveSymbolOnly(ctx, "")}
 	}
-	return money.GetDecimals("")
+	return assetDescription{decimals: money.GetDecimals("")}
 }
 
 // --- Helpers ---
 
-func toTaxLotResponse(lot *ledger.TaxLot, decimals int) TaxLotResponse {
+func toTaxLotResponse(lot *ledger.TaxLot, desc assetDescription) TaxLotResponse {
+	decimals := desc.decimals
 
 	resp := TaxLotResponse{
 		ID:                        lot.ID.String(),
@@ -379,6 +475,9 @@ func toTaxLotResponse(lot *ledger.TaxLot, decimals int) TaxLotResponse {
 		AccountID:                 lot.AccountID.String(),
 		ChainID:                   lot.ChainID,
 		Asset:                     lot.Asset.String(),
+		AssetSymbol:               desc.symbol,
+		AssetContract:             desc.contract,
+		SymbolAmbiguous:           desc.ambiguous,
 		QuantityAcquired:          money.FromBaseUnits(lot.QuantityAcquired, decimals),
 		QuantityRemaining:         money.FromBaseUnits(lot.QuantityRemaining, decimals),
 		AcquiredAt:                lot.AcquiredAt.Format("2006-01-02T15:04:05Z07:00"),

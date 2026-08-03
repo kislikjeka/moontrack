@@ -144,13 +144,34 @@ func (r *AssetRegistryRepository) GetAsset(ctx context.Context, id uuid.UUID) (*
 	return &out, nil
 }
 
-// registryRowColumns is the shared projection of every presentation read below,
+// registrySource is the relation every presentation read selects FROM.
+//
+// It is the raw table plus the ambiguity flag, computed by a window over the
+// WHOLE registry rather than over the rows a given query returns. That is what
+// makes the flag a property of the asset instead of a property of the answer
+// (#42): filtering to one chain, or searching for one ticker, cannot change
+// whether an asset is ambiguous. Pushing the window into a shared sub-select is
+// also the only way three different WHERE clauses can agree on it — a flag
+// recomputed per query would silently mean something different in each.
+//
+// PARTITION BY chain, UPPER(symbol) matches the per-chain rule documented on
+// assetregistry.Asset.SymbolAmbiguous. UPPER() mirrors the case-insensitive
+// comparison used everywhere else against idx_asset_registry_symbol, so "usdc"
+// and "USDC" are one ticker here as they are there.
+const registrySource = `(
+	SELECT id, chain, contract, symbol, name, decimals,
+	       COALESCE(coingecko_id, '') AS coingecko_id,
+	       COUNT(*) OVER (PARTITION BY chain, UPPER(symbol)) > 1 AS symbol_ambiguous
+	FROM asset_registry
+) AS r`
+
+// registryRowColumns is the shared column list of every presentation read below,
 // so the scan order cannot drift between queries.
-const registryRowColumns = `id, chain, contract, symbol, name, decimals, COALESCE(coingecko_id, '')`
+const registryRowColumns = `id, chain, contract, symbol, name, decimals, coingecko_id, symbol_ambiguous`
 
 func scanRegistryRow(row pgx.Row) (*assetregistry.Asset, error) {
 	var out assetregistry.Asset
-	if err := row.Scan(&out.ID, &out.Chain, &out.Contract, &out.Symbol, &out.Name, &out.Decimals, &out.CoinGeckoID); err != nil {
+	if err := row.Scan(&out.ID, &out.Chain, &out.Contract, &out.Symbol, &out.Name, &out.Decimals, &out.CoinGeckoID, &out.SymbolAmbiguous); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -171,13 +192,45 @@ func scanRegistryRows(rows pgx.Rows) ([]assetregistry.Asset, error) {
 
 // Get returns one registry row by its UUID, satisfying assetregistry.Reader.
 func (r *AssetRegistryRepository) Get(ctx context.Context, id uuid.UUID) (*assetregistry.Asset, error) {
-	query := `SELECT ` + registryRowColumns + ` FROM asset_registry WHERE id = $1`
+	query := `SELECT ` + registryRowColumns + ` FROM ` + registrySource + ` WHERE id = $1`
 	out, err := scanRegistryRow(r.pool.QueryRow(ctx, query, id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("%w: %s", assetregistry.ErrNotFound, id)
 		}
 		return nil, fmt.Errorf("failed to read asset registry row %s: %w", id, err)
+	}
+	return out, nil
+}
+
+// GetMany returns the rows for these ids, keyed by id.
+//
+// One query for the whole list rather than one per row: the ambiguity flag is
+// computed by a window over the entire registry (see registrySource), so a
+// per-row Get pays for that scan once per row. Every caller of this reader is
+// rendering a list, which is why the batch shape is the one that belongs on the
+// port.
+//
+// Ids with no matching row are absent from the result rather than an error. A
+// caller listing lots wants the assets that resolve, not a failed response
+// because one identity has gone missing.
+func (r *AssetRegistryRepository) GetMany(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]assetregistry.Asset, error) {
+	out := make(map[uuid.UUID]assetregistry.Asset, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+
+	query := `SELECT ` + registryRowColumns + ` FROM ` + registrySource + ` WHERE id = ANY($1)`
+	rows, err := r.pool.Query(ctx, query, ids)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read asset registry rows: %w", err)
+	}
+	scanned, err := scanRegistryRows(rows)
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan asset registry rows: %w", err)
+	}
+	for _, a := range scanned {
+		out[a.ID] = a
 	}
 	return out, nil
 }
@@ -196,7 +249,7 @@ func (r *AssetRegistryRepository) Get(ctx context.Context, id uuid.UUID) (*asset
 func (r *AssetRegistryRepository) List(ctx context.Context, symbol, chain string, limit int) ([]assetregistry.Asset, error) {
 	query := `
 		SELECT ` + registryRowColumns + `
-		FROM asset_registry
+		FROM ` + registrySource + `
 		WHERE ($1 = '' OR UPPER(symbol) = UPPER($1))
 		  AND ($2 = '' OR chain = LOWER($2))
 		ORDER BY symbol, chain, contract
@@ -233,7 +286,7 @@ func (r *AssetRegistryRepository) Search(ctx context.Context, q string, limit in
 	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q)
 	query := `
 		SELECT ` + registryRowColumns + `
-		FROM asset_registry
+		FROM ` + registrySource + `
 		WHERE UPPER(symbol) = UPPER($1)
 		   OR symbol ILIKE $2 ESCAPE '\'
 		   OR name   ILIKE $2 ESCAPE '\'

@@ -1,6 +1,6 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { formatUSD } from '@/lib/format'
+import { formatUSD, formatAssetLabel } from '@/lib/format'
 import type { AssetHolding } from '@/types/portfolio'
 
 interface AssetDistributionChartProps {
@@ -36,9 +36,18 @@ export function AssetDistributionChart({ holdings }: AssetDistributionChartProps
     )
   }
 
-  // Transform holdings for the chart
+  // Transform holdings for the chart. A slice is labelled with the ticker and
+  // identified by the registry UUID, so two contracts sharing a ticker are two
+  // slices, each qualified by its contract to tell them apart (#42).
   const chartData = holdings.map((holding, index) => ({
-    name: holding.asset_id, // Could be improved with asset name lookup
+    // asset_holdings is one row per (asset, chain), so asset_id alone repeats
+    // across rows and cannot key the list — the pair can.
+    id: `${holding.asset_id}:${holding.chain_id}`,
+    name: formatAssetLabel(
+      holding.asset_symbol,
+      holding.asset_contract,
+      holding.symbol_ambiguous
+    ),
     value: parseFloat(holding.usd_value),
     color: COLORS[index % COLORS.length],
     originalValue: holding.usd_value,
@@ -68,8 +77,8 @@ export function AssetDistributionChart({ holdings }: AssetDistributionChartProps
                   paddingAngle={2}
                   dataKey="value"
                 >
-                  {chartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  {chartData.map((entry) => (
+                    <Cell key={entry.id} fill={entry.color} />
                   ))}
                 </Pie>
                 <Tooltip
@@ -95,10 +104,10 @@ export function AssetDistributionChart({ holdings }: AssetDistributionChartProps
 
           {/* Legend */}
           <div className="flex-1 space-y-2 w-full">
-            {chartData.slice(0, 5).map((item, index) => {
+            {chartData.slice(0, 5).map((item) => {
               const percentage = total > 0 ? ((item.value / total) * 100).toFixed(1) : '0'
               return (
-                <div key={index} className="flex items-center justify-between">
+                <div key={item.id} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div
                       className="h-3 w-3 rounded-full"

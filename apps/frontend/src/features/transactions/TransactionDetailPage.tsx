@@ -9,7 +9,7 @@ import { TransactionTypeBadge } from '@/components/domain/TransactionTypeBadge'
 import { ChainIcon } from '@/components/domain/ChainIcon'
 import { LedgerEntriesTable } from './LedgerEntriesTable'
 import { TransactionLotImpactSection } from './TransactionLotImpactSection'
-import { formatDateTime, formatUSD } from '@/lib/format'
+import { formatDateTime, formatUSD, formatAssetLabel } from '@/lib/format'
 import { getChainName } from '@/types/wallet'
 
 export default function TransactionDetailPage() {
@@ -101,7 +101,7 @@ export default function TransactionDetailPage() {
             )}
             <div>
               <dt className="text-sm text-muted-foreground">Asset</dt>
-              <dd className="font-medium">{transaction.asset_symbol}</dd>
+              <dd className="font-medium">{formatAssetLabel(transaction.asset_symbol, transaction.asset_contract, transaction.symbol_ambiguous)}</dd>
             </div>
             <div>
               <dt className="text-sm text-muted-foreground">Amount</dt>

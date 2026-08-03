@@ -13,7 +13,7 @@ import {
 import { TransactionTypeBadge } from '@/components/domain/TransactionTypeBadge'
 import { ChainIcon } from '@/components/domain/ChainIcon'
 import { TransactionLotImpactSection } from './TransactionLotImpactSection'
-import { formatDateTime, formatUSD } from '@/lib/format'
+import { formatDateTime, formatUSD, formatAssetLabel } from '@/lib/format'
 import { getChainShortName } from '@/types/wallet'
 import type { TransactionListItem } from '@/types/transaction'
 
@@ -117,7 +117,7 @@ export function TransactionListTable({
                 )}
                 <TableCell>
                   <Link to={`/transactions/${tx.id}`} className="font-medium">
-                    {tx.asset_symbol}
+                    {formatAssetLabel(tx.asset_symbol, tx.asset_contract, tx.symbol_ambiguous)}
                   </Link>
                 </TableCell>
                 <TableCell className="text-right font-mono">

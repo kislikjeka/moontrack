@@ -2,6 +2,7 @@ import api from './api'
 import type {
   TransactionDetail,
   TransactionListResponse,
+  TransactionFilters,
   CreateTransactionRequest,
 } from '@/types/transaction'
 
@@ -45,15 +46,7 @@ export const transactionService = {
   /**
    * List transactions with optional filters and pagination
    */
-  async list(params?: {
-    wallet_id?: string
-    asset_id?: string
-    type?: string
-    start_date?: string
-    end_date?: string
-    page?: number
-    page_size?: number
-  }): Promise<TransactionListResponse> {
+  async list(params?: TransactionFilters): Promise<TransactionListResponse> {
     const response = await api.get<TransactionListResponse>('/transactions', {
       params,
     })

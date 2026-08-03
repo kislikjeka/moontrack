@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kislikjeka/moontrack/internal/ledger"
+	"github.com/kislikjeka/moontrack/internal/platform/assetregistry"
 	"github.com/kislikjeka/moontrack/internal/platform/wallet"
 	"github.com/kislikjeka/moontrack/pkg/money"
 )
@@ -18,12 +19,28 @@ type WalletRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*wallet.Wallet, error)
 }
 
+// AssetAmbiguity reports which of these assets carry a ticker that does not name
+// them uniquely on their chain (#42).
+//
+// Only the ambiguity half is needed here: the ticker itself already travels in
+// raw_data beside the entry, recorded at the time the transaction was written.
+// The flag cannot come from there — it is a property of the registry as it
+// stands NOW (a second contract with the same ticker may appear long after this
+// transaction was booked), so it has to be read rather than remembered.
+//
+// It is a batch call because a list of transactions is resolved at once; per-row
+// reads would issue one registry-wide query per row.
+type AssetAmbiguity interface {
+	GetMany(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]assetregistry.Asset, error)
+}
+
 // TransactionService provides read-only access to enriched transaction data
 type TransactionService struct {
 	ledgerService  *ledger.Service
 	walletRepo     WalletRepository
 	readerRegistry *ReaderRegistry
 	resolver       *money.DecimalResolver
+	assets         AssetAmbiguity // nilable — rows then render unflagged
 }
 
 // NewTransactionService creates a new transaction service
@@ -37,6 +54,44 @@ func NewTransactionService(
 		walletRepo:     walletRepo,
 		readerRegistry: NewReaderRegistry(),
 		resolver:       resolver,
+	}
+}
+
+// WithAssetAmbiguity attaches the registry read that flags duplicate tickers.
+//
+// Optional so a bare service still lists transactions: without it every row
+// renders as unambiguous, which is the pre-#42 behaviour rather than a wrong
+// answer — the ticker and the amount are unchanged, only the disambiguating
+// qualifier is absent.
+func (s *TransactionService) WithAssetAmbiguity(a AssetAmbiguity) *TransactionService {
+	s.assets = a
+	return s
+}
+
+// assetQualifiers reads the contract and ambiguity flag for these assets.
+//
+// A registry failure yields an empty map, so rows render unflagged rather than
+// the whole listing failing: the transaction's own facts do not depend on it.
+func (s *TransactionService) assetQualifiers(ctx context.Context, ids []uuid.UUID) map[uuid.UUID]assetregistry.Asset {
+	if s.assets == nil || len(ids) == 0 {
+		return nil
+	}
+	byID, err := s.assets.GetMany(ctx, ids)
+	if err != nil {
+		return nil
+	}
+	return byID
+}
+
+// applyQualifier stamps the contract and ambiguity flag onto a list item.
+func applyQualifier(item *TransactionListItem, byID map[uuid.UUID]assetregistry.Asset) {
+	id, err := uuid.Parse(item.AssetID)
+	if err != nil {
+		return
+	}
+	if a, ok := byID[id]; ok {
+		item.AssetContract = a.Contract
+		item.SymbolAmbiguous = a.SymbolAmbiguous
 	}
 }
 
@@ -79,6 +134,19 @@ func (s *TransactionService) ListTransactions(ctx context.Context, filters ledge
 			continue // Skip transactions that can't be enriched
 		}
 		result = append(result, *item)
+	}
+
+	// One registry read for the whole page, then stamp each row (#42).
+	assetIDs := make([]uuid.UUID, 0, len(result))
+	for _, item := range result {
+		if id, err := uuid.Parse(item.AssetID); err == nil {
+			assetIDs = append(assetIDs, id)
+		}
+	}
+	if byID := s.assetQualifiers(ctx, assetIDs); byID != nil {
+		for i := range result {
+			applyQualifier(&result[i], byID)
+		}
 	}
 
 	return result, nil
@@ -145,6 +213,26 @@ func (s *TransactionService) GetTransaction(ctx context.Context, id uuid.UUID, u
 		Notes:      fields.Notes,
 		RawData:    tx.RawData,
 		Entries:    s.toEntryResponses(ctx, tx.Entries, walletName, symbolsFromRawData(tx.RawData)),
+	}
+
+	// The header asset and every entry's asset in one registry read (#42). A
+	// transaction routinely touches more than one asset — the gas leg is rarely
+	// the token being moved — so this is a set, not a single id.
+	assetIDs := make([]uuid.UUID, 0, len(tx.Entries)+1)
+	assetIDs = append(assetIDs, fields.AssetID)
+	for _, e := range tx.Entries {
+		assetIDs = append(assetIDs, e.AssetID)
+	}
+	if byID := s.assetQualifiers(ctx, assetIDs); byID != nil {
+		applyQualifier(&detail.TransactionListItem, byID)
+		for i := range detail.Entries {
+			if id, err := uuid.Parse(detail.Entries[i].AssetID); err == nil {
+				if a, ok := byID[id]; ok {
+					detail.Entries[i].AssetContract = a.Contract
+					detail.Entries[i].SymbolAmbiguous = a.SymbolAmbiguous
+				}
+			}
+		}
 	}
 
 	return detail, nil

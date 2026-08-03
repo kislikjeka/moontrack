@@ -53,19 +53,23 @@ const maxSearchResults = 10
 
 // AssetResponse represents an asset in the API response.
 //
-// SHAPE IS #42's TO FINALIZE — this is the pre-#59 shape minus the fields that
-// no longer have a source, kept as close as possible so the existing frontend
-// (apps/frontend/src/services/asset.ts) keeps working. Dropped, deliberately not
-// faked: asset_type (the registry holds only on-chain identities, so every row
-// would be "crypto"), market_cap_rank (came from the CoinGecko catalogue the
-// `assets` table mirrored) and is_active (no such column — a registry row is an
-// identity someone held, not a catalogue entry that can be deactivated).
+// SHAPE FINALIZED BY #42 — the pre-#59 shape minus the fields that no longer
+// have a source, plus the ambiguity flag. Dropped, deliberately not faked:
+// asset_type (the registry holds only on-chain identities, so every row would be
+// "crypto"), market_cap_rank (came from the CoinGecko catalogue the `assets`
+// table mirrored) and is_active (no such column — a registry row is an identity
+// someone held, not a catalogue entry that can be deactivated).
 //
 // chain_id and contract_address come straight off the registry row and are
 // always present. contract_address carries the `native` sentinel verbatim for a
 // chain's native coin: it is NOT translated back to an empty string or null,
 // because that translation is one of the four inconsistent spellings of
 // nativeness #59 removes.
+//
+// symbol_ambiguous tells the client whether `symbol` names this asset uniquely
+// on its chain. It is the flag a picker needs to decide whether to qualify a
+// ticker with a truncated contract, and it is computed over the whole registry
+// rather than over this response — see assetregistry.Asset.SymbolAmbiguous.
 type AssetResponse struct {
 	ID              string `json:"id"`
 	Symbol          string `json:"symbol"`
@@ -74,6 +78,7 @@ type AssetResponse struct {
 	Decimals        int    `json:"decimals"`
 	ChainID         string `json:"chain_id"`
 	ContractAddress string `json:"contract_address"`
+	SymbolAmbiguous bool   `json:"symbol_ambiguous"`
 }
 
 // PriceResponse represents a price in the API response.
@@ -409,5 +414,6 @@ func toAssetResponse(a *assetregistry.Asset) AssetResponse {
 		ChainID:     a.Chain,
 		// Verbatim, including the `native` sentinel — see AssetResponse.
 		ContractAddress: a.Contract,
+		SymbolAmbiguous: a.SymbolAmbiguous,
 	}
 }

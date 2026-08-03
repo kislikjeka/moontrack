@@ -14,7 +14,6 @@ import (
 // PortfolioServiceInterface defines the interface for portfolio operations
 type PortfolioServiceInterface interface {
 	GetPortfolioSummary(ctx context.Context, userID uuid.UUID) (*portfolio.PortfolioSummary, error)
-	GetAssetBreakdown(ctx context.Context, userID uuid.UUID, assetID uuid.UUID) ([]portfolio.WalletBalance, error)
 }
 
 // PortfolioHandler handles portfolio-related HTTP requests
@@ -43,11 +42,16 @@ type AssetHoldingResponse struct {
 	// AssetID is the asset_registry UUID; AssetSymbol is the ticker to render
 	// (#59). The single asset_id string used to be both, which is why the UI
 	// could label two different tokens identically.
-	AssetID      string `json:"asset_id"`
-	AssetSymbol  string `json:"asset_symbol"`
-	TotalAmount  string `json:"total_amount"`  // String representation of big.Int
-	USDValue     string `json:"usd_value"`     // String representation
-	CurrentPrice string `json:"current_price"` // String representation
+	AssetID     string `json:"asset_id"`
+	AssetSymbol string `json:"asset_symbol"`
+	// ChainID scopes the holding; AssetContract and SymbolAmbiguous let the
+	// client qualify a ticker that names more than one asset on its chain (#42).
+	ChainID         string `json:"chain_id,omitempty"`
+	AssetContract   string `json:"asset_contract"`
+	SymbolAmbiguous bool   `json:"symbol_ambiguous"`
+	TotalAmount     string `json:"total_amount"`  // String representation of big.Int
+	USDValue        string `json:"usd_value"`     // String representation
+	CurrentPrice    string `json:"current_price"` // String representation
 }
 
 // WalletBalanceResponse represents a wallet balance in the API response
@@ -61,23 +65,27 @@ type WalletBalanceResponse struct {
 
 // AssetBalanceResponse represents an asset balance in a wallet
 type AssetBalanceResponse struct {
-	AssetID     string `json:"asset_id"` // registry UUID — see AssetHoldingResponse
-	AssetSymbol string `json:"asset_symbol"`
-	ChainID     string `json:"chain_id,omitempty"`
-	Amount      string `json:"amount"`
-	USDValue    string `json:"usd_value"`
-	Price       string `json:"price"`
+	AssetID         string `json:"asset_id"` // registry UUID — see AssetHoldingResponse
+	AssetSymbol     string `json:"asset_symbol"`
+	ChainID         string `json:"chain_id,omitempty"`
+	AssetContract   string `json:"asset_contract"`
+	SymbolAmbiguous bool   `json:"symbol_ambiguous"`
+	Amount          string `json:"amount"`
+	USDValue        string `json:"usd_value"`
+	Price           string `json:"price"`
 }
 
 // HoldingGroupResponse is the JSON representation of a holding group (asset across chains).
 type HoldingGroupResponse struct {
-	AssetID       string                 `json:"asset_id"` // registry UUID — see AssetHoldingResponse
-	AssetSymbol   string                 `json:"asset_symbol"`
-	TotalAmount   string                 `json:"total_amount"`
-	TotalUSDValue string                 `json:"total_usd_value"`
-	Price         string                 `json:"price"`
-	AggregatedWAC string                 `json:"aggregated_wac,omitempty"`
-	Chains        []ChainHoldingResponse `json:"chains"`
+	AssetID         string                 `json:"asset_id"` // registry UUID — see AssetHoldingResponse
+	AssetSymbol     string                 `json:"asset_symbol"`
+	AssetContract   string                 `json:"asset_contract"`
+	SymbolAmbiguous bool                   `json:"symbol_ambiguous"`
+	TotalAmount     string                 `json:"total_amount"`
+	TotalUSDValue   string                 `json:"total_usd_value"`
+	Price           string                 `json:"price"`
+	AggregatedWAC   string                 `json:"aggregated_wac,omitempty"`
+	Chains          []ChainHoldingResponse `json:"chains"`
 }
 
 // ChainHoldingResponse is the JSON representation of a per-chain holding.
@@ -108,11 +116,14 @@ func (h *PortfolioHandler) GetPortfolioSummary(w http.ResponseWriter, r *http.Re
 	assetHoldings := make([]AssetHoldingResponse, len(summary.AssetHoldings))
 	for i, holding := range summary.AssetHoldings {
 		assetHoldings[i] = AssetHoldingResponse{
-			AssetID:      holding.AssetID.String(),
-			AssetSymbol:  holding.AssetSymbol,
-			TotalAmount:  money.FromBaseUnits(holding.TotalAmount, holding.Decimals),
-			USDValue:     money.FormatUSD(holding.USDValue),
-			CurrentPrice: money.FormatUSD(holding.CurrentPrice),
+			AssetID:         holding.AssetID.String(),
+			AssetSymbol:     holding.AssetSymbol,
+			ChainID:         holding.ChainID,
+			AssetContract:   holding.AssetContract,
+			SymbolAmbiguous: holding.SymbolAmbiguous,
+			TotalAmount:     money.FromBaseUnits(holding.TotalAmount, holding.Decimals),
+			USDValue:        money.FormatUSD(holding.USDValue),
+			CurrentPrice:    money.FormatUSD(holding.CurrentPrice),
 		}
 	}
 
@@ -121,12 +132,14 @@ func (h *PortfolioHandler) GetPortfolioSummary(w http.ResponseWriter, r *http.Re
 		assets := make([]AssetBalanceResponse, len(w.Assets))
 		for j, asset := range w.Assets {
 			assets[j] = AssetBalanceResponse{
-				AssetID:     asset.AssetID.String(),
-				AssetSymbol: asset.AssetSymbol,
-				ChainID:     asset.ChainID,
-				Amount:      money.FromBaseUnits(asset.Amount, asset.Decimals),
-				USDValue:    money.FormatUSD(asset.USDValue),
-				Price:       money.FormatUSD(asset.Price),
+				AssetID:         asset.AssetID.String(),
+				AssetSymbol:     asset.AssetSymbol,
+				ChainID:         asset.ChainID,
+				AssetContract:   asset.AssetContract,
+				SymbolAmbiguous: asset.SymbolAmbiguous,
+				Amount:          money.FromBaseUnits(asset.Amount, asset.Decimals),
+				USDValue:        money.FormatUSD(asset.USDValue),
+				Price:           money.FormatUSD(asset.Price),
 			}
 		}
 
@@ -146,12 +159,14 @@ func (h *PortfolioHandler) GetPortfolioSummary(w http.ResponseWriter, r *http.Re
 				}
 			}
 			holdings[k] = HoldingGroupResponse{
-				AssetID:       hg.AssetID.String(),
-				AssetSymbol:   hg.AssetSymbol,
-				TotalAmount:   money.FromBaseUnits(hg.TotalAmount, decimals),
-				TotalUSDValue: money.FormatUSD(hg.TotalUSDValue),
-				Price:         money.FormatUSD(hg.Price),
-				Chains:        chains,
+				AssetID:         hg.AssetID.String(),
+				AssetSymbol:     hg.AssetSymbol,
+				AssetContract:   hg.AssetContract,
+				SymbolAmbiguous: hg.SymbolAmbiguous,
+				TotalAmount:     money.FromBaseUnits(hg.TotalAmount, decimals),
+				TotalUSDValue:   money.FormatUSD(hg.TotalUSDValue),
+				Price:           money.FormatUSD(hg.Price),
+				Chains:          chains,
 			}
 			if hg.AggregatedWAC != nil {
 				holdings[k].AggregatedWAC = money.FormatUSD(hg.AggregatedWAC)
@@ -173,63 +188,6 @@ func (h *PortfolioHandler) GetPortfolioSummary(w http.ResponseWriter, r *http.Re
 		AssetHoldings:  assetHoldings,
 		WalletBalances: walletBalances,
 		LastUpdated:    time.Now().Format(time.RFC3339),
-	}
-
-	respondWithJSON(w, http.StatusOK, response)
-}
-
-// GetAssetBreakdown handles GET /portfolio/assets/{assetID}
-func (h *PortfolioHandler) GetAssetBreakdown(w http.ResponseWriter, r *http.Request) {
-	// Get user ID from context
-	userID, ok := middleware.GetUserIDFromContext(r.Context())
-	if !ok {
-		respondWithError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
-	// asset_id is a registry UUID (#59). A malformed one is rejected at the
-	// edge with 400 rather than passed through as uuid.Nil, which would query
-	// for an asset that cannot exist and answer with an empty breakdown —
-	// indistinguishable from a real asset the user simply does not hold.
-	assetIDParam := r.URL.Query().Get("asset_id")
-	if assetIDParam == "" {
-		respondWithError(w, http.StatusBadRequest, "asset_id is required")
-		return
-	}
-	assetID, err := uuid.Parse(assetIDParam)
-	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "asset_id must be a valid asset UUID")
-		return
-	}
-
-	// Get asset breakdown from service
-	walletBalances, err := h.portfolioService.GetAssetBreakdown(r.Context(), userID, assetID)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "failed to fetch asset breakdown")
-		return
-	}
-
-	// Convert to response format
-	response := make([]WalletBalanceResponse, len(walletBalances))
-	for i, w := range walletBalances {
-		assets := make([]AssetBalanceResponse, len(w.Assets))
-		for j, asset := range w.Assets {
-			assets[j] = AssetBalanceResponse{
-				AssetID:     asset.AssetID.String(),
-				AssetSymbol: asset.AssetSymbol,
-				ChainID:     asset.ChainID,
-				Amount:      money.FromBaseUnits(asset.Amount, asset.Decimals),
-				USDValue:    money.FormatUSD(asset.USDValue),
-				Price:       money.FormatUSD(asset.Price),
-			}
-		}
-
-		response[i] = WalletBalanceResponse{
-			WalletID:   w.WalletID.String(),
-			WalletName: w.WalletName,
-			Assets:     assets,
-			TotalUSD:   money.FormatUSD(w.TotalUSD),
-		}
 	}
 
 	respondWithJSON(w, http.StatusOK, response)

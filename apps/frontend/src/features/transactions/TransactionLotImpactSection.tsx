@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CostBasisOverrideDialog } from '@/components/domain/CostBasisOverrideDialog'
 import { useTransactionLots } from '@/hooks/useTaxLots'
-import { formatDate, formatUSD } from '@/lib/format'
+import { formatDate, formatUSD, formatAssetLabel } from '@/lib/format'
 import type { TaxLot, CostBasisSource } from '@/types/taxlot'
 
 interface TransactionLotImpactSectionProps {
@@ -73,7 +73,9 @@ export function TransactionLotImpactSection({ transactionId }: TransactionLotImp
                     <TableRow key={lot.id}>
                       <TableCell className="text-muted-foreground">{index + 1}</TableCell>
                       <TableCell>{formatDate(lot.acquired_at)}</TableCell>
-                      <TableCell>{lot.asset}</TableCell>
+                      <TableCell>
+                        {formatAssetLabel(lot.asset_symbol, lot.asset_contract, lot.symbol_ambiguous)}
+                      </TableCell>
                       <TableCell className="text-right font-mono">{lot.quantity_acquired}</TableCell>
                       <TableCell className="text-right font-mono">{lot.quantity_remaining}</TableCell>
                       <TableCell className="text-right font-mono">
@@ -129,7 +131,13 @@ export function TransactionLotImpactSection({ transactionId }: TransactionLotImp
                   return (
                     <TableRow key={disposal.id}>
                       <TableCell>{formatDate(disposal.lot_acquired_at)}</TableCell>
-                      <TableCell>{disposal.lot_asset}</TableCell>
+                      <TableCell>
+                        {formatAssetLabel(
+                          disposal.lot_asset_symbol,
+                          disposal.lot_asset_contract,
+                          disposal.symbol_ambiguous
+                        )}
+                      </TableCell>
                       <TableCell className="text-right font-mono">{disposal.quantity_disposed}</TableCell>
                       <TableCell className="text-right font-mono">{formatUSD(disposal.lot_cost_basis_per_unit)}</TableCell>
                       <TableCell className="text-right font-mono">{formatUSD(disposal.proceeds_per_unit)}</TableCell>

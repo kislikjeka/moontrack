@@ -1,5 +1,5 @@
 import api from './api';
-import type { PortfolioSummary, WalletBalance } from '@/types/portfolio';
+import type { PortfolioSummary } from '@/types/portfolio';
 
 /**
  * Get portfolio summary for the authenticated user
@@ -9,17 +9,11 @@ export const getPortfolioSummary = async (): Promise<PortfolioSummary> => {
   return response.data;
 };
 
-/**
- * Get detailed breakdown of a specific asset across all wallets
- */
-export const getAssetBreakdown = async (assetId: string): Promise<WalletBalance[]> => {
-  const response = await api.get<WalletBalance[]>(`/portfolio/assets`, {
-    params: { asset_id: assetId }
-  });
-  return response.data;
-};
+// getAssetBreakdown and GET /portfolio/assets are gone (#42). The call had no
+// caller anywhere in src/ and there is no asset page for one to live on, and the
+// per-wallet breakdown it returned is already carried by the summary's
+// wallet_balances. The WalletBalance TYPE stays — it is what that field is.
 
 export default {
   getPortfolioSummary,
-  getAssetBreakdown,
 };

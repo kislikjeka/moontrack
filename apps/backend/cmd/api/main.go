@@ -264,7 +264,12 @@ func main() {
 	log.Info("Portfolio service initialized")
 
 	// Initialize transaction service (read-only, for enriched views)
-	transactionSvc := transactions.NewTransactionService(ledgerSvc, walletRepo, decimalResolver)
+	// The registry supplies the duplicate-ticker flag (#42). The ticker itself
+	// still comes from raw_data beside the entry; only the flag has to be read
+	// live, because a second contract sharing a ticker can appear long after a
+	// transaction was booked.
+	transactionSvc := transactions.NewTransactionService(ledgerSvc, walletRepo, decimalResolver).
+		WithAssetAmbiguity(assetRegistryRepo)
 	log.Info("Transaction service initialized")
 
 	// Initialize blockchain sync service

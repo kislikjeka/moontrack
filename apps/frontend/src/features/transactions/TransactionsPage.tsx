@@ -69,7 +69,7 @@ export default function TransactionsPage() {
           </div>
           <h3 className="text-lg font-medium">No transactions found</h3>
           <p className="text-muted-foreground mt-1 mb-4">
-            {filters.wallet_id || filters.type || filters.asset_id
+            {filters.wallet_id || filters.type
               ? 'Try adjusting your filters'
               : 'Transactions will appear here once your wallets are synced'}
           </p>

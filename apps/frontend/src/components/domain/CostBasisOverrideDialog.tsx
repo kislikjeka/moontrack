@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useOverrideCostBasis } from '@/hooks/useTaxLots'
+import { formatAssetLabel } from '@/lib/format'
 import { toast } from 'sonner'
 import type { TaxLot } from '@/types/taxlot'
 
@@ -65,7 +66,8 @@ export function CostBasisOverrideDialog({
         <DialogHeader>
           <DialogTitle>Override Cost Basis</DialogTitle>
           <DialogDescription>
-            Set a manual cost basis for this {lot.asset} lot acquired on{' '}
+            Set a manual cost basis for this{' '}
+            {formatAssetLabel(lot.asset_symbol, lot.asset_contract, lot.symbol_ambiguous)} lot acquired on{' '}
             {new Date(lot.acquired_at).toLocaleDateString()}.
           </DialogDescription>
         </DialogHeader>

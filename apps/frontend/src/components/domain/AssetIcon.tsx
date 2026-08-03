@@ -57,6 +57,7 @@ const TOKEN_ICONS: Record<string, string> = {
 }
 
 function getTokenImageUrl(symbol: string): string | undefined {
+  if (!symbol) return undefined
   return TOKEN_ICONS[symbol.toUpperCase()]
 }
 
@@ -69,7 +70,10 @@ export function AssetIcon({
 }: AssetIconProps) {
   const resolvedUrl = imageUrl || getTokenImageUrl(symbol)
   const [imgError, setImgError] = useState(false)
-  const initials = symbol.slice(0, 3).toUpperCase()
+  // An asset the registry cannot describe carries no symbol (#42) — that is a
+  // reachable state, not a caller bug, so the icon degrades to a placeholder
+  // instead of throwing and taking the whole holdings table down with it.
+  const initials = symbol ? symbol.slice(0, 3).toUpperCase() : '?'
 
   const fallback = (
     <div

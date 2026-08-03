@@ -29,19 +29,24 @@ func NewAssetRegistryLookup(reader assetregistry.Reader) *AssetRegistryLookup {
 	return &AssetRegistryLookup{reader: reader}
 }
 
-// Describe returns the symbol and decimals for a registry id.
+// Describe returns the presentation attributes for a registry id.
 //
 // A miss returns ok=false rather than a guess. The caller then renders no
 // symbol at all, which is the honest answer: an asset the registry does not
 // know has no ticker this service can supply, and inventing one would put a
 // label on a holding that nothing backs.
-func (l *AssetRegistryLookup) Describe(ctx context.Context, assetID uuid.UUID) (string, int, bool) {
+func (l *AssetRegistryLookup) Describe(ctx context.Context, assetID uuid.UUID) (AssetDescription, bool) {
 	if l.reader == nil || assetID == uuid.Nil {
-		return "", 0, false
+		return AssetDescription{}, false
 	}
 	asset, err := l.reader.Get(ctx, assetID)
 	if err != nil || asset == nil {
-		return "", 0, false
+		return AssetDescription{}, false
 	}
-	return asset.Symbol, asset.Decimals, true
+	return AssetDescription{
+		Symbol:          asset.Symbol,
+		Decimals:        asset.Decimals,
+		Contract:        asset.Contract,
+		SymbolAmbiguous: asset.SymbolAmbiguous,
+	}, true
 }

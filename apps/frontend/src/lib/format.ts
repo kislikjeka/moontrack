@@ -120,6 +120,39 @@ export function truncateAddress(address: string, startChars = 6, endChars = 4): 
 }
 
 /**
+ * Format an asset's label for display.
+ *
+ * The ticker on its own, EXCEPT when the backend says it does not name the asset
+ * uniquely on its chain — then it is qualified with a truncated contract
+ * (`USDC · 0xaf88…5831`). Qualifying only the ambiguous ones is the point: shown
+ * on every row the contract would be noise, and shown on none the user reads two
+ * identical `USDC` lines with different balances as an application bug rather
+ * than as a fact about the wallet.
+ *
+ * `native` is never truncated — it is the sentinel for a chain's native coin,
+ * not an address, and `nati…tive` would be nonsense. A native coin cannot
+ * collide with another contract on its chain anyway, since there is exactly one
+ * such row per chain.
+ *
+ * An empty symbol falls back to the contract, and then to a bare em dash: an
+ * asset the registry cannot describe has no ticker to show, and rendering the
+ * UUID in its place would put an identifier where a human label belongs.
+ */
+export function formatAssetLabel(
+  symbol: string,
+  contract?: string,
+  ambiguous?: boolean
+): string {
+  if (!symbol) {
+    return contract && contract !== 'native' ? truncateAddress(contract) : '—'
+  }
+  if (!ambiguous || !contract || contract === 'native') {
+    return symbol
+  }
+  return `${symbol} · ${truncateAddress(contract)}`
+}
+
+/**
  * Get block explorer URL for a transaction hash
  */
 export function getExplorerTxUrl(chainId: string, txHash: string): string {

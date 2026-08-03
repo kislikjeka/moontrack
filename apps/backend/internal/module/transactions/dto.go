@@ -2,20 +2,26 @@ package transactions
 
 // TransactionListItem represents a transaction in list view
 type TransactionListItem struct {
-	ID            string `json:"id"`
-	Type          string `json:"type"`
-	TypeLabel     string `json:"type_label"` // "Income", "Outcome", "Adjustment"
-	AssetID       string `json:"asset_id"`
-	AssetSymbol   string `json:"asset_symbol"`   // "BTC", "ETH"
-	Amount        string `json:"amount"`         // Base units as string
-	DisplayAmount string `json:"display_amount"` // "0.5 BTC"
-	Direction     string `json:"direction"`      // "in", "out", "adjustment"
-	WalletID      string `json:"wallet_id"`
-	WalletName    string `json:"wallet_name"` // "My Hardware Wallet"
-	Status        string `json:"status"`
-	OccurredAt    string `json:"occurred_at"`
-	USDValue      string `json:"usd_value,omitempty"`
-	ChainID       string `json:"chain_id,omitempty"` // Zerion chain name, e.g. "ethereum", "base"
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	TypeLabel   string `json:"type_label"` // "Income", "Outcome", "Adjustment"
+	AssetID     string `json:"asset_id"`
+	AssetSymbol string `json:"asset_symbol"` // "BTC", "ETH"
+	// AssetContract and SymbolAmbiguous qualify a ticker that names more than
+	// one asset on its chain (#42). The flag is read from the registry as it
+	// stands now, not from raw_data: a duplicate ticker can appear long after
+	// the transaction was booked.
+	AssetContract   string `json:"asset_contract"`
+	SymbolAmbiguous bool   `json:"symbol_ambiguous"`
+	Amount          string `json:"amount"`         // Base units as string
+	DisplayAmount   string `json:"display_amount"` // "0.5 BTC"
+	Direction       string `json:"direction"`      // "in", "out", "adjustment"
+	WalletID        string `json:"wallet_id"`
+	WalletName      string `json:"wallet_name"` // "My Hardware Wallet"
+	Status          string `json:"status"`
+	OccurredAt      string `json:"occurred_at"`
+	USDValue        string `json:"usd_value,omitempty"`
+	ChainID         string `json:"chain_id,omitempty"` // Zerion chain name, e.g. "ethereum", "base"
 }
 
 // TransactionDetail represents a transaction in detail view
@@ -31,14 +37,16 @@ type TransactionDetail struct {
 
 // EntryResponse represents a ledger entry in detail view
 type EntryResponse struct {
-	ID            string `json:"id"`
-	AccountCode   string `json:"account_code"`  // "wallet:btc:abc123"
-	AccountLabel  string `json:"account_label"` // "My Wallet - BTC"
-	DebitCredit   string `json:"debit_credit"`  // "DEBIT" or "CREDIT"
-	EntryType     string `json:"entry_type"`    // "asset_increase", "income"
-	Amount        string `json:"amount"`
-	DisplayAmount string `json:"display_amount"`
-	AssetID       string `json:"asset_id"`
-	AssetSymbol   string `json:"asset_symbol"`
-	USDValue      string `json:"usd_value,omitempty"`
+	ID              string `json:"id"`
+	AccountCode     string `json:"account_code"`  // "wallet:btc:abc123"
+	AccountLabel    string `json:"account_label"` // "My Wallet - BTC"
+	DebitCredit     string `json:"debit_credit"`  // "DEBIT" or "CREDIT"
+	EntryType       string `json:"entry_type"`    // "asset_increase", "income"
+	Amount          string `json:"amount"`
+	DisplayAmount   string `json:"display_amount"`
+	AssetID         string `json:"asset_id"`
+	AssetSymbol     string `json:"asset_symbol"`
+	AssetContract   string `json:"asset_contract"`
+	SymbolAmbiguous bool   `json:"symbol_ambiguous"`
+	USDValue        string `json:"usd_value,omitempty"`
 }

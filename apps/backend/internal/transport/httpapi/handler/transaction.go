@@ -78,20 +78,24 @@ type TransactionResponse struct {
 
 // TransactionListItemResponse represents an enriched transaction item for list view
 type TransactionListItemResponse struct {
-	ID            string `json:"id"`
-	Type          string `json:"type"`
-	TypeLabel     string `json:"type_label"`
-	AssetID       string `json:"asset_id"`
-	AssetSymbol   string `json:"asset_symbol"`
-	Amount        string `json:"amount"`
-	DisplayAmount string `json:"display_amount"`
-	Direction     string `json:"direction"`
-	WalletID      string `json:"wallet_id"`
-	WalletName    string `json:"wallet_name"`
-	Status        string `json:"status"`
-	OccurredAt    string `json:"occurred_at"`
-	USDValue      string `json:"usd_value,omitempty"`
-	ChainID       string `json:"chain_id,omitempty"`
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	TypeLabel   string `json:"type_label"`
+	AssetID     string `json:"asset_id"`
+	AssetSymbol string `json:"asset_symbol"`
+	// AssetContract and SymbolAmbiguous qualify a duplicate ticker (#42) — see
+	// transactions.TransactionListItem, of which this is a field-for-field copy.
+	AssetContract   string `json:"asset_contract"`
+	SymbolAmbiguous bool   `json:"symbol_ambiguous"`
+	Amount          string `json:"amount"`
+	DisplayAmount   string `json:"display_amount"`
+	Direction       string `json:"direction"`
+	WalletID        string `json:"wallet_id"`
+	WalletName      string `json:"wallet_name"`
+	Status          string `json:"status"`
+	OccurredAt      string `json:"occurred_at"`
+	USDValue        string `json:"usd_value,omitempty"`
+	ChainID         string `json:"chain_id,omitempty"`
 }
 
 // TransactionListResponse represents a paginated list of transactions
@@ -297,20 +301,22 @@ func (h *TransactionHandler) GetTransactions(w http.ResponseWriter, r *http.Requ
 	txResponses := make([]TransactionListItemResponse, len(txns))
 	for i, tx := range txns {
 		txResponses[i] = TransactionListItemResponse{
-			ID:            tx.ID,
-			Type:          tx.Type,
-			TypeLabel:     tx.TypeLabel,
-			AssetID:       tx.AssetID,
-			AssetSymbol:   tx.AssetSymbol,
-			Amount:        tx.Amount,
-			DisplayAmount: tx.DisplayAmount,
-			Direction:     tx.Direction,
-			WalletID:      tx.WalletID,
-			WalletName:    tx.WalletName,
-			Status:        tx.Status,
-			OccurredAt:    tx.OccurredAt,
-			USDValue:      tx.USDValue,
-			ChainID:       tx.ChainID,
+			ID:              tx.ID,
+			Type:            tx.Type,
+			TypeLabel:       tx.TypeLabel,
+			AssetID:         tx.AssetID,
+			AssetSymbol:     tx.AssetSymbol,
+			AssetContract:   tx.AssetContract,
+			SymbolAmbiguous: tx.SymbolAmbiguous,
+			Amount:          tx.Amount,
+			DisplayAmount:   tx.DisplayAmount,
+			Direction:       tx.Direction,
+			WalletID:        tx.WalletID,
+			WalletName:      tx.WalletName,
+			Status:          tx.Status,
+			OccurredAt:      tx.OccurredAt,
+			USDValue:        tx.USDValue,
+			ChainID:         tx.ChainID,
 		}
 	}
 

@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from 'sonner'
+import { formatAssetLabel } from '@/lib/format'
 import type { CreateTransactionRequest } from '@/types/transaction'
 import type { Asset } from '@/types/asset'
 
@@ -163,9 +164,24 @@ export default function TransactionFormPage() {
                           className="w-full px-4 py-2 text-left hover:bg-accent flex items-center gap-3"
                           onClick={() => handleAssetSelect(asset)}
                         >
-                          <span className="font-medium">{asset.symbol}</span>
+                          {/* The ticker is qualified with the contract when it
+                              does not name the asset uniquely on its chain
+                              (#42). This picker writes the chosen asset's UUID
+                              into the ledger, so two rows a user cannot tell
+                              apart here become a transaction booked against the
+                              wrong asset. */}
+                          <span className="font-medium">
+                            {formatAssetLabel(
+                              asset.symbol,
+                              asset.contract_address,
+                              asset.symbol_ambiguous
+                            )}
+                          </span>
                           <span className="text-sm text-muted-foreground">
                             {asset.name}
+                          </span>
+                          <span className="ml-auto text-xs uppercase text-muted-foreground">
+                            {asset.chain_id}
                           </span>
                         </button>
                       ))}
@@ -179,7 +195,11 @@ export default function TransactionFormPage() {
               )}
               {selectedAsset && (
                 <p className="text-sm text-muted-foreground">
-                  Selected: {selectedAsset.name} ({selectedAsset.symbol})
+                  Selected: {selectedAsset.name} ({formatAssetLabel(
+                    selectedAsset.symbol,
+                    selectedAsset.contract_address,
+                    selectedAsset.symbol_ambiguous
+                  )}) on {selectedAsset.chain_id}
                 </p>
               )}
             </div>

@@ -14,9 +14,15 @@ import { LendingPositionCard } from '@/features/wallets/components/LendingPositi
 // receipt never reaches the ledger, so no receipt ticker can arrive here, and
 // what does arrive is already the principal symbol.
 
-function holdingGroup(assetId) {
+// The symbol is what gets rendered; asset_id is the registry UUID and is only
+// the key (#42). Passing the ticker as asset_id — as this fixture did before —
+// would no longer exercise the label at all.
+function holdingGroup(symbol) {
   return {
-    asset_id: assetId,
+    asset_id: `id-of-${symbol}`,
+    asset_symbol: symbol,
+    asset_contract: '0x4200000000000000000000000000000000000006',
+    symbol_ambiguous: false,
     total_amount: '1.5',
     total_usd_value: '4500.00',
     price: '3000.00',

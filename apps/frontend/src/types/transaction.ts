@@ -22,6 +22,8 @@ export interface TransactionListItem {
   type_label: string
   asset_id: string
   asset_symbol: string
+  asset_contract: string
+  symbol_ambiguous: boolean
   amount: string
   display_amount: string
   direction: TransactionDirection
@@ -43,6 +45,8 @@ export interface LedgerEntry {
   display_amount: string
   asset_id: string
   asset_symbol: string
+  asset_contract: string
+  symbol_ambiguous: boolean
   usd_value?: string
 }
 
@@ -75,9 +79,16 @@ export interface CreateTransactionRequest {
   notes?: string
 }
 
+/**
+ * Filters accepted by GET /transactions.
+ *
+ * There is no asset filter. One was declared here and passed through to the
+ * API, but the backend never read it and no UI could set it — three parts that
+ * did not meet (#42). Building it out was rejected rather than deferred: its
+ * natural home is an asset page, which the same decision declined to add.
+ */
 export interface TransactionFilters {
   wallet_id?: string
-  asset_id?: string
   type?: TransactionType
   start_date?: string
   end_date?: string

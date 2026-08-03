@@ -9,7 +9,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
-import { formatUSD } from '@/lib/format'
+import { formatUSD, formatAssetLabel } from '@/lib/format'
 import type { LedgerEntry } from '@/types/transaction'
 
 interface LedgerEntriesTableProps {
@@ -94,7 +94,7 @@ export function LedgerEntriesTable({ entries }: LedgerEntriesTableProps) {
                     {entry.debit_credit}
                   </Badge>
                 </TableCell>
-                <TableCell>{entry.asset_symbol}</TableCell>
+                <TableCell>{formatAssetLabel(entry.asset_symbol, entry.asset_contract, entry.symbol_ambiguous)}</TableCell>
                 <TableCell className="text-right font-mono">
                   {entry.display_amount}
                 </TableCell>

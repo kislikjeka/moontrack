@@ -166,38 +166,38 @@ func setupMockWalletRepository() *MockWalletRepository {
 	}
 }
 
-// stubAssetLookup resolves a registry id to a ticker and decimals, standing in
-// for the asset_registry read the real service does (#59). It is a map because
-// that is all AssetLookup is: one row per id, with no fallback — a miss returns
-// ok=false and the caller degrades, which is the behaviour worth testing.
+// stubAssetLookup resolves a registry id to its presentation attributes,
+// standing in for the asset_registry read the real service does (#59). It is a
+// map because that is all AssetLookup is: one row per id, with no fallback — a
+// miss returns ok=false and the caller degrades, which is the behaviour worth
+// testing.
 type stubAssetLookup struct {
-	byID map[uuid.UUID]struct {
-		symbol   string
-		decimals int
-	}
+	byID map[uuid.UUID]AssetDescription
 }
 
 func newStubAssetLookup() *stubAssetLookup {
-	return &stubAssetLookup{byID: map[uuid.UUID]struct {
-		symbol   string
-		decimals int
-	}{}}
+	return &stubAssetLookup{byID: map[uuid.UUID]AssetDescription{}}
 }
 
 func (l *stubAssetLookup) add(id uuid.UUID, symbol string, decimals int) *stubAssetLookup {
-	l.byID[id] = struct {
-		symbol   string
-		decimals int
-	}{symbol, decimals}
+	l.byID[id] = AssetDescription{Symbol: symbol, Decimals: decimals}
 	return l
 }
 
-func (l *stubAssetLookup) Describe(_ context.Context, id uuid.UUID) (string, int, bool) {
+// addAmbiguous registers a row whose ticker does not name it uniquely on its
+// chain, so the caller is expected to carry the contract through for the client
+// to qualify the label with (#42).
+func (l *stubAssetLookup) addAmbiguous(id uuid.UUID, symbol string, decimals int, contract string) *stubAssetLookup {
+	l.byID[id] = AssetDescription{Symbol: symbol, Decimals: decimals, Contract: contract, SymbolAmbiguous: true}
+	return l
+}
+
+func (l *stubAssetLookup) Describe(_ context.Context, id uuid.UUID) (AssetDescription, bool) {
 	e, ok := l.byID[id]
 	if !ok {
-		return "", 0, false
+		return AssetDescription{}, false
 	}
-	return e.symbol, e.decimals, true
+	return e, true
 }
 
 func setupMockPriceService() *MockPriceService {
