@@ -284,6 +284,56 @@ func (c *Client) GetBalances(ctx context.Context, chain, address string) ([]Bala
 	return items, nil
 }
 
+// GetBalancesRaw fetches the balances endpoint and returns the response body
+// UNPARSED.
+//
+// It exists for the reconciliation report (issue #61), which must take the
+// provider's positions without passing them through this package's domain
+// normalization. The checker must not be the checked: if the report read P
+// through convertBalance, one mistake in the contract mapping would appear
+// identically on both sides of the comparison and the reconciliation would agree
+// with itself by construction — precisely the defect that moved the check out of
+// the sync path.
+//
+// What the report DOES share is everything in this function: the API key, the
+// retry ladder, the rate-limit handling and the response-size bound. Those are
+// transport concerns with no opinion about what an asset is, and duplicating
+// them would buy no independence while doubling the ways a request can be
+// malformed.
+//
+// The `{detail: ...}` error envelope is still detected here, because a wallet
+// the endpoint refuses to answer for is a transport-level fact and a report that
+// treated the envelope as an empty balance array would print "no positions" for
+// a wallet that has them.
+func (c *Client) GetBalancesRaw(ctx context.Context, chain, address string) ([]byte, error) {
+	fetchStart := time.Now()
+	reqURL := fmt.Sprintf("%s/evm/%s/tokens/balancesOf/%s", c.baseURL, chain, address)
+
+	body, err := c.doRequest(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("GetBalancesRaw failed: %w", err)
+	}
+
+	var envelope balancesErrorEnvelope
+	if jerr := json.Unmarshal(body, &envelope); jerr == nil && envelope.Detail != "" {
+		return nil, fmt.Errorf("Noves balances error for %s on %s: %s", address, chain, envelope.Detail)
+	}
+
+	c.logger.Info("raw balances fetched", "chain", chain, "address", address,
+		"bytes", len(body), "duration_ms", time.Since(fetchStart).Milliseconds())
+	return body, nil
+}
+
+// ChainSlug maps a domain chain slug to the Noves short slug the endpoint
+// expects. It is exported for the reconciliation report, which needs to address
+// the same endpoint without importing the adapter's domain conversion.
+//
+// This is a transport detail — which path segment the URL carries — and not the
+// asset normalization the report deliberately keeps its own.
+func ChainSlug(domainChain string) (string, bool) {
+	return domainToNovesChain(domainChain)
+}
+
 // RateLimitError represents a rate limit error from the Noves API.
 type RateLimitError struct {
 	RetryAfter time.Duration

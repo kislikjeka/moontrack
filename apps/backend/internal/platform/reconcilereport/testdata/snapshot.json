@@ -1,0 +1,45 @@
+{
+  "wallet_address": "0x9afcd847c633b820a2f291794d28d374b555811b",
+  "captured_at": "2026-08-01T12:00:00Z",
+  "cursor_probed": true,
+  "chains": {
+    "base": [
+      {
+        "balance": "1.5",
+        "token": {
+          "symbol": "ETH",
+          "name": "Ether",
+          "decimals": 18,
+          "address": "ETH"
+        }
+      },
+      {
+        "balance": "710.621363",
+        "token": {
+          "symbol": "USDC",
+          "name": "USD Coin",
+          "decimals": 6,
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+        }
+      },
+      {
+        "balance": "0.11219239",
+        "token": {
+          "symbol": "aBascbBTC",
+          "name": "Aave Base cbBTC",
+          "decimals": 8,
+          "address": "0xbdb9300b7cde636d9cd4aff00f6f009ffbbc8ee6"
+        }
+      },
+      {
+        "balance": "7090.5",
+        "token": {
+          "symbol": "UЅDС",
+          "name": "homoglyph spam",
+          "decimals": 18,
+          "address": "0xeb9caafc9cd52434fc906dc6ef28f24509d9b309"
+        }
+      }
+    ]
+  }
+}

@@ -116,6 +116,42 @@ db-connect:
     docker exec -it moontrack-postgres psql -U ${POSTGRES_USER} -d ${POSTGRES_DB}
 
 # =============================================================================
+# Reconciliation report (issue #61)
+#
+# "The balance adds up" as a verdict rather than a feeling: the red category is
+# empty. Exit 0 = adds up, 1 = red rows, 2 = a check could not be run.
+#
+# The report reads the database and the provider's RAW JSON. It never syncs and
+# never writes: a sync before the check would top the ledger up TO the positions,
+# after which P↔L agrees because it was made to.
+# =============================================================================
+
+# Full report against the live provider (one balances call per chain)
+reconcile-report wallet:
+    cd apps/backend && go run ./cmd/reconcile-report -wallet {{wallet}}
+
+# Capture the provider's raw response, then report on it in the same run.
+# Every later run replays the snapshot for free — the provider budget is small
+# and acceptance has to be repeatable on THE SAME data.
+#
+# This is the recipe that also asks whether the provider holds transactions
+# NEWER than the collection cursor. It costs one extra call per chain, so it
+# belongs here rather than on every run: the answer is frozen into the snapshot,
+# and every replay then reproduces that verdict for free.
+reconcile-snapshot wallet path="docs/reconcile/snapshot.json":
+    cd apps/backend && go run ./cmd/reconcile-report -wallet {{wallet}} -probe-cursor -save-snapshot ../../{{path}}
+
+# Replay a snapshot: no provider calls, byte-identical between runs.
+# Diffing two runs is the main way this check is used in acceptance.
+reconcile-replay wallet path="docs/reconcile/snapshot.json":
+    cd apps/backend && go run ./cmd/reconcile-report -wallet {{wallet}} -snapshot ../../{{path}}
+
+# The three checks that need no network. Always exits 2: without the provider
+# there is no verdict, only the checks that did run.
+reconcile-offline wallet:
+    cd apps/backend && go run ./cmd/reconcile-report -wallet {{wallet}} -no-provider
+
+# =============================================================================
 # Testing
 # =============================================================================
 
