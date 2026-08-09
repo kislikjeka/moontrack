@@ -316,27 +316,13 @@ type DecodedTransfer struct {
 	USDPrice        *big.Int          // USD price scaled by 1e8, nil if unavailable
 	IconURL         string            // Token icon URL, empty if unavailable
 
-	// Action is the provider's own name for what this specific leg DID —
-	// `deposited`, `collateralSharesMinted`, `liquidityAdded`, `lpTokenBurned`,
-	// `rewardsReceived`, `received`, … Empty when the provider stamps none.
-	//
-	// It is the one signal that separates a protocol RECEIPT (an aToken, a debt
-	// token, an LP token: a claim the protocol mints against what it is already
-	// holding for you) from the PRINCIPAL it was minted against. That question
-	// is per-leg and cannot be answered anywhere else: it is not a property of
-	// the token — the receipt token is real and quoted, and the known-asset
-	// criterion says so correctly — but of the role the leg plays here.
-	//
-	// The transaction-level Acts slice cannot serve. It is built by flattening
-	// every leg's action into one distinct list, which discards precisely the
-	// leg attribution the rule needs (issue #37 read that flattened list and
-	// concluded, correctly for it, that no per-leg signal existed). The signal
-	// was never in Acts; it was in the raw per-leg field all along, and this is
-	// where it survives the port intact.
-	//
-	// Empty for any provider that supplies no per-leg action; such a leg is
-	// treated as principal, so nothing is ever dropped for want of this field.
-	Action string
+	// There is deliberately no per-leg Action here (issue #76). The receipt rule
+	// that would have read it runs EARLIER, inside the adapter, on the provider's
+	// own raw per-leg field: a receipt leg is rejected before a DecodedTransfer
+	// is ever built for it, so by the time this type exists the question the
+	// action answers has already been decided. The action of a leg that was
+	// dropped survives on RejectedLeg.Action as the evidence for the drop, and
+	// the transaction-level LegActions carries what the classifier needs.
 
 	// AssetID is the registry UUID this leg's (chain, contract) resolves to —
 	// the identity the ledger records (issue #59, decision #35).

@@ -327,11 +327,15 @@ func TestPort_RewardsReceived_StaysAPosition(t *testing.T) {
 
 	require.Len(t, dt.Transfers, 2, "both reward legs must survive the receipt rule")
 	for _, tr := range dt.Transfers {
-		assert.Equal(t, "rewardsReceived", tr.Action)
 		assert.Equal(t, sync.DirectionIn, tr.Direction)
-		assert.False(t, sync.IsReceiptLeg(tr.Action),
-			"a reward is an acquisition, not a receipt")
 	}
+
+	// The legs survived BECAUSE their action is not a receipt. The action itself
+	// lives on the raw provider leg and on LegActions — the rule ran there, in
+	// the adapter, before these transfers were built (#76).
+	assert.Contains(t, dt.LegActions, "rewardsReceived")
+	assert.False(t, sync.IsReceiptLeg("rewardsReceived"),
+		"a reward is an acquisition, not a receipt")
 
 	symbols := make([]string, 0, len(dt.Transfers))
 	for _, tr := range dt.Transfers {

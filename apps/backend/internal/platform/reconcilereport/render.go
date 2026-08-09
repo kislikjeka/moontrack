@@ -123,10 +123,9 @@ func WriteTable(w io.Writer, r Report) {
 // JSON keeps base units untouched: a rendered amount is for reading, never for
 // comparing, and the comparison already happened.
 //
-// The sign is peeled off before scaling and put back afterwards, because
-// money.FromBaseUnits treats the whole string as digits and would place the
-// decimal point inside the minus sign. A negative ledger balance is a real state
-// worth reading correctly — it is what an over-reported outflow looks like.
+// Negative quantities render as-is: money.FromBaseUnits handles the sign since
+// #71. A negative ledger balance is a real state worth reading correctly — it is
+// what an over-reported outflow looks like.
 func human(baseUnits string, decimals int) string {
 	if baseUnits == "" {
 		return "—"
@@ -135,12 +134,7 @@ func human(baseUnits string, decimals int) string {
 	if !ok || decimals <= 0 {
 		return baseUnits
 	}
-	sign := ""
-	if n.Sign() < 0 {
-		sign = "-"
-		n = new(big.Int).Neg(n)
-	}
-	return truncate(sign+money.FromBaseUnits(n, decimals), 20)
+	return truncate(money.FromBaseUnits(n, decimals), 20)
 }
 
 func truncate(s string, n int) string {

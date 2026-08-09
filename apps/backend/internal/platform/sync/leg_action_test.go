@@ -96,10 +96,11 @@ func newLegActionEnv(t *testing.T) (*sync.TxBuilder, *MockLedgerService, *bytes.
 }
 
 // legActionTx builds a minimal inbound transaction carrying the given leg
-// actions.
+// actions. The actions ride on LegActions, which is where the code reads them;
+// a transfer carries no action of its own (#76).
 func legActionTx(hash string, actions ...string) sync.DecodedTransaction {
 	transfers := make([]sync.DecodedTransfer, 0, len(actions))
-	for _, a := range actions {
+	for range actions {
 		transfers = append(transfers, sync.DecodedTransfer{
 			AssetSymbol:     "USDC",
 			ContractAddress: "0xusdc",
@@ -108,7 +109,6 @@ func legActionTx(hash string, actions ...string) sync.DecodedTransaction {
 			Direction:       sync.DirectionIn,
 			Sender:          "0xpool",
 			Recipient:       "0x1111111111111111111111111111111111111111",
-			Action:          a,
 		})
 	}
 	return sync.DecodedTransaction{

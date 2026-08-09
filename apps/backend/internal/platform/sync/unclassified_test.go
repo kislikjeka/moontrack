@@ -188,9 +188,7 @@ func TestUnclassified_UnmappedProviderType_CarriesItsOwnType(t *testing.T) {
 func TestUnclassified_BothDirections_LendingRoute_StillFlagged(t *testing.T) {
 	builder, ledgerSvc, logs, w := newUnclassifiedEnv(t)
 
-	in := inTransfer()
-	in.Action = "borrowed"
-	tx := unclassifiedTx("0xaave", in, outTransfer())
+	tx := unclassifiedTx("0xaave", inTransfer(), outTransfer())
 	tx.LegActions = []string{"borrowed"}
 
 	_, err := builder.ProcessTransaction(context.Background(), w, tx)
@@ -215,9 +213,7 @@ func TestUnclassified_BothDirections_LendingRoute_StillFlagged(t *testing.T) {
 func TestUnclassified_SingleDirection_LendingRoute_NotFlagged(t *testing.T) {
 	builder, ledgerSvc, logs, w := newUnclassifiedEnv(t)
 
-	in := inTransfer()
-	in.Action = "borrowed"
-	tx := unclassifiedTx("0xborrow", in)
+	tx := unclassifiedTx("0xborrow", inTransfer())
 	tx.LegActions = []string{"borrowed"}
 
 	_, err := builder.ProcessTransaction(context.Background(), w, tx)

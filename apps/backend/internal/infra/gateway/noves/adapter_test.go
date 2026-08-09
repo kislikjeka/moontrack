@@ -104,7 +104,6 @@ func TestConvert_LendingSupply(t *testing.T) {
 	principal := dt.Transfers[0]
 	assert.Equal(t, "cbBTC", principal.AssetSymbol)
 	assert.Equal(t, sync.DirectionOut, principal.Direction)
-	assert.Equal(t, "deposited", principal.Action, "the leg must carry the provider's own action")
 
 	// The receipt token is gone from the transfers entirely.
 	_, ok := transferBySymbol(dt.Transfers, "aBascbBTC")
@@ -215,7 +214,7 @@ func TestConvert_LPRemove(t *testing.T) {
 	assert.Equal(t, sync.OpWithdraw, dt.OperationType)
 	require.Len(t, dt.Transfers, 1) // one-sided ETH received; paidGas-only sent filtered
 	assert.Equal(t, sync.DirectionIn, dt.Transfers[0].Direction)
-	assert.Equal(t, "liquidityRemoved", dt.Transfers[0].Action)
+	assert.Contains(t, dt.LegActions, "liquidityRemoved")
 	assert.Empty(t, dt.Protocol, "protocol.name is null; nothing guesses it any more")
 
 	assert.Equal(t, ledger.TxTypeLPWithdraw, sync.NewClassifier().Classify(dt))
@@ -275,8 +274,10 @@ func TestConvert_ClaimRewards(t *testing.T) {
 	require.Len(t, dt.Transfers, 2)
 	for _, tr := range dt.Transfers {
 		assert.Equal(t, sync.DirectionIn, tr.Direction)
-		assert.Equal(t, "rewardsReceived", tr.Action)
 	}
+	assert.Contains(t, dt.LegActions, "rewardsReceived")
+	assert.False(t, sync.IsReceiptLeg("rewardsReceived"),
+		"a reward is an acquisition, not a receipt")
 	usdc, ok := transferBySymbol(dt.Transfers, "USDC")
 	require.True(t, ok)
 	assert.Equal(t, sync.DirectionIn, usdc.Direction)
@@ -414,7 +415,7 @@ func TestConvert_ReceiptLegWithoutSymbolOrAddress(t *testing.T) {
 	// The receipt contributed no transfer; the principal is the only one.
 	require.Len(t, dt.Transfers, 1)
 	assert.Equal(t, "USDC", dt.Transfers[0].AssetSymbol)
-	assert.Equal(t, "liquidityAdded", dt.Transfers[0].Action)
+	assert.Contains(t, dt.LegActions, "liquidityAdded")
 
 	// The receipt's action survived even though the leg did not, and so did the
 	// NFT id it was carrying.

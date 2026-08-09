@@ -170,7 +170,6 @@ func TestReconcile_RejectedReceipt_DoesNotFlagChain(t *testing.T) {
 			Decimals:        6,
 			Amount:          big.NewInt(1_000_000),
 			Direction:       pkgsync.DirectionOut,
-			Action:          pkgsync.ActionDeposited,
 		}},
 		LegActions: []string{pkgsync.ActionDeposited, pkgsync.ActionCollateralSharesMinted},
 		RejectedLegs: []pkgsync.RejectedLeg{{

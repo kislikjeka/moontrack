@@ -55,32 +55,46 @@ func ToBaseUnits(amountStr string, decimals int) (*big.Int, error) {
 
 // FromBaseUnits converts base units (big.Int) to a human-readable string
 // E.g., 150000000 with 8 decimals → "1.5"
+//
+// The sign is split off before any digit arithmetic and re-attached at the end.
+// Formatting works by offset into the digit string, and '-' is not a digit: when
+// it was left in place the padding loop counted it, so any value whose integer
+// part was zero had the decimal point inserted inside its digits, yielding
+// unparseable output like "0.0000-1" or "-.999999" (#71).
 func FromBaseUnits(amount *big.Int, decimals int) string {
 	if amount == nil {
 		return "0"
 	}
 
-	str := amount.String()
-	if decimals == 0 {
-		return str
+	// Sign.Abs rather than string surgery: magnitude and sign are separate facts,
+	// and only the magnitude takes part in positioning the decimal point. Zero
+	// has Sign() == 0, so a big.Int built via Neg(0) never grows a "-0" here.
+	negative := amount.Sign() < 0
+	str := new(big.Int).Abs(amount).String()
+
+	if decimals > 0 {
+		// Pad so there is at least one digit left of the decimal point.
+		for len(str) <= decimals {
+			str = "0" + str
+		}
+
+		// Insert decimal point
+		pos := len(str) - decimals
+		str = str[:pos] + "." + str[pos:]
+
+		// Trim trailing zeros after decimal point
+		str = strings.TrimRight(str, "0")
+		str = strings.TrimRight(str, ".")
 	}
 
-	// Pad with leading zeros if necessary
-	for len(str) <= decimals {
-		str = "0" + str
-	}
-
-	// Insert decimal point
-	pos := len(str) - decimals
-	result := str[:pos] + "." + str[pos:]
-
-	// Trim trailing zeros after decimal point
-	result = strings.TrimRight(result, "0")
-	result = strings.TrimRight(result, ".")
-
-	if result == "" {
+	if str == "" {
 		return "0"
 	}
 
-	return result
+	// A magnitude that trims away to nothing is zero, which carries no sign.
+	if negative && str != "0" {
+		str = "-" + str
+	}
+
+	return str
 }
