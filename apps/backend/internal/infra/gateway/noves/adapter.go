@@ -214,7 +214,6 @@ func convertTransfer(t Transfer, dir sync.TransferDirection) (sync.DecodedTransf
 		Direction:       dir,
 		Sender:          partyAddress(t.From),
 		Recipient:       partyAddress(t.To),
-		Action:          t.Action,
 	}, review
 }
 

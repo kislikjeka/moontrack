@@ -61,9 +61,10 @@ var _ sync.LendingPositionService = (*mockLendingPositionService)(nil)
 //
 // The asset is the PRINCIPAL (plain USDC), not a receipt: since #57 a receipt
 // leg never reaches the ledger, so a lending position is valued off the
-// principal alone. `action` is what marks the leg as part of a lending
-// operation — the ticker no longer carries that meaning.
-func lendingTransfer(dir sync.TransferDirection, decimals int, whole int64, usdPriceDollars int64, action string) sync.DecodedTransfer {
+// principal alone. What marks the transaction as a lending operation is the
+// action on LegActions, which the caller sets — the ticker no longer carries
+// that meaning, and neither does the leg itself (#76).
+func lendingTransfer(dir sync.TransferDirection, decimals int, whole int64, usdPriceDollars int64) sync.DecodedTransfer {
 	amount := new(big.Int).Mul(big.NewInt(whole), new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil))
 	return sync.DecodedTransfer{
 		AssetSymbol:     "USDC",
@@ -75,7 +76,6 @@ func lendingTransfer(dir sync.TransferDirection, decimals int, whole int64, usdP
 		Sender:          "0x1111111111111111111111111111111111111111",
 		Recipient:       "0x2222222222222222222222222222222222222222",
 		USDPrice:        big.NewInt(usdPriceDollars * 1e8), // scaled by 1e8
-		Action:          action,
 	}
 }
 
@@ -133,7 +133,7 @@ func TestLendingUSD_AppliesDecimalsDivisor(t *testing.T) {
 				OperationType: tc.opType,
 				Protocol:      "AAVE",
 				LegActions:    []string{tc.action},
-				Transfers:     []sync.DecodedTransfer{lendingTransfer(tc.dir, decimals, whole, priceDollars, tc.action)},
+				Transfers:     []sync.DecodedTransfer{lendingTransfer(tc.dir, decimals, whole, priceDollars)},
 				MinedAt:       time.Now(),
 				Status:        "confirmed",
 			}

@@ -120,7 +120,7 @@ func TestClassify_LPDeposit_ByLegAction(t *testing.T) {
 	tx := sync.DecodedTransaction{
 		OperationType: sync.OpDeposit,
 		LegActions:    []string{"liquidityAdded", "lpTokensMinted"},
-		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionOut, AssetSymbol: "ETH", Amount: big.NewInt(1), Action: "liquidityAdded"}},
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionOut, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
 	}
 	assert.Equal(t, ledger.TxTypeLPDeposit, c.Classify(tx))
 }
@@ -130,7 +130,7 @@ func TestClassify_LPWithdraw_ByLegAction(t *testing.T) {
 	tx := sync.DecodedTransaction{
 		OperationType: sync.OpWithdraw,
 		LegActions:    []string{"lpTokenBurned", "liquidityRemoved"},
-		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(1), Action: "liquidityRemoved"}},
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
 	}
 	assert.Equal(t, ledger.TxTypeLPWithdraw, c.Classify(tx))
 }
@@ -140,7 +140,7 @@ func TestClassify_LPMint_ByLegAction(t *testing.T) {
 	tx := sync.DecodedTransaction{
 		OperationType: sync.OpMint,
 		LegActions:    []string{"liquidityAdded"},
-		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionOut, AssetSymbol: "ETH", Amount: big.NewInt(1), Action: "liquidityAdded"}},
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionOut, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
 	}
 	assert.Equal(t, ledger.TxTypeLPDeposit, c.Classify(tx))
 }
@@ -150,7 +150,7 @@ func TestClassify_LPBurn_ByLegAction(t *testing.T) {
 	tx := sync.DecodedTransaction{
 		OperationType: sync.OpBurn,
 		LegActions:    []string{"liquidityRemoved"},
-		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(1), Action: "liquidityRemoved"}},
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
 	}
 	assert.Equal(t, ledger.TxTypeLPWithdraw, c.Classify(tx))
 }
@@ -164,7 +164,7 @@ func TestClassify_LPClaimFees_ByLegAction(t *testing.T) {
 		OperationType: sync.OpReceive,
 		LegActions:    []string{"liquidityRemoved"},
 		Acts:          []string{"claim"},
-		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "USDC", Amount: big.NewInt(1), Action: "liquidityRemoved"}},
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "USDC", Amount: big.NewInt(1)}},
 	}
 	assert.Equal(t, ledger.TxTypeLPClaimFees, c.Classify(tx))
 }
@@ -181,8 +181,8 @@ func TestClassify_RewardsReceived_IsDefiClaim(t *testing.T) {
 		LegActions:    []string{"rewardsReceived", "rewardsReceived"},
 		Acts:          []string{"claimRewards", "claim", "rewardsReceived"},
 		Transfers: []sync.DecodedTransfer{
-			{Direction: sync.DirectionIn, AssetSymbol: "USDC", Amount: big.NewInt(1), Action: "rewardsReceived"},
-			{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(2), Action: "rewardsReceived"},
+			{Direction: sync.DirectionIn, AssetSymbol: "USDC", Amount: big.NewInt(1)},
+			{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(2)},
 		},
 	}
 	assert.Equal(t, ledger.TxTypeDefiClaim, c.Classify(tx))
@@ -197,7 +197,7 @@ func TestClassify_LendingSupply_ByLegAction(t *testing.T) {
 	tx := sync.DecodedTransaction{
 		OperationType: sync.OpDeposit,
 		LegActions:    []string{"deposited", "collateralSharesMinted"},
-		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionOut, AssetSymbol: "ETH", Amount: big.NewInt(1), Action: "deposited"}},
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionOut, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
 	}
 	assert.Equal(t, ledger.TxTypeLendingSupply, c.Classify(tx))
 }
@@ -240,7 +240,7 @@ func TestClassify_ReceiveNonClaim_StaysTransferIn(t *testing.T) {
 		OperationType: sync.OpReceive,
 		LegActions:    []string{"liquidityRemoved"},
 		Acts:          []string{"execute"},
-		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(1), Action: "liquidityRemoved"}},
+		Transfers:     []sync.DecodedTransfer{{Direction: sync.DirectionIn, AssetSymbol: "ETH", Amount: big.NewInt(1)}},
 	}
 	assert.Equal(t, ledger.TxTypeTransferIn, c.Classify(tx))
 }
