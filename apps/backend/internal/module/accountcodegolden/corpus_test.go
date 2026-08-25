@@ -130,28 +130,33 @@ func corpus() []corpusCase {
 			},
 		},
 		// wallet. (two distinct wallet IDs, two chains) + gas.
-		// Cross-chain so that source and destination chain segments differ.
+		// Cross-chain so that source and destination chain segments differ —
+		// and so do the ASSET segments, because identity is (chain, contract)
+		// and the token that arrives on Arbitrum is its own registry row. A
+		// bridge whose two codes share one asset id is the #70 shape.
 		{
 			name:    "internal_transfer",
 			handler: transfer.NewInternalTransferHandler(repo, log),
 			data: map[string]interface{}{
-				"source_wallet_id": walletID.String(),
-				"dest_wallet_id":   destWalletID.String(),
-				"asset_id":         testasset.ETH.String(),
-				"asset_symbol":     "ETH",
-				"decimals":         float64(18),
-				"amount":           "500000000000000000",
-				"usd_rate":         "250000000000",
-				"gas_amount":       "210000000000000",
-				"gas_usd_rate":     "250000000000",
-				"gas_decimals":     float64(18),
-				"native_asset_id":  testasset.ETH.String(),
-				"chain_id":         "base",
-				"source_chain_id":  "base",
-				"dest_chain_id":    "arbitrum",
-				"tx_hash":          "0xaaa3",
-				"block_number":     float64(3),
-				"occurred_at":      occurredAt.Format(time.RFC3339),
+				"source_wallet_id":  walletID.String(),
+				"dest_wallet_id":    destWalletID.String(),
+				"asset_id":          testasset.ETH.String(),
+				"asset_symbol":      "ETH",
+				"dest_asset_id":     testasset.ETHOnArbitrum.String(),
+				"dest_asset_symbol": "ETH",
+				"decimals":          float64(18),
+				"amount":            "500000000000000000",
+				"usd_rate":          "250000000000",
+				"gas_amount":        "210000000000000",
+				"gas_usd_rate":      "250000000000",
+				"gas_decimals":      float64(18),
+				"native_asset_id":   testasset.ETH.String(),
+				"chain_id":          "base",
+				"source_chain_id":   "base",
+				"dest_chain_id":     "arbitrum",
+				"tx_hash":           "0xaaa3",
+				"block_number":      float64(3),
+				"occurred_at":       occurredAt.Format(time.RFC3339),
 			},
 		},
 		// clearing. + wallet. + gas.  — swap routes both legs through clearing.

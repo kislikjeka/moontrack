@@ -160,6 +160,34 @@ func (p *TxBuilder) resolveAssetIdentities(ctx context.Context, tx *DecodedTrans
 		t.AssetID = id
 	}
 
+	// A stitched bridge's arriving asset has no leg of its own to hang off: the
+	// source raw carries the outflow alone, and the inflow lives in the receive
+	// leg the stitcher absorbed. Its identity is resolved here, from the
+	// destination chain and the contract that receive leg reported, so the
+	// arriving asset reaches the ledger under its own UUID rather than the
+	// source asset's (#70).
+	if tx.DestChainID != "" && tx.DestChainID != tx.ChainID {
+		symbol := tx.DestAssetSymbol
+		decimals := tx.DestDecimals
+		if len(tx.Transfers) > 0 {
+			// A bridge is the same economic asset on both sides, so the send
+			// leg's ticker and precision stand in when the receive leg reported
+			// none. The CONTRACT is never borrowed this way — it is the half
+			// that genuinely differs per chain.
+			if symbol == "" {
+				symbol = tx.Transfers[0].AssetSymbol
+			}
+			if decimals == 0 {
+				decimals = tx.Transfers[0].Decimals
+			}
+		}
+		id, err := resolve(tx.DestChainID, tx.DestContractAddress, symbol, symbol, decimals)
+		if err != nil {
+			return fmt.Errorf("resolve destination asset identity: %w", err)
+		}
+		tx.DestAssetID = id
+	}
+
 	if tx.Fee != nil && tx.Fee.AssetSymbol != "" {
 		// DecodedFee carries no contract: gas is paid in the native coin by
 		// construction, so the sentinel is not a guess here.
@@ -1045,6 +1073,19 @@ func (p *TxBuilder) buildInternalTransferData(w *wallet.Wallet, tx DecodedTransa
 	if tx.DestChainID != "" && tx.DestChainID != tx.ChainID {
 		data["source_chain_id"] = tx.ChainID
 		data["dest_chain_id"] = tx.DestChainID
+		// The chains alone are not enough. Identity is (chain, contract), so
+		// the arriving asset is a DIFFERENT asset with a UUID of its own, and
+		// the resolve pass has already computed it. Passing the chain and
+		// dropping the UUID is precisely what #70 did: the handler then built
+		// the destination account out of this chain and the SOURCE asset's id,
+		// and one asset ended up split across two accounts whose balances
+		// summed to a plausible number.
+		if tx.DestAssetID != uuid.Nil {
+			data["dest_asset_id"] = tx.DestAssetID.String()
+			if tx.DestAssetSymbol != "" {
+				data["dest_asset_symbol"] = tx.DestAssetSymbol
+			}
+		}
 	}
 	// InternalTransferHandler expects flat fields.
 	// Extract the primary "out" transfer (from source wallet).

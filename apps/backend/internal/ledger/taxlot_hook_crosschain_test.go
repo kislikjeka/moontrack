@@ -26,11 +26,16 @@ import (
 //  3. the destination lot's cost basis is the weighted average of the consumed
 //     lots, NOT the market price at bridge time
 //
-// The reason this works across chains without special-casing: the hook matches
-// disposals to acquisitions by ASSET, never by account or chain. Two different
-// chain accounts holding the same asset still pair up. These tests pin that
-// behaviour down so a later change to the matching key cannot silently break
-// bridges.
+// What makes it work across chains is the LEG-PAIR MARKER the emitting handler
+// stamps on both legs (see [MetaLegPair]). It used to be asset equality, which
+// held only while #70 gave the two legs one UUID: the destination account was
+// built from the destination chain and the SOURCE asset's id. Once each leg
+// carries its rightful identity the two assets genuinely differ — a token on
+// another chain is another contract, another registry row — so asset equality
+// would find nothing, the destination lot would open at market price, and the
+// balance would still tie out. These tests pin the marker down, and pin down
+// that the legs' assets DIFFER, so that a later change cannot quietly restore
+// the inference that #70 was made of.
 // =============================================================================
 
 // chainWalletAccount is a wallet account on a specific chain. Cross-chain legs
@@ -50,16 +55,22 @@ func chainWalletAccount(id uuid.UUID, chain string, asset uuid.UUID) *Account {
 
 // crossChainTransferTx is a bridge booked as one internal_transfer: the asset
 // leaves the source-chain account and arrives on the destination-chain account.
+//
+// The two legs carry DIFFERENT assets, which is the whole shape of a bridge
+// after #84: identity is (chain, contract), so ETH on Base and ETH on Arbitrum
+// are two registry rows. What pairs them is the marker, not the asset.
 func crossChainTransferTx(srcAcctID, dstAcctID uuid.UUID, amount int64) *Transaction {
 	return &Transaction{
 		ID:   uuid.New(),
 		Type: TxTypeInternalTransfer,
 		Entries: []*Entry{
-			makeEntry(dstAcctID, Debit, EntryTypeAssetIncrease, amount, testasset.ETH, map[string]interface{}{
-				"chain_id": "arbitrum",
+			makeEntry(dstAcctID, Debit, EntryTypeAssetIncrease, amount, testasset.ETHOnArbitrum, map[string]interface{}{
+				"chain_id":  "arbitrum",
+				MetaLegPair: "bridge",
 			}),
 			makeEntry(srcAcctID, Credit, EntryTypeAssetDecrease, amount, testasset.ETH, map[string]interface{}{
-				"chain_id": "base",
+				"chain_id":  "base",
+				MetaLegPair: "bridge",
 			}),
 		},
 	}
@@ -94,7 +105,7 @@ func TestTaxLotHook_CrossChainInternalTransfer_CarriesBasisNoPnL(t *testing.T) {
 	taxLotRepo := &mockTaxLotRepo{lots: []*TaxLot{sourceLot}}
 	ledgerRepo := &mockLedgerRepo{accounts: map[uuid.UUID]*Account{
 		baseAcctID: chainWalletAccount(baseAcctID, "base", testasset.ETH),
-		arbAcctID:  chainWalletAccount(arbAcctID, "arbitrum", testasset.ETH),
+		arbAcctID:  chainWalletAccount(arbAcctID, "arbitrum", testasset.ETHOnArbitrum),
 	}}
 
 	hook := NewTaxLotHook(taxLotRepo, ledgerRepo, newTestLogger())
@@ -187,7 +198,7 @@ func TestTaxLotHook_CrossChainInternalTransfer_WeightedAverageAcrossLots(t *test
 	taxLotRepo := &mockTaxLotRepo{lots: []*TaxLot{older, newer}}
 	ledgerRepo := &mockLedgerRepo{accounts: map[uuid.UUID]*Account{
 		baseAcctID: chainWalletAccount(baseAcctID, "base", testasset.ETH),
-		arbAcctID:  chainWalletAccount(arbAcctID, "arbitrum", testasset.ETH),
+		arbAcctID:  chainWalletAccount(arbAcctID, "arbitrum", testasset.ETHOnArbitrum),
 	}}
 
 	hook := NewTaxLotHook(taxLotRepo, ledgerRepo, newTestLogger())
@@ -219,10 +230,12 @@ func TestTaxLotHook_CrossChainInternalTransfer_WeightedAverageAcrossLots(t *test
 	}
 }
 
-// TestTaxLotHook_SameChainInternalTransfer_Unchanged pins the pre-existing
-// same-chain behaviour so #32 can be shown to have changed nothing about it:
-// the hook pairs disposal to acquisition by asset, and one chain is just the
-// case where both accounts happen to share it.
+// TestTaxLotHook_SameChainInternalTransfer_Unchanged pins the same-chain
+// behaviour so neither #32 nor #84 can be shown to have changed it. Here the
+// two legs genuinely ARE the same asset — one chain, one contract — and the
+// carry-over still runs off the marker, not off that coincidence. This is the
+// case that rules out "pair the legs when the chains differ" as an inference:
+// the chains are equal and the basis must still carry.
 func TestTaxLotHook_SameChainInternalTransfer_Unchanged(t *testing.T) {
 	srcAcctID := uuid.New()
 	dstAcctID := uuid.New()
@@ -253,8 +266,8 @@ func TestTaxLotHook_SameChainInternalTransfer_Unchanged(t *testing.T) {
 		ID:   uuid.New(),
 		Type: TxTypeInternalTransfer,
 		Entries: []*Entry{
-			makeEntry(dstAcctID, Debit, EntryTypeAssetIncrease, 1000, testasset.ETH, map[string]interface{}{"chain_id": "base"}),
-			makeEntry(srcAcctID, Credit, EntryTypeAssetDecrease, 1000, testasset.ETH, map[string]interface{}{"chain_id": "base"}),
+			makeEntry(dstAcctID, Debit, EntryTypeAssetIncrease, 1000, testasset.ETH, map[string]interface{}{"chain_id": "base", MetaLegPair: "move"}),
+			makeEntry(srcAcctID, Credit, EntryTypeAssetDecrease, 1000, testasset.ETH, map[string]interface{}{"chain_id": "base", MetaLegPair: "move"}),
 		},
 	}
 

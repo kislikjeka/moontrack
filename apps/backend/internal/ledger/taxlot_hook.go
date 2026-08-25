@@ -69,14 +69,21 @@ func NewTaxLotHook(repo TaxLotRepository, ledgerRepo Repository, log *logger.Log
 			}
 		}
 
-		// Track disposals by (accountID, asset) → first consumed lot ID, for linking.
-		// Track disposal results per asset for internal-transfer lot linking
-		// and cost basis carry-over.
+		// Disposal results are collected per LEG PAIR, not per asset.
+		//
+		// Per asset was the old key, and it worked only by accident: the two
+		// legs of a bridge shared one asset id because #70 had built the
+		// destination account from the destination chain and the source asset's
+		// id. With each leg carrying its own rightful identity there is no
+		// shared asset to key on, and the gas leg — an asset decrease on a
+		// wallet account, in the same asset whenever the native coin is what
+		// moves — would answer to that key just as readily as the leg being
+		// moved. See [MetaLegPair].
 		type disposalResult struct {
 			firstLotID *uuid.UUID
 			disposals  []*LotDisposal
 		}
-		disposalResults := make(map[uuid.UUID]*disposalResult) // key: asset registry id
+		disposalResults := make(map[string]*disposalResult) // key: leg pair marker
 
 		// --- Process disposals ---
 		for _, d := range disposals {
@@ -108,13 +115,16 @@ func NewTaxLotHook(repo TaxLotRepository, ledgerRepo Repository, log *logger.Log
 				return err
 			}
 
-			// Accumulate disposal results for this asset
-			if len(lotDisposals) > 0 {
-				dr, exists := disposalResults[d.entry.AssetID]
+			// Accumulate disposal results under this leg's pair marker. An
+			// unmarked disposal — gas, or a sale — belongs to no pair and is
+			// simply not offered to any acquisition.
+			pair, paired := legPair(d.entry)
+			if paired && len(lotDisposals) > 0 {
+				dr, exists := disposalResults[pair]
 				if !exists {
 					id := lotDisposals[0].LotID
 					dr = &disposalResult{firstLotID: &id}
-					disposalResults[d.entry.AssetID] = dr
+					disposalResults[pair] = dr
 				}
 				dr.disposals = append(dr.disposals, lotDisposals...)
 			}
@@ -143,7 +153,12 @@ func NewTaxLotHook(repo TaxLotRepository, ledgerRepo Repository, log *logger.Log
 
 			var linkedLotID *uuid.UUID
 			if tx.Type == TxTypeInternalTransfer || tx.Type == TxTypeLendingSupply || tx.Type == TxTypeLendingWithdraw {
-				if dr, ok := disposalResults[a.entry.AssetID]; ok {
+				// The acquisition follows its own pair marker to the disposal
+				// it was stamped with. An acquisition the handler left unmarked
+				// finds nothing and opens at FMV, which is the right answer for
+				// anything that is not the far side of a movement.
+				pair, _ := legPair(a.entry)
+				if dr, ok := disposalResults[pair]; ok {
 					linkedLotID = dr.firstLotID
 
 					// Carry over weighted-average cost basis from consumed source lots

@@ -126,6 +126,19 @@ func makeEntry(accountID uuid.UUID, dc DebitCredit, et EntryType, amount int64, 
 	}
 }
 
+// paired stamps a leg-pair marker onto entry metadata, which is what the hook
+// now follows to carry a cost basis from a disposal to its acquisition. Both
+// legs of one movement get the SAME marker; gas and anything else that is not
+// part of a pair gets none. See [MetaLegPair].
+func paired(pair string, meta map[string]interface{}) map[string]interface{} {
+	m := map[string]interface{}{}
+	for k, v := range meta {
+		m[k] = v
+	}
+	m[MetaLegPair] = pair
+	return m
+}
+
 // --- Tests ---
 
 func TestTaxLotHook_TransferIn_CreatesLot(t *testing.T) {
@@ -383,8 +396,8 @@ func TestTaxLotHook_InternalTransfer_DisposalPlusLinkedLot(t *testing.T) {
 		ID:   uuid.New(),
 		Type: TxTypeInternalTransfer,
 		Entries: []*Entry{
-			makeEntry(dstWalletAcctID, Debit, EntryTypeAssetIncrease, 500, testasset.ETH, nil),
-			makeEntry(srcWalletAcctID, Credit, EntryTypeAssetDecrease, 500, testasset.ETH, nil),
+			makeEntry(dstWalletAcctID, Debit, EntryTypeAssetIncrease, 500, testasset.ETH, paired("move", nil)),
+			makeEntry(srcWalletAcctID, Credit, EntryTypeAssetDecrease, 500, testasset.ETH, paired("move", nil)),
 		},
 	}
 

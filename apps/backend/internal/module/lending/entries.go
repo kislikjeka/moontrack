@@ -2,6 +2,7 @@ package lending
 
 import (
 	"math/big"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,15 @@ import (
 //
 //	DEBIT  gas.{chain}.{feeAsset}          (gas_fee)
 //	CREDIT wallet.{wID}.{chain}.{feeAsset} (asset_decrease)
+//
+// Neither entry carries a leg-pair marker, and that omission is load-bearing.
+// The credit is an asset DECREASE on a wallet account, so it stands in the
+// TaxLotHook's disposal set beside the principal being supplied — and in the
+// same asset whenever the fee is paid in the coin being supplied, which the
+// production data already contains. Marked, it could hand its consumed lot to
+// the collateral acquisition; unmarked, it can only ever consume its own lot.
+// Until now correctness there rested on FIFO happening to consume the same lot
+// twice, which is an accident of ordering, not an invariant (#84).
 func generateGasFeeEntries(txn *LendingTransaction) []*ledger.Entry {
 	if txn.FeeAmount == nil || txn.FeeAmount.IsNil() || txn.FeeAmount.Sign() <= 0 {
 		return nil
@@ -111,33 +121,62 @@ type entryRouting struct {
 	debitType     ledger.EntryType
 	creditAccount string
 	creditType    ledger.EntryType
+	// legPair, when set, stamps both sides with the same leg-pair marker so
+	// the TaxLotHook carries the cost basis from the disposal to the
+	// acquisition. See [ledger.MetaLegPair].
+	//
+	// Set for supply and withdraw, which move the user's OWN principal between
+	// their wallet and their collateral and must not realize a gain. Left empty
+	// for borrow, repay and claim: no lot crosses there.
+	legPair string
+}
+
+// legPairFor names the two legs of one lending movement.
+//
+// The ITEM'S POSITION is the key, not its asset. Two items in one transaction
+// can carry the same asset — buildLendingData copies every leg into the item
+// list, opposite-direction ones included, precisely because "a real operation
+// can still move principal both ways (a supply that also returns dust, a repay
+// that reclaims excess)", and the handlers do not branch on Direction. Keyed on
+// the asset, those two items would share a marker, the hook would pool their
+// disposals under one group, and an acquisition would link to whichever
+// disposal landed first rather than to its own counterpart. That is the asset
+// collision this marker exists to remove, reintroduced one level down — and it
+// balances, so nothing downstream would object.
+//
+// The asset stays in the key as well, but only for legibility when reading
+// stored JSONB: the index alone already separates the pairs.
+func legPairFor(txn *LendingTransaction, idx int, item *LendingTransferItem) string {
+	return "lending:" + txn.TxHash + ":" + strconv.Itoa(idx) + ":" + item.AssetID.String()
 }
 
 // generateSupplyItemEntries emits entries for one transfer item of a supply op.
 // The principal leaves the wallet and lands in collateral.
-func generateSupplyItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
+func generateSupplyItemEntries(txn *LendingTransaction, idx int, item *LendingTransferItem) []*ledger.Entry {
 	return buildLendingPair(txn, item, entryRouting{
 		debitAccount:  accountcode.Collateral(txn.Protocol, txn.WalletID, itemAsset(txn, item)),
 		debitType:     ledger.EntryTypeCollateralIncrease,
 		creditAccount: accountcode.Wallet(txn.WalletID, itemAsset(txn, item)),
 		creditType:    ledger.EntryTypeAssetDecrease,
+		legPair:       legPairFor(txn, idx, item),
 	})
 }
 
 // generateWithdrawItemEntries emits entries for one transfer item of a withdraw op.
 // The principal leaves collateral and lands back in the wallet.
-func generateWithdrawItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
+func generateWithdrawItemEntries(txn *LendingTransaction, idx int, item *LendingTransferItem) []*ledger.Entry {
 	return buildLendingPair(txn, item, entryRouting{
 		debitAccount:  accountcode.Wallet(txn.WalletID, itemAsset(txn, item)),
 		debitType:     ledger.EntryTypeAssetIncrease,
 		creditAccount: accountcode.Collateral(txn.Protocol, txn.WalletID, itemAsset(txn, item)),
 		creditType:    ledger.EntryTypeCollateralDecrease,
+		legPair:       legPairFor(txn, idx, item),
 	})
 }
 
 // generateBorrowItemEntries emits entries for one transfer item of a borrow op.
 // The borrowed principal arrives in the wallet against a matching liability.
-func generateBorrowItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
+func generateBorrowItemEntries(txn *LendingTransaction, idx int, item *LendingTransferItem) []*ledger.Entry {
 	return buildLendingPair(txn, item, entryRouting{
 		debitAccount:  accountcode.Wallet(txn.WalletID, itemAsset(txn, item)),
 		debitType:     ledger.EntryTypeAssetIncrease,
@@ -148,7 +187,7 @@ func generateBorrowItemEntries(txn *LendingTransaction, item *LendingTransferIte
 
 // generateRepayItemEntries emits entries for one transfer item of a repay op.
 // The principal leaves the wallet and retires the matching liability.
-func generateRepayItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
+func generateRepayItemEntries(txn *LendingTransaction, idx int, item *LendingTransferItem) []*ledger.Entry {
 	return buildLendingPair(txn, item, entryRouting{
 		debitAccount:  accountcode.Liability(txn.Protocol, txn.WalletID, itemAsset(txn, item)),
 		debitType:     ledger.EntryTypeLiabilityDecrease,
@@ -159,7 +198,7 @@ func generateRepayItemEntries(txn *LendingTransaction, item *LendingTransferItem
 
 // generateClaimItemEntries emits entries for one transfer item of a claim op.
 // Rewards arrive in the wallet against lending income.
-func generateClaimItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
+func generateClaimItemEntries(txn *LendingTransaction, idx int, item *LendingTransferItem) []*ledger.Entry {
 	return buildLendingPair(txn, item, entryRouting{
 		debitAccount:  accountcode.Wallet(txn.WalletID, itemAsset(txn, item)),
 		debitType:     ledger.EntryTypeAssetIncrease,
@@ -189,6 +228,9 @@ func buildLendingPair(txn *LendingTransaction, item *LendingTransferItem, r entr
 			"chain_id":         chain,
 			"protocol":         proto,
 			"contract_address": item.ContractAddress,
+		}
+		if r.legPair != "" {
+			m[ledger.MetaLegPair] = r.legPair
 		}
 		switch {
 		case strings.HasPrefix(accountCode, "wallet."):

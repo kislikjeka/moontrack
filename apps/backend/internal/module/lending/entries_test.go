@@ -51,7 +51,7 @@ func baseItem() *LendingTransferItem {
 }
 
 func TestGenerateSupplyItemEntries(t *testing.T) {
-	entries := generateSupplyItemEntries(baseTxn(), baseItem())
+	entries := generateSupplyItemEntries(baseTxn(), 0, baseItem())
 
 	require.Len(t, entries, 2)
 	assertEntriesBalanced(t, entries)
@@ -70,7 +70,7 @@ func TestGenerateSupplyItemEntries(t *testing.T) {
 }
 
 func TestGenerateWithdrawItemEntries(t *testing.T) {
-	entries := generateWithdrawItemEntries(baseTxn(), baseItem())
+	entries := generateWithdrawItemEntries(baseTxn(), 0, baseItem())
 
 	require.Len(t, entries, 2)
 	assertEntriesBalanced(t, entries)
@@ -92,7 +92,7 @@ func TestGenerateBorrowItemEntries(t *testing.T) {
 	item.AssetID = testasset.USDC
 	item.Decimals = 6
 
-	entries := generateBorrowItemEntries(baseTxn(), item)
+	entries := generateBorrowItemEntries(baseTxn(), 0, item)
 
 	require.Len(t, entries, 2)
 	assertEntriesBalanced(t, entries)
@@ -115,7 +115,7 @@ func TestGenerateRepayItemEntries(t *testing.T) {
 	item.AssetID = testasset.USDC
 	item.Decimals = 6
 
-	entries := generateRepayItemEntries(baseTxn(), item)
+	entries := generateRepayItemEntries(baseTxn(), 0, item)
 
 	require.Len(t, entries, 2)
 	assertEntriesBalanced(t, entries)
@@ -136,7 +136,7 @@ func TestGenerateClaimItemEntries(t *testing.T) {
 	item := baseItem()
 	item.AssetID = testasset.AAVE
 
-	entries := generateClaimItemEntries(baseTxn(), item)
+	entries := generateClaimItemEntries(baseTxn(), 0, item)
 
 	require.Len(t, entries, 2)
 	assertEntriesBalanced(t, entries)
@@ -161,7 +161,7 @@ func TestSupplyItemEntries_NoClearingNamespace(t *testing.T) {
 	txn := baseTxn()
 	item := baseItem()
 
-	generators := map[string]func(*LendingTransaction, *LendingTransferItem) []*ledger.Entry{
+	generators := map[string]func(*LendingTransaction, int, *LendingTransferItem) []*ledger.Entry{
 		"supply":   generateSupplyItemEntries,
 		"withdraw": generateWithdrawItemEntries,
 		"borrow":   generateBorrowItemEntries,
@@ -171,7 +171,7 @@ func TestSupplyItemEntries_NoClearingNamespace(t *testing.T) {
 
 	for op, gen := range generators {
 		t.Run(op, func(t *testing.T) {
-			for _, e := range gen(txn, item) {
+			for _, e := range gen(txn, 0, item) {
 				code, _ := e.Metadata["account_code"].(string)
 				assert.NotContains(t, code, "clearing.",
 					"%s must not route through a clearing account, got %s", op, code)

@@ -274,6 +274,35 @@ type InternalTransferTransaction struct {
 	// than reading these directly.
 	SourceChainID string `json:"source_chain_id,omitempty"`
 	DestChainID   string `json:"dest_chain_id,omitempty"`
+
+	// DestAssetID is the registry UUID the arriving leg resolves to, and it is
+	// a SECOND asset, not a restatement of AssetID.
+	//
+	// Asset identity is (chain, contract) since #59, so a token bridged to
+	// another chain is by definition another asset: another contract, another
+	// registry row, another UUID. A cross-chain transfer therefore moves value
+	// between two identities, and one flat AssetID cannot name both. #70 is
+	// what that costs: the handler built the destination account from the
+	// destination chain and the SOURCE asset's id, so a single asset ended up
+	// addressed by two accounts whose balances summed to a plausible number —
+	// invisible to every amount check, caught only by a cardinality check.
+	//
+	// Optional, and absent for a same-chain transfer where both legs genuinely
+	// are the same asset. Read it through DestAsset(), never directly.
+	DestAssetID     uuid.UUID `json:"dest_asset_id,omitempty"`
+	DestAssetSymbol string    `json:"dest_asset_symbol,omitempty"` // display only
+}
+
+// DestAsset returns the registry UUID of the asset as it arrives, defaulting to
+// the asset that left.
+//
+// The default is what keeps a same-chain transfer — and every raw written
+// before the destination identity existed — on exactly one asset.
+func (t *InternalTransferTransaction) DestAsset() uuid.UUID {
+	if t.DestAssetID != uuid.Nil {
+		return t.DestAssetID
+	}
+	return t.AssetID
 }
 
 // SourceChain returns the chain the asset leaves from, defaulting to ChainID.

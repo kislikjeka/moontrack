@@ -208,6 +208,33 @@ type DecodedTransaction struct {
 	// only thing that can know both chains.
 	DestChainID string
 
+	// DestContractAddress is the contract the arriving asset has on DestChainID.
+	// Set alongside DestChainID, by bridge stitching, from the receive leg the
+	// matcher paired with this send.
+	//
+	// It travels because identity is (chain, contract): a token bridged to
+	// another chain is another contract and therefore another registry row and
+	// another UUID. The receive leg is the ONLY place that contract exists —
+	// the stitched source raw carries the outflow alone — so dropping it here
+	// leaves nothing to resolve the arriving asset against, and the handler
+	// falls back to naming it with the source asset's UUID. That is #70.
+	//
+	// Empty means the native coin (matching NativeContract's sentinel) or an
+	// ordinary non-bridge transaction.
+	DestContractAddress string
+
+	// DestAssetID is the registry UUID that (DestChainID, DestContractAddress)
+	// resolves to — the arriving asset's own identity, filled in by the same
+	// resolve pass that gives every leg its AssetID. uuid.Nil for anything that
+	// is not a stitched bridge.
+	DestAssetID uuid.UUID
+
+	// DestAssetSymbol is the arriving asset's ticker, carried for display only.
+	DestAssetSymbol string
+
+	// DestDecimals is the arriving asset's precision on the destination chain.
+	DestDecimals int
+
 	// RejectedLegs records every leg this transaction carried that was
 	// deliberately kept OUT of the ledger, with the identity of the asset and the
 	// rule that rejected it (issue #60).

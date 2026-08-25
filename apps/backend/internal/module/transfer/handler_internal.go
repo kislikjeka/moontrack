@@ -136,6 +136,23 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 	sourceChain := txn.SourceChain()
 	destChain := txn.DestChain()
 
+	// Each leg's identity is its own chain paired with its own registry UUID.
+	// Building the destination code out of the destination chain and the SOURCE
+	// asset's id is exactly #70: a code that is well-formed, addresses an
+	// account that should not exist, and splits one asset across two of them.
+	// accountcode.OnChain is what makes the mismatched pair unbuildable — the
+	// two halves travel together from here on.
+	sourceAsset := accountcode.OnChain(sourceChain, txn.AssetID)
+	destAsset := accountcode.OnChain(destChain, txn.DestAsset())
+
+	// The two principal legs are stamped as one pair so the TaxLotHook can
+	// carry the cost basis from the disposal to the acquisition. It used to
+	// find them by matching asset UUIDs, which stops working the moment the
+	// legs carry their two rightful identities — and never distinguished the
+	// gas leg, an asset decrease on the same wallet account in the same asset
+	// whenever the native coin is what moved. See ledger.MetaLegPair.
+	legPair := "transfer:" + txn.TxHash + ":" + txn.AssetID.String()
+
 	// Entry 1: DEBIT destination wallet account (increases balance)
 	entries = append(entries, &ledger.Entry{
 		ID:          uuid.New(),
@@ -143,14 +160,14 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 		DebitCredit: ledger.Debit,
 		EntryType:   ledger.EntryTypeAssetIncrease,
 		Amount:      new(big.Int).Set(txn.GetAmount()),
-		AssetID:     txn.AssetID,
+		AssetID:     txn.DestAsset(),
 		USDRate:     money.CopyRate(usdRate),
 		USDValue:    money.CopyRate(usdValue),
 		OccurredAt:  txn.OccurredAt,
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
 			"wallet_id":        txn.DestWalletID.String(),
-			"account_code":     accountcode.WalletCode(txn.DestWalletID, destChain, txn.AssetID.String()),
+			"account_code":     accountcode.Wallet(txn.DestWalletID, destAsset),
 			"tx_hash":          txn.TxHash,
 			"block_number":     txn.BlockNumber,
 			"chain_id":         destChain,
@@ -158,6 +175,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			"source_wallet_id": txn.SourceWalletID.String(),
 			"contract_address": txn.ContractAddress,
 			"unique_id":        txn.UniqueID,
+			ledger.MetaLegPair: legPair,
 		},
 	})
 
@@ -175,7 +193,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
 			"wallet_id":        txn.SourceWalletID.String(),
-			"account_code":     accountcode.WalletCode(txn.SourceWalletID, sourceChain, txn.AssetID.String()),
+			"account_code":     accountcode.Wallet(txn.SourceWalletID, sourceAsset),
 			"tx_hash":          txn.TxHash,
 			"block_number":     txn.BlockNumber,
 			"chain_id":         sourceChain,
@@ -183,6 +201,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			"dest_wallet_id":   txn.DestWalletID.String(),
 			"contract_address": txn.ContractAddress,
 			"unique_id":        txn.UniqueID,
+			ledger.MetaLegPair: legPair,
 		},
 	})
 
@@ -205,11 +224,18 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 		if nativeAssetID == uuid.Nil {
 			return nil, ErrMissingNativeAsset
 		}
-		nativeAssetSeg := nativeAssetID.String()
+		// Gas is burned on the source chain in that chain's native coin.
+		nativeAsset := accountcode.OnChain(sourceChain, nativeAssetID)
 
 		// Entries 3 and 4 both book to the SOURCE chain: gas is burned there,
 		// in that chain's native token, and the destination chain never sees
 		// this fee.
+		//
+		// Neither entry carries a leg-pair marker. Entry 4 is an asset decrease
+		// on a wallet account, so it stands in the TaxLotHook's disposal set
+		// beside the leg being moved — and when the native coin is what is being
+		// bridged, in the very same asset. Leaving it unmarked is what stops it
+		// from being offered as the source of the destination lot's basis.
 
 		// Entry 3: DEBIT gas account (records gas expense)
 		entries = append(entries, &ledger.Entry{
@@ -224,7 +250,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code": accountcode.GasCode(sourceChain, nativeAssetSeg),
+				"account_code": accountcode.Gas(nativeAsset),
 				"tx_hash":      txn.TxHash,
 				"block_number": txn.BlockNumber,
 				"chain_id":     sourceChain,
@@ -245,7 +271,7 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":    txn.SourceWalletID.String(),
-				"account_code": accountcode.WalletCode(txn.SourceWalletID, sourceChain, nativeAssetSeg),
+				"account_code": accountcode.Wallet(txn.SourceWalletID, nativeAsset),
 				"tx_hash":      txn.TxHash,
 				"block_number": txn.BlockNumber,
 				"chain_id":     sourceChain,

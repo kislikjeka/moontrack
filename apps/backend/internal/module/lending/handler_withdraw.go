@@ -34,7 +34,7 @@ func (h *LendingWithdrawHandler) Handle(ctx context.Context, data map[string]int
 
 	entries := make([]*ledger.Entry, 0, 2*len(txn.Transfers))
 	for i := range txn.Transfers {
-		entries = append(entries, generateWithdrawItemEntries(&txn, &txn.Transfers[i])...)
+		entries = append(entries, generateWithdrawItemEntries(&txn, i, &txn.Transfers[i])...)
 	}
 	if gasEntries := generateGasFeeEntries(&txn); gasEntries != nil {
 		entries = append(entries, gasEntries...)

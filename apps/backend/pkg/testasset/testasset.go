@@ -60,3 +60,13 @@ var (
 	ARB   = uuid.MustParse("a0000000-0000-4000-8000-000000000006")
 	LINK  = uuid.MustParse("a0000000-0000-4000-8000-000000000007")
 )
+
+// ETHOnArbitrum is ETH as a SECOND asset: the same ticker on another chain.
+//
+// Identity is (chain, contract) since #59, so a token that exists on two chains
+// is two registry rows with two ids — and a bridge moves value between them.
+// A test that used ETH on both sides of a bridge was asserting the shape of
+// #70, where the destination account was built from the destination chain and
+// the source asset's id, and it made the tax-lot carry-over look like it worked
+// for a reason that was never true (#84).
+var ETHOnArbitrum = uuid.MustParse("e0000000-0000-4000-8000-000000000003")

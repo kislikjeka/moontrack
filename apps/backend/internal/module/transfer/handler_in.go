@@ -143,6 +143,11 @@ func (h *TransferInHandler) entriesForItem(txn *TransferInTransaction, item *Tra
 	usdRate := item.GetUSDRate()
 	usdValue := money.CalcUSDValue(item.GetAmount(), usdRate, item.Decimals)
 
+	// Chain and registry UUID form one identity, taken once and handed to both
+	// codes below, so the two halves cannot be assembled from different assets
+	// on the way (#70, #82).
+	asset := accountcode.OnChain(txn.ChainID, item.AssetID)
+
 	return []*ledger.Entry{
 		// DEBIT wallet account (asset increases)
 		{
@@ -158,7 +163,7 @@ func (h *TransferInHandler) entriesForItem(txn *TransferInTransaction, item *Tra
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":        txn.WalletID.String(),
-				"account_code":     accountcode.WalletCode(txn.WalletID, txn.ChainID, item.AssetID.String()),
+				"account_code":     accountcode.Wallet(txn.WalletID, asset),
 				"tx_hash":          txn.TxHash,
 				"block_number":     txn.BlockNumber,
 				"chain_id":         txn.ChainID,
@@ -180,7 +185,7 @@ func (h *TransferInHandler) entriesForItem(txn *TransferInTransaction, item *Tra
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code":     accountcode.IncomeCode(txn.ChainID, item.AssetID.String()),
+				"account_code":     accountcode.Income(asset),
 				"tx_hash":          txn.TxHash,
 				"block_number":     txn.BlockNumber,
 				"chain_id":         txn.ChainID,

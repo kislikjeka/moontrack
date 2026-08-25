@@ -200,8 +200,14 @@ func TestStitch_MatchedBridge_RecordsInternalTransferNotDisposal(t *testing.T) {
 	assert.Equal(t, brArbitrum, credit.Metadata["chain_id"], "the outflow books on the source chain")
 	assert.NotEqual(t, debit.Metadata["account_code"], credit.Metadata["account_code"],
 		"different accounts is what makes the tax-lot hook carry the basis across rather than net to nothing")
-	assert.Equal(t, credit.AssetID, debit.AssetID,
-		"the hook pairs disposal to acquisition by asset")
+	assert.NotEqual(t, credit.AssetID, debit.AssetID,
+		"the two legs of a bridge are two ASSETS: identity is (chain, contract), so the token "+
+			"that arrived is a different registry row from the one that left. Equal ids here would "+
+			"be #70 — one asset addressed by two accounts — and the tax-lot hook does not depend on "+
+			"them being equal: it follows the leg-pair marker (ledger.MetaLegPair)")
+	assert.Equal(t, debit.Metadata[ledger.MetaLegPair], credit.Metadata[ledger.MetaLegPair],
+		"both legs must carry the SAME pair marker, or the cost basis stops carrying across")
+	assert.NotEmpty(t, debit.Metadata[ledger.MetaLegPair], "an unmarked leg pairs with nothing")
 
 	debitSum, creditSum := big.NewInt(0), big.NewInt(0)
 	for _, e := range entries {

@@ -24,6 +24,7 @@ type Entry struct {
 func All() []Entry {
 	return []Entry{
 		{ETH, "ETH"},
+		{ETHOnArbitrum, "ETH"},
 		{WETH, "WETH"},
 		{USDC, "USDC"},
 		{USDT, "USDT"},

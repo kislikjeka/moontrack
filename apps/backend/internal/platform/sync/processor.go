@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"sort"
 	"time"
 
@@ -144,7 +143,7 @@ func (p *Processor) ProcessAll(ctx context.Context, w *wallet.Wallet) error {
 
 		case StitchAsSource:
 			stitched++
-			ledgerTxID, processErr = p.processStitchedSource(ctx, w, raw, plan.DestinationChain(i), plan.NetAmount(i))
+			ledgerTxID, processErr = p.processStitchedSource(ctx, w, raw, plan, i)
 
 		case StitchNone:
 			ledgerTxID, processErr = p.processRegular(ctx, w, raw)
@@ -306,17 +305,25 @@ func (p *Processor) planStitch(w *wallet.Wallet, raws []*RawTransaction) StitchP
 // Both wallet ids are this wallet: a self-bridge moves the user's funds between
 // chains at the same address, which the internal-transfer model permits
 // precisely because the two legs are on different chains (#32).
+//
+// The plan is taken whole rather than unpacked into parameters because every
+// fact this needs — destination chain, matched amount, arriving asset — comes
+// from the same match, and each was established at a moment that no longer
+// exists here: the receive leg is suppressed by the time this runs.
 func (p *Processor) processStitchedSource(
 	ctx context.Context,
 	w *wallet.Wallet,
 	raw *RawTransaction,
-	destChain string,
-	netAmount *big.Int,
+	plan StitchPlan,
+	i int,
 ) (*uuid.UUID, error) {
 	var dt DecodedTransaction
 	if err := json.Unmarshal(raw.RawJSON, &dt); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal stitched bridge leg: %w", err)
 	}
+
+	destChain := plan.DestinationChain(i)
+	netAmount := plan.NetAmount(i)
 
 	if destChain == "" || destChain == dt.ChainID {
 		// Defensive: a stitch decision without a distinct destination chain is
@@ -328,6 +335,17 @@ func (p *Processor) processStitchedSource(
 	}
 
 	dt.DestChainID = destChain
+
+	// The arriving asset's contract comes from the receive leg, which is about
+	// to be suppressed and is the only place it exists. Without it the resolve
+	// pass has nothing to identify the arriving asset by, and the bridge falls
+	// back to the departing asset's UUID — one asset addressed by two accounts
+	// (#70).
+	if a, ok := plan.DestinationAsset(i); ok {
+		dt.DestContractAddress = a.Contract
+		dt.DestAssetSymbol = a.Symbol
+		dt.DestDecimals = a.Decimals
+	}
 
 	p.logger.Info("recording stitched cross-chain internal transfer",
 		"wallet_id", w.ID,

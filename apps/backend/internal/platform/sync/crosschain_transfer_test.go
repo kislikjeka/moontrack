@@ -200,9 +200,18 @@ func TestCrossChainInternalTransfer_EndToEnd_BasisCarriedNoPnL(t *testing.T) {
 	// internal/ledger/taxlot_hook_crosschain_test.go, where the tax-lot store
 	// can be observed. What matters here is that the legs arriving at the hook
 	// are the cross-chain pair the hook needs: one asset-decrease and one
-	// asset-increase of the same asset, in the same transaction.
-	assert.Equal(t, credit.AssetID, debit.AssetID,
-		"the hook pairs disposal to acquisition by asset; differing assets would break the carry-over")
+	// asset-increase, in the same transaction, stamped as one pair.
+	//
+	// Their assets DIFFER, and must. Identity is (chain, contract), so a token
+	// bridged to another chain is another registry row; equal ids here would be
+	// exactly the crossed-over accounts of #70. The carry-over survives that
+	// because it never depended on the assets matching — the hook follows the
+	// leg-pair marker the handler stamps (ledger.MetaLegPair).
+	assert.NotEqual(t, credit.AssetID, debit.AssetID,
+		"the arriving asset is its own registry row; equal ids would mean one asset addressed by two accounts (#70)")
+	assert.Equal(t, debit.Metadata[ledger.MetaLegPair], credit.Metadata[ledger.MetaLegPair],
+		"one marker on both legs is what carries the cost basis across, now that the assets differ")
+	assert.NotEmpty(t, debit.Metadata[ledger.MetaLegPair], "an unmarked leg pairs with nothing")
 }
 
 // MockTransferWalletRepo is the transfer module's wallet lookup. The handler

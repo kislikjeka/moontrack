@@ -34,7 +34,7 @@ func (h *LendingBorrowHandler) Handle(ctx context.Context, data map[string]inter
 
 	entries := make([]*ledger.Entry, 0, 2*len(txn.Transfers))
 	for i := range txn.Transfers {
-		entries = append(entries, generateBorrowItemEntries(&txn, &txn.Transfers[i])...)
+		entries = append(entries, generateBorrowItemEntries(&txn, i, &txn.Transfers[i])...)
 	}
 	if gasEntries := generateGasFeeEntries(&txn); gasEntries != nil {
 		entries = append(entries, gasEntries...)

@@ -84,6 +84,14 @@ type bridgeLeg struct {
 	// the same economic asset onto a different contract), but the symbol must
 	// still be non-empty to be matchable at all.
 	assetSymbol string
+	// assetContract is the contract the asset has ON THIS LEG'S CHAIN. It plays
+	// no part in matching — the two sides of a bridge have different contracts
+	// by construction, which is why matching goes by symbol — but it is the
+	// other half of the arriving asset's identity, and the receive leg is the
+	// only place it exists. Carrying it is what lets the stitched source
+	// transaction resolve the asset it receives instead of reusing the one it
+	// sent (#70). Empty means the chain's native coin.
+	assetContract string
 	// amount moved, in base units, net of any same-transaction refund.
 	amount *big.Int
 	// decimals of the asset, needed to compare amounts across chains where the
@@ -142,6 +150,23 @@ type StitchPlan struct {
 	// downstream catches it, and it surfaces only as reconciliation drift and a
 	// silently wrong cost basis.
 	MatchedAmount map[int]*big.Int
+	// DestAsset gives, for each StitchAsSource index, the arriving asset as the
+	// matching receive leg reported it on the destination chain.
+	//
+	// It rides on the plan for the same reason MatchedAmount does: the receive
+	// leg is about to be suppressed, and this is the only moment its contract is
+	// still in hand. The source leg cannot re-derive it — a bridged token has a
+	// different contract on every chain — so a writer left to guess would name
+	// the arriving asset with the departing asset's UUID, which is #70.
+	DestAsset map[int]BridgeDestAsset
+}
+
+// BridgeDestAsset is the arriving side of a stitched bridge, as the receive leg
+// reported it. Contract is empty for a chain's native coin.
+type BridgeDestAsset struct {
+	Contract string
+	Symbol   string
+	Decimals int
 }
 
 // Decision reports what to do with the raw at index i.
@@ -170,6 +195,16 @@ func (p StitchPlan) NetAmount(i int) *big.Int {
 	return p.MatchedAmount[i]
 }
 
+// DestinationAsset returns the arriving asset for a stitched source leg, and
+// whether the raw is a stitched source at all.
+func (p StitchPlan) DestinationAsset(i int) (BridgeDestAsset, bool) {
+	if p.DestAsset == nil {
+		return BridgeDestAsset{}, false
+	}
+	a, ok := p.DestAsset[i]
+	return a, ok
+}
+
 // Stitch derives the bridge-stitching plan for one wallet's collected
 // transactions. `now` bounds the hold: a pure-send older than BridgeMatchWindow
 // is released rather than held forever.
@@ -187,6 +222,7 @@ func Stitch(txs []DecodedTransaction, walletAddress string, now time.Time) Stitc
 		Decisions:     make(map[int]StitchDecision),
 		DestChain:     make(map[int]string),
 		MatchedAmount: make(map[int]*big.Int),
+		DestAsset:     make(map[int]BridgeDestAsset),
 	}
 
 	addr := strings.ToLower(walletAddress)
@@ -229,6 +265,11 @@ func Stitch(txs []DecodedTransaction, walletAddress string, now time.Time) Stitc
 		plan.Decisions[matched.rawIdx] = StitchAsSource
 		plan.DestChain[matched.rawIdx] = r.chain
 		plan.MatchedAmount[matched.rawIdx] = matched.amount
+		plan.DestAsset[matched.rawIdx] = BridgeDestAsset{
+			Contract: r.assetContract,
+			Symbol:   r.assetSymbol,
+			Decimals: r.decimals,
+		}
 		plan.Decisions[r.rawIdx] = StitchSuppress
 	}
 
@@ -484,6 +525,7 @@ func primaryOutAsset(tx *DecodedTransaction, walletAddr string) (string, bool) {
 func newBridgeLeg(idx int, tx *DecodedTransaction, primary TransferDirection, walletAddr string) (bridgeLeg, bool) {
 	var (
 		symbol   string
+		contract string
 		decimals int
 		gross    = big.NewInt(0)
 		offset   = big.NewInt(0)
@@ -500,6 +542,7 @@ func newBridgeLeg(idx int, tx *DecodedTransaction, primary TransferDirection, wa
 			}
 			if symbol == "" {
 				symbol = t.AssetSymbol
+				contract = t.ContractAddress
 				decimals = t.Decimals
 			} else if !strings.EqualFold(symbol, t.AssetSymbol) {
 				return bridgeLeg{}, false // multi-asset: not matchable 1:1
@@ -532,12 +575,13 @@ func newBridgeLeg(idx int, tx *DecodedTransaction, primary TransferDirection, wa
 	}
 
 	return bridgeLeg{
-		rawIdx:      idx,
-		chain:       tx.ChainID,
-		assetSymbol: symbol,
-		amount:      net,
-		decimals:    decimals,
-		minedAt:     tx.MinedAt,
+		rawIdx:        idx,
+		chain:         tx.ChainID,
+		assetSymbol:   symbol,
+		assetContract: contract,
+		amount:        net,
+		decimals:      decimals,
+		minedAt:       tx.MinedAt,
 	}, true
 }
 

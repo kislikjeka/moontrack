@@ -34,7 +34,7 @@ func (h *LendingRepayHandler) Handle(ctx context.Context, data map[string]interf
 
 	entries := make([]*ledger.Entry, 0, 2*len(txn.Transfers))
 	for i := range txn.Transfers {
-		entries = append(entries, generateRepayItemEntries(&txn, &txn.Transfers[i])...)
+		entries = append(entries, generateRepayItemEntries(&txn, i, &txn.Transfers[i])...)
 	}
 	if gasEntries := generateGasFeeEntries(&txn); gasEntries != nil {
 		entries = append(entries, gasEntries...)
