@@ -14,6 +14,16 @@
 // protection this package exists to provide. walletID is typed uuid.UUID for
 // the same reason: it rules out wallet.invalid-uuid-format.BTC at compile time.
 //
+// # Two forms during the migration
+//
+// Every namespace has two constructors: the original one taking chain and asset
+// as independent strings (WalletCode, IncomeCode, …) and one taking the pair as
+// a single [Asset] value (Wallet, Income, …). The second form is the target —
+// it makes a chain/asset pair that came from two different assets unbuildable,
+// which is the defect in #70 — and callers move onto it namespace by namespace
+// (#83, #84) before the string form is removed (#85). Both emit byte-identical
+// codes; new code should take the [Asset] form. See asset.go.
+//
 // # Boundary: these functions return a string and nothing else
 //
 // Account codes travel to the ledger inside Entry.Metadata["account_code"], and
