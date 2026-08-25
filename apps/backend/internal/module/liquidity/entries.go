@@ -11,6 +11,17 @@ import (
 	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
+// transferAsset is the identity of the asset one LP transfer moves: the
+// transaction's chain paired with the transfer's registry UUID (#59).
+//
+// The wallet leg and its clearing or income counterpart sit on neighbouring
+// lines and used to read the chain from two different expressions — a local
+// alias on one, the transaction field on the other. Same value today, but that
+// is the shape that let the halves drift apart in #70.
+func transferAsset(txn *LPTransaction, tr LPTransfer) accountcode.Asset {
+	return accountcode.OnChain(txn.ChainID, tr.AssetID)
+}
+
 // generateSwapLikeEntries generates balanced entries for LP deposit/withdraw.
 // Same pattern as swap: outgoing assets go through clearing, incoming assets go through clearing.
 func generateSwapLikeEntries(txn *LPTransaction) []*ledger.Entry {
@@ -39,7 +50,7 @@ func generateSwapLikeEntries(txn *LPTransaction) []*ledger.Entry {
 				CreatedAt:   time.Now().UTC(),
 				Metadata: map[string]any{
 					"wallet_id":        walletIDStr,
-					"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetID.String()),
+					"account_code":     accountcode.Wallet(txn.WalletID, transferAsset(txn, tr)),
 					"tx_hash":          txn.TxHash,
 					"chain_id":         chainIDStr,
 					"lp_direction":     "out",
@@ -60,7 +71,7 @@ func generateSwapLikeEntries(txn *LPTransaction) []*ledger.Entry {
 				OccurredAt:  txn.OccurredAt,
 				CreatedAt:   time.Now().UTC(),
 				Metadata: map[string]any{
-					"account_code": accountcode.ClearingCode(txn.ChainID, tr.AssetID.String()),
+					"account_code": accountcode.Clearing(transferAsset(txn, tr)),
 					"account_type": "CLEARING",
 					"chain_id":     chainIDStr,
 					"tx_hash":      txn.TxHash,
@@ -82,7 +93,7 @@ func generateSwapLikeEntries(txn *LPTransaction) []*ledger.Entry {
 				CreatedAt:   time.Now().UTC(),
 				Metadata: map[string]any{
 					"wallet_id":        walletIDStr,
-					"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetID.String()),
+					"account_code":     accountcode.Wallet(txn.WalletID, transferAsset(txn, tr)),
 					"tx_hash":          txn.TxHash,
 					"chain_id":         chainIDStr,
 					"lp_direction":     "in",
@@ -103,7 +114,7 @@ func generateSwapLikeEntries(txn *LPTransaction) []*ledger.Entry {
 				OccurredAt:  txn.OccurredAt,
 				CreatedAt:   time.Now().UTC(),
 				Metadata: map[string]any{
-					"account_code": accountcode.ClearingCode(txn.ChainID, tr.AssetID.String()),
+					"account_code": accountcode.Clearing(transferAsset(txn, tr)),
 					"account_type": "CLEARING",
 					"chain_id":     chainIDStr,
 					"tx_hash":      txn.TxHash,
@@ -147,7 +158,7 @@ func generateLPClaimEntries(txn *LPTransaction) []*ledger.Entry {
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]any{
 				"wallet_id":        walletIDStr,
-				"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetID.String()),
+				"account_code":     accountcode.Wallet(txn.WalletID, transferAsset(txn, tr)),
 				"tx_hash":          txn.TxHash,
 				"chain_id":         chainIDStr,
 				"lp_direction":     "in",
@@ -168,7 +179,7 @@ func generateLPClaimEntries(txn *LPTransaction) []*ledger.Entry {
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]any{
-				"account_code": accountcode.IncomeLpCode(txn.ChainID, tr.AssetID.String()),
+				"account_code": accountcode.IncomeLp(transferAsset(txn, tr)),
 				"account_type": "INCOME",
 				"chain_id":     chainIDStr,
 				"tx_hash":      txn.TxHash,
@@ -195,6 +206,9 @@ func generateGasFeeEntries(txn *LPTransaction) []*ledger.Entry {
 
 	walletIDStr := txn.WalletID.String()
 	chainIDStr := txn.ChainID
+	// The gas account and the wallet leg that pays it address one asset; the
+	// two lines used to read the chain from two different expressions (#70).
+	feeIdentity := accountcode.OnChain(txn.ChainID, txn.FeeAsset)
 
 	return []*ledger.Entry{
 		// DEBIT gas account
@@ -210,7 +224,7 @@ func generateGasFeeEntries(txn *LPTransaction) []*ledger.Entry {
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]any{
-				"account_code": accountcode.GasCode(txn.ChainID, txn.FeeAsset.String()),
+				"account_code": accountcode.Gas(feeIdentity),
 				"tx_hash":      txn.TxHash,
 				"chain_id":     chainIDStr,
 			},
@@ -229,7 +243,7 @@ func generateGasFeeEntries(txn *LPTransaction) []*ledger.Entry {
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]any{
 				"wallet_id":    walletIDStr,
-				"account_code": accountcode.WalletCode(txn.WalletID, chainIDStr, txn.FeeAsset.String()),
+				"account_code": accountcode.Wallet(txn.WalletID, feeIdentity),
 				"tx_hash":      txn.TxHash,
 				"chain_id":     chainIDStr,
 				"entry_type":   "gas_payment",

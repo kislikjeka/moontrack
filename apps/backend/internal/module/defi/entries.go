@@ -11,6 +11,15 @@ import (
 	"github.com/kislikjeka/moontrack/pkg/money"
 )
 
+// transferAsset is the identity of the asset one transfer moves: the
+// transaction's chain paired with the transfer's registry UUID (#59). The
+// wallet leg and its clearing (or income) counterpart address the same asset,
+// so the pair is formed once here instead of being re-assembled on each of the
+// neighbouring lines — which is where the two halves drifted apart in #70.
+func transferAsset(txn *DeFiTransaction, tr DeFiTransfer) accountcode.Asset {
+	return accountcode.OnChain(txn.ChainID, tr.AssetID)
+}
+
 // generateSwapLikeEntries generates balanced ledger entries for DeFi deposit/withdraw.
 // Both are swap-like: OUT assets leave wallet through clearing, IN assets enter wallet through clearing.
 //
@@ -55,7 +64,7 @@ func generateSwapLikeEntries(txn *DeFiTransaction) []*ledger.Entry {
 
 		entryMeta := mergeMetadata(metadata, map[string]interface{}{
 			"wallet_id":        walletIDStr,
-			"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetID.String()),
+			"account_code":     accountcode.Wallet(txn.WalletID, transferAsset(txn, tr)),
 			"tx_hash":          txn.TxHash,
 			"chain_id":         chainIDStr,
 			"direction":        "out",
@@ -78,7 +87,7 @@ func generateSwapLikeEntries(txn *DeFiTransaction) []*ledger.Entry {
 		})
 
 		clearingMeta := mergeMetadata(metadata, map[string]interface{}{
-			"account_code": accountcode.ClearingCode(chainIDStr, tr.AssetID.String()),
+			"account_code": accountcode.Clearing(transferAsset(txn, tr)),
 			"account_type": "CLEARING",
 			"chain_id":     chainIDStr,
 			"tx_hash":      txn.TxHash,
@@ -121,7 +130,7 @@ func generateSwapLikeEntries(txn *DeFiTransaction) []*ledger.Entry {
 
 		entryMeta := mergeMetadata(metadata, map[string]interface{}{
 			"wallet_id":        walletIDStr,
-			"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetID.String()),
+			"account_code":     accountcode.Wallet(txn.WalletID, transferAsset(txn, tr)),
 			"tx_hash":          txn.TxHash,
 			"chain_id":         chainIDStr,
 			"direction":        "in",
@@ -144,7 +153,7 @@ func generateSwapLikeEntries(txn *DeFiTransaction) []*ledger.Entry {
 		})
 
 		clearingMeta := mergeMetadata(metadata, map[string]interface{}{
-			"account_code": accountcode.ClearingCode(chainIDStr, tr.AssetID.String()),
+			"account_code": accountcode.Clearing(transferAsset(txn, tr)),
 			"account_type": "CLEARING",
 			"chain_id":     chainIDStr,
 			"tx_hash":      txn.TxHash,
@@ -215,7 +224,7 @@ func generateGasFeeEntries(txn *DeFiTransaction) []*ledger.Entry {
 	// Gas account and the wallet's native leg key on the fee asset's registry
 	// UUID (#59); the fee ticker is display data and keys nothing.
 	feeAsset := txn.FeeAsset
-	feeAssetSeg := feeAsset.String()
+	feeIdentity := accountcode.OnChain(txn.ChainID, feeAsset)
 
 	walletIDStr := txn.WalletID.String()
 	chainIDStr := txn.ChainID
@@ -235,7 +244,7 @@ func generateGasFeeEntries(txn *DeFiTransaction) []*ledger.Entry {
 		OccurredAt:  txn.OccurredAt,
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
-			"account_code": accountcode.GasCode(chainIDStr, feeAssetSeg),
+			"account_code": accountcode.Gas(feeIdentity),
 			"tx_hash":      txn.TxHash,
 			"chain_id":     chainIDStr,
 		},
@@ -255,7 +264,7 @@ func generateGasFeeEntries(txn *DeFiTransaction) []*ledger.Entry {
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
 			"wallet_id":    walletIDStr,
-			"account_code": accountcode.WalletCode(txn.WalletID, chainIDStr, feeAssetSeg),
+			"account_code": accountcode.Wallet(txn.WalletID, feeIdentity),
 			"tx_hash":      txn.TxHash,
 			"chain_id":     chainIDStr,
 			"entry_type":   "gas_payment",

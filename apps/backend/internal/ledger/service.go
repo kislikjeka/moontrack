@@ -203,9 +203,17 @@ func (s *Service) GetAccountBalances(ctx context.Context, accountID uuid.UUID) (
 	return s.repo.GetAccountBalances(ctx, accountID)
 }
 
-// GetBalance retrieves the balance for a specific wallet and asset
-// This is used by handlers that need to check balance before processing
+// GetBalance retrieves the balance for a specific wallet and asset.
+// This is used by handlers that need to check balance before processing.
+//
+// The asset arrives as a chain and a registry UUID that are used *together*:
+// the pair addresses the account, and the same UUID then selects the balance
+// row on it. Both steps read one identity, so there is no second asset a
+// caller could accidentally name — the failure mode this reader has is a
+// silent zero (see below), not a visible stray account.
 func (s *Service) GetBalance(ctx context.Context, walletID uuid.UUID, chain string, assetID uuid.UUID) (*big.Int, error) {
+	asset := accountcode.OnChain(chain, assetID)
+
 	// Build account code for wallet asset.
 	//
 	// This is the only reader among the account-code sites: the code is built to
@@ -214,7 +222,7 @@ func (s *Service) GetBalance(ctx context.Context, walletID uuid.UUID, chain stri
 	// — visible in the database. This reader creates nothing; drifting here
 	// returns zero where a balance exists, silently. It must stay on the
 	// constructor.
-	accountCode := accountcode.WalletCode(walletID, chain, assetID.String())
+	accountCode := accountcode.Wallet(walletID, asset)
 
 	// Find the account by code
 	account, err := s.repo.GetAccountByCode(ctx, accountCode)

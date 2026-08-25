@@ -33,8 +33,8 @@ func generateGasFeeEntries(txn *LendingTransaction) []*ledger.Entry {
 	chain := txn.ChainID
 	// The gas account and the wallet's native leg are keyed on the fee asset's
 	// registry UUID (#59) so they meet the same account native transfers use.
-	feeAssetSeg := txn.FeeAsset.String()
 	feeAsset := txn.FeeAsset
+	feeIdentity := accountcode.OnChain(chain, feeAsset)
 
 	return []*ledger.Entry{
 		{
@@ -48,7 +48,7 @@ func generateGasFeeEntries(txn *LendingTransaction) []*ledger.Entry {
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code": accountcode.GasCode(chain, feeAssetSeg),
+				"account_code": accountcode.Gas(feeIdentity),
 				"tx_hash":      txn.TxHash,
 				"chain_id":     chain,
 			},
@@ -65,7 +65,7 @@ func generateGasFeeEntries(txn *LendingTransaction) []*ledger.Entry {
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":    walletID,
-				"account_code": accountcode.WalletCode(txn.WalletID, chain, feeAssetSeg),
+				"account_code": accountcode.Wallet(txn.WalletID, feeIdentity),
 				"tx_hash":      txn.TxHash,
 				"chain_id":     chain,
 				"entry_type":   "gas_payment",
@@ -94,6 +94,15 @@ func generateGasFeeEntries(txn *LendingTransaction) []*ledger.Entry {
 // these builders. The wallet vs collateral / liability account is resolved by
 // the ledger's accountResolver based on the `account_code` metadata.
 
+// itemAsset is the identity of the asset one transfer item moves: the
+// transaction's chain paired with the item's registry UUID (#59). Every
+// account code in a lending pair addresses that one asset, so the pair is
+// formed once here rather than re-assembled at each of the ten call sites
+// below — which is exactly where the halves drifted apart in #70.
+func itemAsset(txn *LendingTransaction, item *LendingTransferItem) accountcode.Asset {
+	return accountcode.OnChain(txn.ChainID, item.AssetID)
+}
+
 // entryRouting captures the debit and credit side of a single balanced
 // pair for a lending asset movement. Account types are inferred from each
 // account code's prefix in buildLendingPair — no need to carry them here.
@@ -108,9 +117,9 @@ type entryRouting struct {
 // The principal leaves the wallet and lands in collateral.
 func generateSupplyItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
 	return buildLendingPair(txn, item, entryRouting{
-		debitAccount:  accountcode.CollateralCode(txn.Protocol, txn.WalletID, txn.ChainID, item.AssetID.String()),
+		debitAccount:  accountcode.Collateral(txn.Protocol, txn.WalletID, itemAsset(txn, item)),
 		debitType:     ledger.EntryTypeCollateralIncrease,
-		creditAccount: accountcode.WalletCode(txn.WalletID, txn.ChainID, item.AssetID.String()),
+		creditAccount: accountcode.Wallet(txn.WalletID, itemAsset(txn, item)),
 		creditType:    ledger.EntryTypeAssetDecrease,
 	})
 }
@@ -119,9 +128,9 @@ func generateSupplyItemEntries(txn *LendingTransaction, item *LendingTransferIte
 // The principal leaves collateral and lands back in the wallet.
 func generateWithdrawItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
 	return buildLendingPair(txn, item, entryRouting{
-		debitAccount:  accountcode.WalletCode(txn.WalletID, txn.ChainID, item.AssetID.String()),
+		debitAccount:  accountcode.Wallet(txn.WalletID, itemAsset(txn, item)),
 		debitType:     ledger.EntryTypeAssetIncrease,
-		creditAccount: accountcode.CollateralCode(txn.Protocol, txn.WalletID, txn.ChainID, item.AssetID.String()),
+		creditAccount: accountcode.Collateral(txn.Protocol, txn.WalletID, itemAsset(txn, item)),
 		creditType:    ledger.EntryTypeCollateralDecrease,
 	})
 }
@@ -130,9 +139,9 @@ func generateWithdrawItemEntries(txn *LendingTransaction, item *LendingTransferI
 // The borrowed principal arrives in the wallet against a matching liability.
 func generateBorrowItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
 	return buildLendingPair(txn, item, entryRouting{
-		debitAccount:  accountcode.WalletCode(txn.WalletID, txn.ChainID, item.AssetID.String()),
+		debitAccount:  accountcode.Wallet(txn.WalletID, itemAsset(txn, item)),
 		debitType:     ledger.EntryTypeAssetIncrease,
-		creditAccount: accountcode.LiabilityCode(txn.Protocol, txn.WalletID, txn.ChainID, item.AssetID.String()),
+		creditAccount: accountcode.Liability(txn.Protocol, txn.WalletID, itemAsset(txn, item)),
 		creditType:    ledger.EntryTypeLiabilityIncrease,
 	})
 }
@@ -141,9 +150,9 @@ func generateBorrowItemEntries(txn *LendingTransaction, item *LendingTransferIte
 // The principal leaves the wallet and retires the matching liability.
 func generateRepayItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
 	return buildLendingPair(txn, item, entryRouting{
-		debitAccount:  accountcode.LiabilityCode(txn.Protocol, txn.WalletID, txn.ChainID, item.AssetID.String()),
+		debitAccount:  accountcode.Liability(txn.Protocol, txn.WalletID, itemAsset(txn, item)),
 		debitType:     ledger.EntryTypeLiabilityDecrease,
-		creditAccount: accountcode.WalletCode(txn.WalletID, txn.ChainID, item.AssetID.String()),
+		creditAccount: accountcode.Wallet(txn.WalletID, itemAsset(txn, item)),
 		creditType:    ledger.EntryTypeAssetDecrease,
 	})
 }
@@ -152,9 +161,9 @@ func generateRepayItemEntries(txn *LendingTransaction, item *LendingTransferItem
 // Rewards arrive in the wallet against lending income.
 func generateClaimItemEntries(txn *LendingTransaction, item *LendingTransferItem) []*ledger.Entry {
 	return buildLendingPair(txn, item, entryRouting{
-		debitAccount:  accountcode.WalletCode(txn.WalletID, txn.ChainID, item.AssetID.String()),
+		debitAccount:  accountcode.Wallet(txn.WalletID, itemAsset(txn, item)),
 		debitType:     ledger.EntryTypeAssetIncrease,
-		creditAccount: accountcode.IncomeLendingCode(txn.ChainID, item.AssetID.String()),
+		creditAccount: accountcode.IncomeLending(itemAsset(txn, item)),
 		creditType:    ledger.EntryTypeIncome,
 	})
 }

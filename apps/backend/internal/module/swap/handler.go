@@ -94,6 +94,18 @@ func (h *SwapHandler) ValidateData(ctx context.Context, data map[string]interfac
 	return nil
 }
 
+// transferAsset is the identity of the asset one swap leg moves: the
+// transaction's chain paired with the leg's registry UUID (#59).
+//
+// The wallet leg and its clearing counterpart are neighbouring lines that used
+// to read the chain from two different expressions — a local alias on one, the
+// transaction field on the other. They are the same value today, but that is
+// precisely the shape that let the two halves drift apart in #70. One identity
+// value leaves nothing to diverge.
+func transferAsset(txn *SwapTransaction, tr SwapTransfer) accountcode.Asset {
+	return accountcode.OnChain(txn.ChainID, tr.AssetID)
+}
+
 // GenerateEntries generates balanced ledger entries for a swap.
 //
 // For each outgoing transfer (asset leaving wallet):
@@ -133,7 +145,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":        walletIDStr,
-				"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetID.String()),
+				"account_code":     accountcode.Wallet(txn.WalletID, transferAsset(txn, tr)),
 				"tx_hash":          txn.TxHash,
 				"chain_id":         chainIDStr,
 				"swap_direction":   "out",
@@ -154,7 +166,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code":   accountcode.ClearingCode(txn.ChainID, tr.AssetID.String()),
+				"account_code":   accountcode.Clearing(transferAsset(txn, tr)),
 				"account_type":   "CLEARING",
 				"chain_id":       chainIDStr,
 				"tx_hash":        txn.TxHash,
@@ -183,7 +195,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":        walletIDStr,
-				"account_code":     accountcode.WalletCode(txn.WalletID, chainIDStr, tr.AssetID.String()),
+				"account_code":     accountcode.Wallet(txn.WalletID, transferAsset(txn, tr)),
 				"tx_hash":          txn.TxHash,
 				"chain_id":         chainIDStr,
 				"swap_direction":   "in",
@@ -204,7 +216,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code":   accountcode.ClearingCode(txn.ChainID, tr.AssetID.String()),
+				"account_code":   accountcode.Clearing(transferAsset(txn, tr)),
 				"account_type":   "CLEARING",
 				"chain_id":       chainIDStr,
 				"tx_hash":        txn.TxHash,
@@ -226,7 +238,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 		// asset's registry UUID (#59), so they resolve to the same account the
 		// native transfers of that token do.
 		feeAsset := txn.FeeAsset
-		feeAssetSeg := feeAsset.String()
+		feeIdentity := accountcode.OnChain(txn.ChainID, feeAsset)
 
 		// DEBIT gas account (gas fee)
 		entries = append(entries, &ledger.Entry{
@@ -241,7 +253,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			OccurredAt:  txn.OccurredAt,
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
-				"account_code": accountcode.GasCode(txn.ChainID, feeAssetSeg),
+				"account_code": accountcode.Gas(feeIdentity),
 				"tx_hash":      txn.TxHash,
 				"chain_id":     chainIDStr,
 			},
@@ -261,7 +273,7 @@ func (h *SwapHandler) GenerateEntries(ctx context.Context, txn *SwapTransaction)
 			CreatedAt:   time.Now().UTC(),
 			Metadata: map[string]interface{}{
 				"wallet_id":    walletIDStr,
-				"account_code": accountcode.WalletCode(txn.WalletID, chainIDStr, feeAssetSeg),
+				"account_code": accountcode.Wallet(txn.WalletID, feeIdentity),
 				"tx_hash":      txn.TxHash,
 				"chain_id":     chainIDStr,
 				"entry_type":   "gas_payment",

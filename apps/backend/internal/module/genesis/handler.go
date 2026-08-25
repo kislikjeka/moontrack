@@ -110,12 +110,12 @@ func (h *Handler) generateEntries(txn *GenesisBalanceTransaction) ([]*ledger.Ent
 	usdValue := money.CalcUSDValue(amount, usdRate, txn.Decimals)
 
 	now := time.Now().UTC()
-	// The asset segment of an account code is the registry UUID's string form
-	// (#59) — same identity as Entry.AssetID, so the account a code names and
-	// the asset an entry carries can no longer drift apart.
-	assetSeg := txn.AssetID.String()
-	walletCode := accountcode.WalletCode(txn.WalletID, txn.ChainID, assetSeg)
-	incomeCode := accountcode.IncomeGenesisCode(txn.ChainID, assetSeg)
+	// One identity — the transaction's chain paired with its registry UUID
+	// (#59) — feeds both codes, so the account a code names and the asset an
+	// entry carries can no longer drift apart.
+	asset := accountcode.OnChain(txn.ChainID, txn.AssetID)
+	walletCode := accountcode.Wallet(txn.WalletID, asset)
+	incomeCode := accountcode.IncomeGenesis(asset)
 
 	entries := []*ledger.Entry{
 		{
@@ -153,7 +153,7 @@ func (h *Handler) generateEntries(txn *GenesisBalanceTransaction) ([]*ledger.Ent
 
 	h.logger.Debug("genesis balance entries generated",
 		"wallet_id", txn.WalletID.String(),
-		"asset_id", assetSeg,
+		"asset_id", txn.AssetID.String(),
 		"asset_symbol", txn.AssetSymbol,
 		"chain", txn.ChainID,
 		"amount", amount.String())
