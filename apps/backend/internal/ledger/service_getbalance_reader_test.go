@@ -83,7 +83,7 @@ func (h *readerProbeHandler) Handle(ctx context.Context, data map[string]interfa
 			Metadata: map[string]interface{}{
 				"wallet_id":    walletID.String(),
 				"chain_id":     chain,
-				"account_code": accountcode.WalletCode(walletID, chain, assetID.String()),
+				"account_code": accountcode.Wallet(walletID, accountcode.OnChain(chain, assetID)),
 			},
 		},
 		{
@@ -98,7 +98,7 @@ func (h *readerProbeHandler) Handle(ctx context.Context, data map[string]interfa
 			CreatedAt:   now,
 			Metadata: map[string]interface{}{
 				"chain_id":     chain,
-				"account_code": accountcode.IncomeCode(chain, assetID.String()),
+				"account_code": accountcode.Income(accountcode.OnChain(chain, assetID)),
 			},
 		},
 	}, nil
@@ -203,8 +203,8 @@ func TestGetBalance_ReaderKeyMatchesProducerKey(t *testing.T) {
 	walletID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
 
 	assert.Equal(t,
-		"wallet.11111111-1111-4111-8111-111111111111.ethereum.BTC",
-		accountcode.WalletCode(walletID, "ethereum", "BTC"),
+		"wallet.11111111-1111-4111-8111-111111111111.ethereum.b0000000-0000-4000-8000-000000000001",
+		accountcode.Wallet(walletID, accountcode.OnChain("ethereum", testasset.BTC)),
 		"the wallet account code shape changed; GetBalance and every producer "+
 			"must move together, and the golden file must be updated deliberately")
 }

@@ -152,6 +152,44 @@ reconcile-offline wallet:
     cd apps/backend && go run ./cmd/reconcile-report -wallet {{wallet}} -no-provider
 
 # =============================================================================
+# Offline replay loop (issue #85)
+#
+# "Reset the wallet's ledger, re-derive it from the raws already collected, then
+# check the result" — the loop that turns a fix in the booking logic into a fix
+# in the data. Transactions booked before the fix stay wrong until they are
+# re-derived, and re-deriving is sound because the decision is a pure function
+# of the collected raws (ADR-0002).
+#
+# No provider is contacted by any of the three steps, so the loop costs nothing
+# and is repeatable on the same data.
+#
+# The wallet is a parameter for a reason: every step here is destructive to one
+# wallet's ledger, and doing this by hand-typed SQL each time — which is how it
+# was done before — is how the wrong wallet gets wiped.
+# =============================================================================
+
+# Reset one wallet's ledger, re-derive it from its raws, then run the offline checks.
+replay-wallet wallet:
+    @echo "=== 1/3 reset + re-derive: {{wallet}} ==="
+    cd apps/backend && go run ./cmd/replay-pending -wallet {{wallet}} -wipe
+    @echo ""
+    @echo "=== 2/3 offline reconciliation ==="
+    -cd apps/backend && go run ./cmd/reconcile-report -wallet {{wallet}} -no-provider
+    @echo ""
+    @echo "=== 3/3 chain segment vs registry chain (must be zero rows) ==="
+    @just _chain-mismatch {{wallet}}
+
+# The #70 control query: wallet accounts whose code chain segment disagrees with
+# the chain the registry gives their asset. One asset addressed by two accounts
+# sums to a plausible number, so no amount check sees it — only this one.
+_chain-mismatch wallet:
+    docker exec moontrack-postgres psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} -c \
+      "SELECT a.code, a.chain_id AS code_chain, ar.chain AS asset_chain, ar.symbol \
+       FROM accounts a JOIN asset_registry ar ON ar.id = a.asset_id \
+       WHERE a.type='CRYPTO_WALLET' AND a.wallet_id = '{{wallet}}' \
+         AND a.chain_id IS DISTINCT FROM ar.chain;"
+
+# =============================================================================
 # Testing
 # =============================================================================
 
@@ -191,11 +229,26 @@ fmt:
     cd apps/backend && go fmt ./...
     @echo "Code formatted"
 
+# Install golangci-lint, built with the project's Go toolchain.
+# Building it locally (rather than a prebuilt binary) keeps the linter's
+# type checker on the same Go version as the compiler — a skew makes
+# typecheck fail on valid code. See issue #65.
+lint-install:
+    cd apps/backend && go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+    @echo "golangci-lint installed"
+
 # Lint all code
 lint:
-    cd apps/backend && golangci-lint run || echo "golangci-lint not installed"
-    cd apps/frontend && bun run lint || true
-    @echo "Linting complete"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v golangci-lint >/dev/null 2>&1; then
+        echo "golangci-lint not installed. Install it with:" >&2
+        echo "  cd apps/backend && go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2" >&2
+        exit 1
+    fi
+    cd apps/backend && golangci-lint run
+    cd ../frontend && bun run lint
+    echo "Linting complete"
 
 # Run all checks (format, lint, test)
 check:

@@ -39,10 +39,27 @@
 // worker in the running backend does that, and this command deliberately owns
 // no worker.
 //
+// # Two scopes: the stranded tail, or the whole wallet
+//
+// By default the command processes whatever is already pending, which is the
+// scope #77 needs: the crash left those raws behind and only they have to be
+// proven bookable.
+//
+// -wipe widens it to the whole wallet. It calls wipe_wallet_ledger first, which
+// deletes what this wallet's raws produced and returns every one of them to
+// 'pending', so the run re-derives the wallet from its raws instead of topping
+// up a tail. That is the scope acceptance needs (#85): a defect fixed in the
+// booking logic — #70's cross-chain account split, say — leaves already-booked
+// transactions wrong, and only a wipe-and-replay re-derives them.
+//
+// Re-deriving is sound because the decision is a pure function of the collected
+// raws (ADR-0002), which is also why neither scope needs the provider.
+//
 // # Usage
 //
 //	replay-pending -wallet <uuid> -dry-run   # report the pending set, write nothing
-//	replay-pending -wallet <uuid>            # process it for real
+//	replay-pending -wallet <uuid>            # process the pending set for real
+//	replay-pending -wallet <uuid> -wipe      # reset the wallet, then re-derive all of it
 //
 // Exit codes: 0 the run completed (raws that failed individually are recorded
 // on the raw as errors, which is the existing behaviour and not a failure of
@@ -77,6 +94,7 @@ func main() {
 	dsn := flag.String("dsn", os.Getenv("DATABASE_URL"), "postgres DSN")
 	walletID := flag.String("wallet", "", "wallet UUID whose pending raws to replay")
 	dry := flag.Bool("dry-run", false, "report the pending set and write nothing")
+	wipe := flag.Bool("wipe", false, "reset the wallet's ledger first, re-pending every raw (see wipe_wallet_ledger)")
 	flag.Parse()
 
 	if *dsn == "" {
@@ -160,6 +178,33 @@ func main() {
 	if *dry {
 		fmt.Println("\n=== DRY RUN: nothing processed ===")
 		return
+	}
+
+	// The reset half of the loop. Without it this command only ever sees the
+	// raws that are still pending — which is the right scope for #77 (a crash
+	// stranded them there) but the wrong one for re-deriving a wallet whose
+	// transactions were already booked from stale logic. wipe_wallet_ledger
+	// deletes what this wallet's raws produced and returns those raws to
+	// 'pending', so the ProcessAll below re-derives the whole wallet rather
+	// than a leftover tail of it.
+	//
+	// It is internal-transfer-aware (migration 000030): one on-chain event can
+	// be a single ledger transaction shared by two of the user's wallets, so
+	// the wipe scopes itself by "any raw of this wallet references this
+	// transaction" rather than by ownership. Wiping either side therefore
+	// reaches the shared transaction and re-pends both sides' raws — which is
+	// exactly the case #70 turns on, since both defective accounts came from
+	// internal transfers.
+	if *wipe {
+		fmt.Println("\n=== WIPE ===")
+		if err := walletRepo.WipeWalletLedger(ctx, wID); err != nil {
+			fatal("wipe: %v", err)
+		}
+		wiped, err := snapshot(ctx, db, wID)
+		if err != nil {
+			fatal("snapshot after wipe: %v", err)
+		}
+		wiped.print()
 	}
 
 	fmt.Println("\n=== ProcessAll ===")

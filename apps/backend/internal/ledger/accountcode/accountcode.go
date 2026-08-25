@@ -1,7 +1,7 @@
 // Package accountcode is the single producer of ledger account codes.
 //
 // Every production site that builds an account code calls one of the
-// constructors below. Centralising construction is step 1 of the two-step
+// constructors in asset.go. Centralising construction is step 1 of the two-step
 // route to changing the code shape (#55, decision in #36): once every producer
 // goes through here, the shape can be changed later by editing one file.
 //
@@ -14,15 +14,21 @@
 // protection this package exists to provide. walletID is typed uuid.UUID for
 // the same reason: it rules out wallet.invalid-uuid-format.BTC at compile time.
 //
-// # Two forms during the migration
+// # One form, and why the other one is gone
 //
-// Every namespace has two constructors: the original one taking chain and asset
-// as independent strings (WalletCode, IncomeCode, …) and one taking the pair as
-// a single [Asset] value (Wallet, Income, …). The second form is the target —
-// it makes a chain/asset pair that came from two different assets unbuildable,
-// which is the defect in #70 — and callers move onto it namespace by namespace
-// (#83, #84) before the string form is removed (#85). Both emit byte-identical
-// codes; new code should take the [Asset] form. See asset.go.
+// Every constructor takes the chain and the asset as a single [Asset] value
+// (see asset.go). Each of them used to have a twin taking the two halves as
+// independent strings — WalletCode, IncomeCode and so on — and for the length
+// of the migration both existed side by side, emitting byte-identical codes so
+// call sites could move namespace by namespace (#83, #84).
+//
+// Those twins were removed in #85, and their removal is the point rather than
+// tidying up after it. While a constructor accepted the halves separately, a
+// caller could pass one asset's chain with another asset's UUID; that pair
+// names nothing, and it is exactly what #70 wrote to the database. Deleting the
+// string form is what makes the mismatch unrepresentable — not merely
+// discouraged — because there is no longer a function anywhere that will accept
+// the two halves apart.
 //
 // # Boundary: these functions return a string and nothing else
 //
@@ -41,11 +47,7 @@
 // uuid and nothing more.
 package accountcode
 
-import (
-	"strings"
-
-	"github.com/google/uuid"
-)
+import "strings"
 
 // UnknownProtocol is the segment used when a protocol-scoped code is built
 // without a protocol name.
@@ -112,90 +114,4 @@ func protocolSlug(proto string) string {
 		return UnknownProtocol
 	}
 	return b.String()
-}
-
-// WalletCode addresses the asset balance a wallet holds on a chain.
-//
-//	wallet.{walletID}.{chain}.{asset}
-func WalletCode(walletID uuid.UUID, chain, asset string) string {
-	return "wallet." + walletID.String() + "." + chain + "." + asset
-}
-
-// IncomeCode is the generic income account for an inbound asset.
-//
-//	income.{chain}.{asset}
-func IncomeCode(chain, asset string) string {
-	return "income." + chain + "." + asset
-}
-
-// IncomeGenesisCode books an opening balance: value that entered the portfolio
-// before tracking began and therefore has no acquiring transaction.
-//
-//	income.genesis.{chain}.{asset}
-func IncomeGenesisCode(chain, asset string) string {
-	return "income.genesis." + chain + "." + asset
-}
-
-// IncomeLpCode books income earned from a liquidity position.
-//
-//	income.lp.{chain}.{asset}
-func IncomeLpCode(chain, asset string) string {
-	return "income.lp." + chain + "." + asset
-}
-
-// IncomeDefiCode books income claimed from a DeFi protocol.
-//
-//	income.defi.{chain}.{asset}
-func IncomeDefiCode(chain, asset string) string {
-	return "income.defi." + chain + "." + asset
-}
-
-// IncomeLendingCode books rewards claimed from a lending protocol.
-//
-//	income.lending.{chain}.{asset}
-func IncomeLendingCode(chain, asset string) string {
-	return "income.lending." + chain + "." + asset
-}
-
-// ExpenseCode books an asset leaving the portfolio as an expense.
-//
-//	expense.{chain}.{asset}
-func ExpenseCode(chain, asset string) string {
-	return "expense." + chain + "." + asset
-}
-
-// GasCode books a transaction fee paid in a chain's asset.
-//
-//	gas.{chain}.{asset}
-func GasCode(chain, asset string) string {
-	return "gas." + chain + "." + asset
-}
-
-// ClearingCode is the transit account that holds one leg of a multi-leg
-// operation (swap, liquidity add/remove) so each pair stays balanced.
-//
-//	clearing.{chain}.{asset}
-func ClearingCode(chain, asset string) string {
-	return "clearing." + chain + "." + asset
-}
-
-// CollateralCode addresses assets a wallet has supplied to a lending protocol.
-// Unlike the wallet namespace it is scoped by protocol, because the same asset
-// supplied to two protocols is two distinct positions.
-//
-// The protocol segment is normalised by protocolSlug; chain and asset are
-// still passed through verbatim, since those are internal identifiers rather
-// than provider display names.
-//
-//	collateral.{proto}.{walletID}.{chain}.{asset}
-func CollateralCode(proto string, walletID uuid.UUID, chain, asset string) string {
-	return "collateral." + protocolSlug(proto) + "." + walletID.String() + "." + chain + "." + asset
-}
-
-// LiabilityCode addresses a debt a wallet owes a lending protocol, scoped by
-// protocol for the same reason as CollateralCode.
-//
-//	liability.{proto}.{walletID}.{chain}.{asset}
-func LiabilityCode(proto string, walletID uuid.UUID, chain, asset string) string {
-	return "liability." + protocolSlug(proto) + "." + walletID.String() + "." + chain + "." + asset
 }

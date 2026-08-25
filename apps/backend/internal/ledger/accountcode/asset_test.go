@@ -18,15 +18,16 @@ var (
 	baseUSDC = uuid.MustParse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
 )
 
-// TestIdentityFormMatchesStringFormByteForByte is the golden set for this
-// ticket: for a representative input per namespace, the identity-taking
-// constructor and the string-taking one must produce the same bytes.
+// TestCodeShapes is the golden set for the package: one representative input
+// per namespace, pinned to the literal string it must produce.
 //
-// This is what makes the migration in #83/#84 mechanical rather than a change
-// of behaviour — a call site can be rewritten without touching the accounts it
-// addresses. The literal `want` is spelled out rather than derived so that a
-// shape change has to be made twice, deliberately.
-func TestIdentityFormMatchesStringFormByteForByte(t *testing.T) {
+// It began as a parity check between the identity-taking constructors and the
+// string-taking ones, which is what made the migration in #83/#84 mechanical —
+// a call site could be rewritten without touching the accounts it addressed.
+// The string form is gone as of #85, so what survives is the half that still
+// carries weight: the literal `want`, spelled out rather than derived, so a
+// shape change has to be made twice and therefore deliberately.
+func TestCodeShapes(t *testing.T) {
 	const (
 		ethChain  = "ethereum"
 		baseChain = "base"
@@ -41,73 +42,61 @@ func TestIdentityFormMatchesStringFormByteForByte(t *testing.T) {
 	tests := []struct {
 		name     string
 		identity string
-		str      string
 		want     string
 	}{
 		{
 			"wallet",
 			accountcode.Wallet(walletID, ethAsset),
-			accountcode.WalletCode(walletID, ethChain, eth),
 			"wallet." + wallet + ".ethereum." + eth,
 		},
 		{
 			"income",
 			accountcode.Income(ethAsset),
-			accountcode.IncomeCode(ethChain, eth),
 			"income.ethereum." + eth,
 		},
 		{
 			"income genesis",
 			accountcode.IncomeGenesis(baseAsset),
-			accountcode.IncomeGenesisCode(baseChain, base),
 			"income.genesis.base." + base,
 		},
 		{
 			"income lp",
 			accountcode.IncomeLp(baseAsset),
-			accountcode.IncomeLpCode(baseChain, base),
 			"income.lp.base." + base,
 		},
 		{
 			"income defi",
 			accountcode.IncomeDefi(ethAsset),
-			accountcode.IncomeDefiCode(ethChain, eth),
 			"income.defi.ethereum." + eth,
 		},
 		{
 			"income lending",
 			accountcode.IncomeLending(baseAsset),
-			accountcode.IncomeLendingCode(baseChain, base),
 			"income.lending.base." + base,
 		},
 		{
 			"expense",
 			accountcode.Expense(ethAsset),
-			accountcode.ExpenseCode(ethChain, eth),
 			"expense.ethereum." + eth,
 		},
 		{
 			"gas",
 			accountcode.Gas(ethAsset),
-			accountcode.GasCode(ethChain, eth),
 			"gas.ethereum." + eth,
 		},
 		{
 			"clearing",
 			accountcode.Clearing(baseAsset),
-			accountcode.ClearingCode(baseChain, base),
 			"clearing.base." + base,
 		},
 		{
 			"collateral",
 			accountcode.Collateral("aave-v3", walletID, baseAsset),
-			accountcode.CollateralCode("aave-v3", walletID, baseChain, base),
 			"collateral.aave-v3." + wallet + ".base." + base,
 		},
 		{
 			"liability",
 			accountcode.Liability("aave-v3", walletID, baseAsset),
-			accountcode.LiabilityCode("aave-v3", walletID, baseChain, base),
 			"liability.aave-v3." + wallet + ".base." + base,
 		},
 	}
@@ -118,9 +107,6 @@ func TestIdentityFormMatchesStringFormByteForByte(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.identity != tt.str {
-				t.Errorf("identity form diverged from the string form:\n  identity: %s\n  string:   %s", tt.identity, tt.str)
-			}
 			if tt.identity != tt.want {
 				t.Errorf("account code shape changed:\n  got:  %s\n  want: %s", tt.identity, tt.want)
 			}

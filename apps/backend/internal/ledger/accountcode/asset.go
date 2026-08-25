@@ -66,7 +66,6 @@ func (a Asset) seg() string {
 }
 
 // Wallet addresses the asset balance a wallet holds on a chain.
-// Identity-taking form of [WalletCode].
 //
 //	wallet.{walletID}.{chain}.{asset}
 func Wallet(walletID uuid.UUID, asset Asset) string {
@@ -74,7 +73,6 @@ func Wallet(walletID uuid.UUID, asset Asset) string {
 }
 
 // Income is the generic income account for an inbound asset.
-// Identity-taking form of [IncomeCode].
 //
 //	income.{chain}.{asset}
 func Income(asset Asset) string {
@@ -83,7 +81,6 @@ func Income(asset Asset) string {
 
 // IncomeGenesis books an opening balance: value that entered the portfolio
 // before tracking began and therefore has no acquiring transaction.
-// Identity-taking form of [IncomeGenesisCode].
 //
 //	income.genesis.{chain}.{asset}
 func IncomeGenesis(asset Asset) string {
@@ -91,7 +88,6 @@ func IncomeGenesis(asset Asset) string {
 }
 
 // IncomeLp books income earned from a liquidity position.
-// Identity-taking form of [IncomeLpCode].
 //
 //	income.lp.{chain}.{asset}
 func IncomeLp(asset Asset) string {
@@ -99,7 +95,6 @@ func IncomeLp(asset Asset) string {
 }
 
 // IncomeDefi books income claimed from a DeFi protocol.
-// Identity-taking form of [IncomeDefiCode].
 //
 //	income.defi.{chain}.{asset}
 func IncomeDefi(asset Asset) string {
@@ -107,7 +102,6 @@ func IncomeDefi(asset Asset) string {
 }
 
 // IncomeLending books rewards claimed from a lending protocol.
-// Identity-taking form of [IncomeLendingCode].
 //
 //	income.lending.{chain}.{asset}
 func IncomeLending(asset Asset) string {
@@ -115,7 +109,6 @@ func IncomeLending(asset Asset) string {
 }
 
 // Expense books an asset leaving the portfolio as an expense.
-// Identity-taking form of [ExpenseCode].
 //
 //	expense.{chain}.{asset}
 func Expense(asset Asset) string {
@@ -123,7 +116,6 @@ func Expense(asset Asset) string {
 }
 
 // Gas books a transaction fee paid in a chain's asset.
-// Identity-taking form of [GasCode].
 //
 //	gas.{chain}.{asset}
 func Gas(asset Asset) string {
@@ -132,7 +124,6 @@ func Gas(asset Asset) string {
 
 // Clearing is the transit account that holds one leg of a multi-leg operation
 // (swap, liquidity add/remove) so each pair stays balanced.
-// Identity-taking form of [ClearingCode].
 //
 //	clearing.{chain}.{asset}
 func Clearing(asset Asset) string {
@@ -140,7 +131,6 @@ func Clearing(asset Asset) string {
 }
 
 // Collateral addresses assets a wallet has supplied to a lending protocol.
-// Identity-taking form of [CollateralCode].
 //
 // The protocol stays a separate argument: it is not part of the asset's
 // identity but a second scope on top of it — the same asset supplied to two
@@ -153,7 +143,6 @@ func Collateral(proto string, walletID uuid.UUID, asset Asset) string {
 
 // Liability addresses a debt a wallet owes a lending protocol, scoped by
 // protocol for the same reason as [Collateral].
-// Identity-taking form of [LiabilityCode].
 //
 //	liability.{proto}.{walletID}.{chain}.{asset}
 func Liability(proto string, walletID uuid.UUID, asset Asset) string {
