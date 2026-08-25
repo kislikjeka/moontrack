@@ -36,7 +36,7 @@ import (
 // through the production code shape, then require that the reader finds it.
 
 // readerProbeHandler writes one balanced pair using the production account-code
-// shape, i.e. through accountcode.WalletCode, the same constructor GetBalance
+// shape, i.e. through accountcode.Wallet, the same constructor GetBalance
 // uses to read.
 //
 // It deliberately does not reuse the package's testHandler: that one emits the
