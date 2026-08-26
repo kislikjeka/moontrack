@@ -291,6 +291,82 @@ type InternalTransferTransaction struct {
 	// are the same asset. Read it through DestAsset(), never directly.
 	DestAssetID     uuid.UUID `json:"dest_asset_id,omitempty"`
 	DestAssetSymbol string    `json:"dest_asset_symbol,omitempty"` // display only
+
+	// DestDecimals is the arriving asset's precision, and it travels for
+	// exactly the same reason DestAssetID does: the arriving leg is a second
+	// asset, and precision is a property of an asset, not of a transaction.
+	//
+	// Identity moved per leg in #84 while precision stayed flat, which left the
+	// arriving leg booked with the destination asset's UUID and a quantity in
+	// the SOURCE asset's units. USDC bridged from a 6-decimal chain to an
+	// 18-decimal one would credit 2.4e-11 USDC instead of 24.45 — an error of
+	// 10^Δ that no amount comparison catches, because both halves are internally
+	// consistent (#86).
+	//
+	// Optional, and absent whenever the arriving asset has the same precision
+	// as the departing one — which is every same-chain transfer and every raw
+	// written before this field existed. Read it through DestDecimalsOrSource().
+	DestDecimals int `json:"dest_decimals,omitempty"`
+
+	// DestContractAddress is the arriving asset's contract on the destination
+	// chain.
+	//
+	// It exists so the arriving leg's metadata can name its OWN contract. The
+	// flat ContractAddress belongs to the source chain, and a bridged token has
+	// a different contract on every chain, so stamping it on the arriving leg
+	// asserts an address that does not hold that asset on that chain — a lie in
+	// the audit trail rather than a missing field.
+	//
+	// Empty for the native coin and for a same-chain transfer.
+	DestContractAddress string `json:"dest_contract_address,omitempty"`
+}
+
+// DestDecimalsOrSource returns the precision the arriving asset is denominated
+// in, defaulting to the departing asset's.
+//
+// The default is what keeps a same-chain transfer — and every raw written
+// before the destination precision existed — on one scale.
+func (t *InternalTransferTransaction) DestDecimalsOrSource() int {
+	if t.DestDecimals > 0 {
+		return t.DestDecimals
+	}
+	return t.Decimals
+}
+
+// DestAmount returns the transferred quantity expressed in the ARRIVING asset's
+// base units.
+//
+// Amount is denominated in the departing asset's units; the two assets are the
+// same economic quantity at different scales, so crossing a bridge that changes
+// precision means restating that quantity, not carrying the integer across. The
+// restatement is exact in one direction (Δ>0 multiplies) and truncating in the
+// other (Δ<0 divides), which is the same rounding any narrowing of precision
+// forces — a chain with fewer decimals genuinely cannot represent the remainder.
+func (t *InternalTransferTransaction) DestAmount() *big.Int {
+	amount := t.GetAmount()
+	delta := t.DestDecimalsOrSource() - t.Decimals
+	if delta == 0 {
+		return amount
+	}
+
+	scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(abs(delta))), nil)
+	if delta > 0 {
+		return new(big.Int).Mul(amount, scale)
+	}
+	return new(big.Int).Div(amount, scale)
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// IsRescaled reports whether the two legs are denominated at different scales,
+// which is the only case that needs the amounts to be stated separately.
+func (t *InternalTransferTransaction) IsRescaled() bool {
+	return t.DestDecimalsOrSource() != t.Decimals
 }
 
 // DestAsset returns the registry UUID of the asset as it arrives, defaulting to

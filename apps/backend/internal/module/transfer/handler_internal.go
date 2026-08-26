@@ -121,10 +121,22 @@ func (h *InternalTransferHandler) ValidateData(ctx context.Context, data map[str
 func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *InternalTransferTransaction) ([]*ledger.Entry, error) {
 	// USD rate for the transferred asset. nil means the price is not known yet
 	// and stays nil into the entries (#74).
+	//
+	// The rate is USD per WHOLE token, so it is the one quantity a change of
+	// precision does not touch — both legs are the same economic asset. The
+	// VALUE is not: it is derived by dividing by the asset's own decimals, so
+	// each leg computes its own from its own amount and its own scale. Deriving
+	// the arriving leg's value from the departing leg's precision was the
+	// #86 defect in its second form.
 	usdRate := txn.GetUSDRate()
-	usdValue := money.CalcUSDValue(txn.GetAmount(), usdRate, txn.Decimals)
 
-	entries := make([]*ledger.Entry, 0, 4)
+	sourceAmount := txn.GetAmount()
+	destAmount := txn.DestAmount()
+
+	sourceUSDValue := money.CalcUSDValue(sourceAmount, usdRate, txn.Decimals)
+	destUSDValue := money.CalcUSDValue(destAmount, usdRate, txn.DestDecimalsOrSource())
+
+	entries := make([]*ledger.Entry, 0, 6)
 
 	// Each leg is booked against its OWN chain. For a same-chain transfer both
 	// resolve to ChainID and nothing changes; for a bridge (ADR-0002) they
@@ -154,29 +166,38 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 	legPair := "transfer:" + txn.TxHash + ":" + txn.AssetID.String()
 
 	// Entry 1: DEBIT destination wallet account (increases balance)
+	//
+	// The amount is the arriving asset's own, and so is the contract: this leg
+	// lives on the destination chain, where the source chain's contract address
+	// does not hold this asset. destContract() omits the field rather than
+	// naming an address that is wrong there.
+	destMeta := map[string]interface{}{
+		"wallet_id":        txn.DestWalletID.String(),
+		"account_code":     accountcode.Wallet(txn.DestWalletID, destAsset),
+		"tx_hash":          txn.TxHash,
+		"block_number":     txn.BlockNumber,
+		"chain_id":         destChain,
+		"transfer_type":    "internal_receive",
+		"source_wallet_id": txn.SourceWalletID.String(),
+		"unique_id":        txn.UniqueID,
+		ledger.MetaLegPair: legPair,
+	}
+	if c := destContract(txn); c != "" {
+		destMeta["contract_address"] = c
+	}
+
 	entries = append(entries, &ledger.Entry{
 		ID:          uuid.New(),
 		AccountID:   uuid.Nil, // Will be resolved by AccountResolver
 		DebitCredit: ledger.Debit,
 		EntryType:   ledger.EntryTypeAssetIncrease,
-		Amount:      new(big.Int).Set(txn.GetAmount()),
+		Amount:      new(big.Int).Set(destAmount),
 		AssetID:     txn.DestAsset(),
 		USDRate:     money.CopyRate(usdRate),
-		USDValue:    money.CopyRate(usdValue),
+		USDValue:    money.CopyRate(destUSDValue),
 		OccurredAt:  txn.OccurredAt,
 		CreatedAt:   time.Now().UTC(),
-		Metadata: map[string]interface{}{
-			"wallet_id":        txn.DestWalletID.String(),
-			"account_code":     accountcode.Wallet(txn.DestWalletID, destAsset),
-			"tx_hash":          txn.TxHash,
-			"block_number":     txn.BlockNumber,
-			"chain_id":         destChain,
-			"transfer_type":    "internal_receive",
-			"source_wallet_id": txn.SourceWalletID.String(),
-			"contract_address": txn.ContractAddress,
-			"unique_id":        txn.UniqueID,
-			ledger.MetaLegPair: legPair,
-		},
+		Metadata:    destMeta,
 	})
 
 	// Entry 2: CREDIT source wallet account (decreases balance)
@@ -185,10 +206,10 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 		AccountID:   uuid.Nil, // Will be resolved by AccountResolver
 		DebitCredit: ledger.Credit,
 		EntryType:   ledger.EntryTypeAssetDecrease,
-		Amount:      new(big.Int).Set(txn.GetAmount()),
+		Amount:      new(big.Int).Set(sourceAmount),
 		AssetID:     txn.AssetID,
 		USDRate:     money.CopyRate(usdRate),
-		USDValue:    money.CopyRate(usdValue),
+		USDValue:    money.CopyRate(sourceUSDValue),
 		OccurredAt:  txn.OccurredAt,
 		CreatedAt:   time.Now().UTC(),
 		Metadata: map[string]interface{}{
@@ -204,6 +225,79 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 			ledger.MetaLegPair: legPair,
 		},
 	})
+
+	// Entries 3 and 4 (only when the two legs are denominated at different
+	// scales): one clearing entry per leg, in that leg's own asset and units.
+	//
+	// The ledger's balance check sums RAW base-unit amounts across every entry,
+	// blind to asset and to decimals — it is the same arithmetic on 2.4e7 of
+	// 6-decimal USDC and 2.4e19 of 18-decimal USDC. That is precisely why the
+	// model carried one Decimals for both legs: booking the two wallet legs
+	// against each other forces one integer to serve both, and stating the
+	// arriving leg in its own units would make debit and credit differ by 10^Δ
+	// and the transaction be rejected outright.
+	//
+	// So the legs stop balancing against EACH OTHER and each balances against
+	// itself, through a transit account in its own asset. This is not a new
+	// device: it is what a swap already does for the same reason (see
+	// SwapHandler.GenerateEntries), where the two sides are different assets in
+	// different units by definition.
+	//
+	// Clearing is deliberately absent when the scales agree — which is every
+	// same-chain transfer and every bridge between chains of equal precision,
+	// i.e. everything that exists today. The two-entry shape stays exactly as
+	// it was wherever it was already correct, and the clearing pair appears
+	// only in the case that could not otherwise be expressed. The net across
+	// both clearing entries is zero for any completed bridge.
+	//
+	// The TaxLotHook does not see these: it considers CRYPTO_WALLET and
+	// COLLATERAL accounts only, so the leg pair still links the two wallet legs
+	// and the cost basis still crosses the bridge.
+	if txn.IsRescaled() {
+		// DEBIT clearing on the source chain, against the source-leg credit.
+		entries = append(entries, &ledger.Entry{
+			ID:          uuid.New(),
+			AccountID:   uuid.Nil,
+			DebitCredit: ledger.Debit,
+			EntryType:   ledger.EntryTypeClearing,
+			Amount:      new(big.Int).Set(sourceAmount),
+			AssetID:     txn.AssetID,
+			USDRate:     money.CopyRate(usdRate),
+			USDValue:    money.CopyRate(sourceUSDValue),
+			OccurredAt:  txn.OccurredAt,
+			CreatedAt:   time.Now().UTC(),
+			Metadata: map[string]interface{}{
+				"account_code":  accountcode.Clearing(sourceAsset),
+				"account_type":  "CLEARING",
+				"tx_hash":       txn.TxHash,
+				"block_number":  txn.BlockNumber,
+				"chain_id":      sourceChain,
+				"transfer_type": "internal_send",
+			},
+		})
+
+		// CREDIT clearing on the destination chain, against the dest-leg debit.
+		entries = append(entries, &ledger.Entry{
+			ID:          uuid.New(),
+			AccountID:   uuid.Nil,
+			DebitCredit: ledger.Credit,
+			EntryType:   ledger.EntryTypeClearing,
+			Amount:      new(big.Int).Set(destAmount),
+			AssetID:     txn.DestAsset(),
+			USDRate:     money.CopyRate(usdRate),
+			USDValue:    money.CopyRate(destUSDValue),
+			OccurredAt:  txn.OccurredAt,
+			CreatedAt:   time.Now().UTC(),
+			Metadata: map[string]interface{}{
+				"account_code":  accountcode.Clearing(destAsset),
+				"account_type":  "CLEARING",
+				"tx_hash":       txn.TxHash,
+				"block_number":  txn.BlockNumber,
+				"chain_id":      destChain,
+				"transfer_type": "internal_receive",
+			},
+		})
+	}
 
 	// Add gas fee entries if gas is present
 	gasAmount := txn.GetGasAmount()
@@ -283,9 +377,29 @@ func (h *InternalTransferHandler) GenerateEntries(ctx context.Context, txn *Inte
 	h.logger.Debug("transfer entries generated",
 		"entry_count", len(entries),
 		"asset_id", txn.AssetID,
+		"dest_asset_id", txn.DestAsset(),
 		"source_chain", sourceChain,
 		"dest_chain", destChain,
+		"decimals", txn.Decimals,
+		"dest_decimals", txn.DestDecimalsOrSource(),
 		"cross_chain", txn.IsCrossChain())
 
 	return entries, nil
+}
+
+// destContract returns the contract the arriving asset has on the destination
+// chain, or "" when there is none to name.
+//
+// The flat ContractAddress is the SOURCE chain's, and it is only the arriving
+// leg's contract when the transfer never left the chain. A bridged token has a
+// different contract on each chain, so carrying the source address onto the
+// destination leg states an address that holds nothing there. When the
+// destination contract is genuinely unknown — or the arriving asset is the
+// chain's native coin, which has no contract — the field is omitted: an absent
+// field says "none here", a borrowed one says something false (#86).
+func destContract(txn *InternalTransferTransaction) string {
+	if txn.IsCrossChain() {
+		return txn.DestContractAddress
+	}
+	return txn.ContractAddress
 }

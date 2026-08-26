@@ -395,6 +395,12 @@ func symbolsFromRawData(raw map[string]interface{}) map[uuid.UUID]string {
 
 	put("asset_id", "asset_symbol", raw)
 	put("asset_id", "asset", raw) // lending flat fields
+	// The arriving leg of a bridge is a SECOND asset with a spelling of its own
+	// (#84). Without it that leg renders with an empty symbol, AccountLabel
+	// falls back to the raw account code instead of "Wallet - USDC", and
+	// DisplayAmount degrades — on the one entry type where two assets are
+	// normal rather than exceptional (#86).
+	put("dest_asset_id", "dest_asset_symbol", raw)
 	put("fee_asset", "fee_asset_symbol", raw)
 	put("native_asset_id", "fee_asset_symbol", raw)
 

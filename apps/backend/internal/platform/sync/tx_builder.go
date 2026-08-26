@@ -108,9 +108,14 @@ func (p *TxBuilder) resolveAssetIdentities(ctx context.Context, tx *DecodedTrans
 	// the same asset repeatedly, and one resolve per identity is enough. The
 	// cached UUID is reused for every later leg with the same key, so the two
 	// legs of a round trip cannot end up with different identities.
-	seen := make(map[AssetKey]uuid.UUID, len(tx.Transfers)+1)
+	seen := make(map[AssetKey]*RegistryAsset, len(tx.Transfers)+1)
 
-	resolve := func(chain, contract, symbol, name string, decimals int) (uuid.UUID, error) {
+	// resolveAsset returns the whole registry row, because for one caller the
+	// row's PRECISION is as load-bearing as its id: the arriving leg of a bridge
+	// is booked in its own units, and the registry — not the provider's hint —
+	// is what says what those units are. Every other caller wants only the id
+	// and goes through resolve below.
+	resolveAsset := func(chain, contract, symbol, name string, decimals int) (*RegistryAsset, error) {
 		key := NewAssetKey(chain, contract)
 		if !key.Valid() {
 			// NewAssetKey turns a missing contract into the sentinel, so the
@@ -118,11 +123,11 @@ func (p *TxBuilder) resolveAssetIdentities(ctx context.Context, tx *DecodedTrans
 			// native leg. Under symbolic identity this was a warning; now it is
 			// an error, because there is no identity to record without a chain
 			// and inventing one would file the asset on the wrong chain.
-			return uuid.Nil, fmt.Errorf("incomplete on-chain identity (chain=%q contract=%q symbol=%q)",
+			return nil, fmt.Errorf("incomplete on-chain identity (chain=%q contract=%q symbol=%q)",
 				key.Chain, key.Contract, symbol)
 		}
-		if id, ok := seen[key]; ok {
-			return id, nil
+		if ra, ok := seen[key]; ok {
+			return ra, nil
 		}
 
 		if name == "" {
@@ -130,15 +135,23 @@ func (p *TxBuilder) resolveAssetIdentities(ctx context.Context, tx *DecodedTrans
 		}
 		ra, err := p.assetRegistry.Resolve(ctx, key, symbol, name, decimals)
 		if err != nil {
-			return uuid.Nil, fmt.Errorf("resolve asset identity %s: %w", key, err)
+			return nil, fmt.Errorf("resolve asset identity %s: %w", key, err)
 		}
 		if ra == nil || ra.ID == uuid.Nil {
 			// A registry that returns success and no identity would otherwise
 			// write uuid.Nil into the ledger silently.
-			return uuid.Nil, fmt.Errorf("resolve asset identity %s: registry returned no id", key)
+			return nil, fmt.Errorf("resolve asset identity %s: registry returned no id", key)
 		}
 
-		seen[key] = ra.ID
+		seen[key] = ra
+		return ra, nil
+	}
+
+	resolve := func(chain, contract, symbol, name string, decimals int) (uuid.UUID, error) {
+		ra, err := resolveAsset(chain, contract, symbol, name, decimals)
+		if err != nil {
+			return uuid.Nil, err
+		}
 		return ra.ID, nil
 	}
 
@@ -153,11 +166,22 @@ func (p *TxBuilder) resolveAssetIdentities(ctx context.Context, tx *DecodedTrans
 		if tx.DestChainID != "" && t.Direction == DirectionIn {
 			chain = tx.DestChainID
 		}
-		id, err := resolve(chain, t.ContractAddress, t.AssetSymbol, t.AssetName, t.Decimals)
+		ra, err := resolveAsset(chain, t.ContractAddress, t.AssetSymbol, t.AssetName, t.Decimals)
 		if err != nil {
 			return err
 		}
-		t.AssetID = id
+		t.AssetID = ra.ID
+
+		// Same reason the destination leg takes its scale from its row: the
+		// quantity on this leg is denominated in the units of the asset it is
+		// booked as, and the registry is what defines those. Keeping the
+		// provider's hint here would leave a bridge computing its scale
+		// difference between a registry value on one side and a hint on the
+		// other, so a disagreement over one leg's precision would show up as a
+		// rescale of the OTHER (#86).
+		if ra.Decimals > 0 {
+			t.Decimals = ra.Decimals
+		}
 	}
 
 	// A stitched bridge's arriving asset has no leg of its own to hang off: the
@@ -181,11 +205,24 @@ func (p *TxBuilder) resolveAssetIdentities(ctx context.Context, tx *DecodedTrans
 				decimals = tx.Transfers[0].Decimals
 			}
 		}
-		id, err := resolve(tx.DestChainID, tx.DestContractAddress, symbol, symbol, decimals)
+		ra, err := resolveAsset(tx.DestChainID, tx.DestContractAddress, symbol, symbol, decimals)
 		if err != nil {
 			return fmt.Errorf("resolve destination asset identity: %w", err)
 		}
-		tx.DestAssetID = id
+		tx.DestAssetID = ra.ID
+
+		// Take the precision from the ROW, not from the hint that was sent in.
+		// The hint only creates a row that does not exist yet; where one does,
+		// the registry is the authority, and it can legitimately disagree —
+		// USDC on Base exists at 6 decimals and at 18 under two contracts. The
+		// arriving leg is booked in the units of the asset it is booked AS, so
+		// taking the scale from anywhere but that asset's own row is how the
+		// quantity and its identity drift apart (#86).
+		if ra.Decimals > 0 {
+			tx.DestDecimals = ra.Decimals
+		} else {
+			tx.DestDecimals = decimals
+		}
 	}
 
 	if tx.Fee != nil && tx.Fee.AssetSymbol != "" {
@@ -287,6 +324,58 @@ func (p *TxBuilder) filterKnownLegs(ctx context.Context, tx DecodedTransaction) 
 
 	tx.Transfers = kept
 	return tx, dropped
+}
+
+// destinationLegIsKnown judges the arriving leg of a stitched bridge against the
+// known-asset filter, on the destination chain's own key.
+//
+// It exists because that leg is the one movement with no element in Transfers.
+// The stitched source raw carries the OUTFLOW alone — the inflow lived in the
+// receive leg the stitcher absorbed — so filterKnownLegs, which walks the slice,
+// never sees it. The result was a hole straight through the filter on exactly
+// the side the filter is there to guard: an arriving asset on the destination
+// chain was resolved into the registry and booked to the ledger without
+// (DestChainID, DestContractAddress) ever being offered to Resolve (#86).
+//
+// Judged separately rather than by admitting a synthetic leg to Transfers,
+// because that slice means "principal legs eligible for the ledger" and is read
+// by the classifier and every builder; a leg that exists only to be filtered
+// would have to be remembered and skipped at each of them.
+//
+// A rejection cannot drop one leg here: the arriving side IS the transfer. A
+// bridge whose destination asset is not known is therefore not booked at all,
+// which is the same verdict filterKnownLegs reaches when a transaction's every
+// leg is filtered.
+//
+// Fails OPEN on a registry error, matching filterKnownLegs: a movement lost to
+// an unreadable local table is the one outcome the product does not accept.
+func (p *TxBuilder) destinationLegIsKnown(ctx context.Context, tx DecodedTransaction) bool {
+	if p.knownFilter == nil || tx.DestChainID == "" || tx.DestChainID == tx.ChainID {
+		return true
+	}
+
+	key := NewAssetKey(tx.DestChainID, tx.DestContractAddress)
+	verdict, err := p.knownFilter.Resolve(ctx, key, tx.DestAssetSymbol)
+	if err != nil {
+		p.logger.Warn("known-asset filter failed on bridge destination leg, admitting",
+			"chain", price.SanitizeLogField(key.Chain),
+			"contract", price.SanitizeLogField(key.Contract),
+			"asset_symbol", price.SanitizeLogField(tx.DestAssetSymbol),
+			"error", price.SanitizeLogField(err.Error()))
+		return true
+	}
+	if verdict.Known {
+		return true
+	}
+
+	p.logger.Info("bridge excluded from ledger: destination asset not known",
+		"tx_hash", price.SanitizeLogField(tx.TxHash),
+		"chain", price.SanitizeLogField(key.Chain),
+		"contract", price.SanitizeLogField(key.Contract),
+		"asset_symbol", price.SanitizeLogField(tx.DestAssetSymbol),
+		"knownness_status", string(verdict.Status),
+		"checked", verdict.Checked())
+	return false
 }
 
 // ProcessTransaction classifies a decoded transaction and records it to the ledger.
@@ -481,6 +570,13 @@ func (p *TxBuilder) ProcessStitchedBridge(ctx context.Context, w *wallet.Wallet,
 	if dropped > 0 && len(tx.Transfers) == 0 {
 		p.logger.Info("skipping stitched bridge: every leg filtered as unknown asset",
 			"tx_hash", tx.TxHash, "external_id", tx.ID, "dropped_legs", dropped)
+		return nil, nil
+	}
+
+	// The arriving leg has no element in Transfers for filterKnownLegs to walk,
+	// so it is judged on its own key here. Without this the destination chain is
+	// unguarded (#86).
+	if !p.destinationLegIsKnown(ctx, tx) {
 		return nil, nil
 	}
 
@@ -1084,6 +1180,24 @@ func (p *TxBuilder) buildInternalTransferData(w *wallet.Wallet, tx DecodedTransa
 			data["dest_asset_id"] = tx.DestAssetID.String()
 			if tx.DestAssetSymbol != "" {
 				data["dest_asset_symbol"] = tx.DestAssetSymbol
+			}
+			// Precision travels with the identity, for the same reason the
+			// identity travels with the chain. The arriving asset is a separate
+			// registry row with a scale of its own, and the quantity below is
+			// stated in the DEPARTING asset's units — so a handler given the id
+			// without the scale credits a number that is wrong by 10^Δ while
+			// looking entirely plausible (#86). Passing the chain and dropping
+			// the UUID was #70; passing the UUID and dropping the decimals is
+			// the same mistake one field further along.
+			if tx.DestDecimals > 0 {
+				data["dest_decimals"] = tx.DestDecimals
+			}
+			// The arriving leg's own contract, so its metadata can name the
+			// address that actually holds it on the destination chain instead
+			// of borrowing the source chain's. Empty for a native coin, and
+			// then the field is simply absent.
+			if tx.DestContractAddress != "" {
+				data["dest_contract_address"] = tx.DestContractAddress
 			}
 		}
 	}

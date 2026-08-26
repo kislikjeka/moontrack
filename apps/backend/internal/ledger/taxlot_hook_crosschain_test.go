@@ -286,3 +286,118 @@ func TestTaxLotHook_SameChainInternalTransfer_Unchanged(t *testing.T) {
 		t.Errorf("same-chain internal transfer must still carry basis, got %s", destLot.AutoCostBasisPerUnit)
 	}
 }
+
+// TestTaxLotHook_CrossChainBridge_RescaledLegsCarryBasisPerWholeToken is the
+// tax-lot half of #86.
+//
+// Once the arriving leg is booked in its OWN units, the two legs of a bridge no
+// longer carry the same integer: 24.446762 USDC is 24_446_762 at 6 decimals and
+// 24_446_762e12 at 18. The hook must survive that, and the carried basis must
+// still be right.
+//
+// It is right because cost basis per unit is USD per WHOLE TOKEN (scaled 10^8),
+// not per base unit — realized PnL divides by the decimals of the lot's own
+// asset (see taxlot.Service). So the carried number is invariant under a change
+// of scale, and carrying it unchanged is correct precisely BECAUSE the
+// quantities differ. Rescaling it alongside the quantity would be the error.
+func TestTaxLotHook_CrossChainBridge_RescaledLegsCarryBasisPerWholeToken(t *testing.T) {
+	baseAcctID := uuid.New()
+	arbAcctID := uuid.New()
+
+	// 24.446762 USDC at 6 decimals, acquired at $1.10 per whole token.
+	const sourceQty = int64(24_446_762)
+	const basisPerToken = int64(110_000_000) // $1.10
+
+	// The same quantity restated at 18 decimals.
+	destQty := new(big.Int).Mul(big.NewInt(sourceQty), new(big.Int).Exp(big.NewInt(10), big.NewInt(12), nil))
+
+	sourceLot := &TaxLot{
+		ID:                   uuid.New(),
+		TransactionID:        uuid.New(),
+		AccountID:            baseAcctID,
+		Asset:                testasset.ETH,
+		QuantityAcquired:     big.NewInt(sourceQty),
+		QuantityRemaining:    big.NewInt(sourceQty),
+		AcquiredAt:           time.Now().Add(-24 * time.Hour),
+		AutoCostBasisPerUnit: big.NewInt(basisPerToken),
+		AutoCostBasisSource:  CostBasisFMVAtTransfer,
+		PriceStatus:          PriceStatusResolved,
+		CreatedAt:            time.Now(),
+	}
+
+	taxLotRepo := &mockTaxLotRepo{lots: []*TaxLot{sourceLot}}
+	ledgerRepo := &mockLedgerRepo{accounts: map[uuid.UUID]*Account{
+		baseAcctID: chainWalletAccount(baseAcctID, "base", testasset.ETH),
+		arbAcctID:  chainWalletAccount(arbAcctID, "arbitrum", testasset.ETHOnArbitrum),
+	}}
+
+	// The two legs differ in BOTH asset and quantity — the shape a rescaled
+	// bridge produces. Only the marker pairs them.
+	tx := &Transaction{
+		ID:   uuid.New(),
+		Type: TxTypeInternalTransfer,
+		Entries: []*Entry{
+			{
+				ID: uuid.New(), AccountID: arbAcctID, DebitCredit: Debit,
+				EntryType: EntryTypeAssetIncrease, Amount: destQty,
+				AssetID: testasset.ETHOnArbitrum,
+				USDRate: big.NewInt(200_000_000_00), USDValue: big.NewInt(0),
+				OccurredAt: time.Now(), CreatedAt: time.Now(),
+				Metadata: map[string]interface{}{"chain_id": "arbitrum", MetaLegPair: "bridge"},
+			},
+			{
+				ID: uuid.New(), AccountID: baseAcctID, DebitCredit: Credit,
+				EntryType: EntryTypeAssetDecrease, Amount: big.NewInt(sourceQty),
+				AssetID: testasset.ETH,
+				USDRate: big.NewInt(200_000_000_00), USDValue: big.NewInt(0),
+				OccurredAt: time.Now(), CreatedAt: time.Now(),
+				Metadata: map[string]interface{}{"chain_id": "base", MetaLegPair: "bridge"},
+			},
+		},
+	}
+
+	hook := NewTaxLotHook(taxLotRepo, ledgerRepo, newTestLogger())
+	if err := hook(context.Background(), tx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(taxLotRepo.lots) != 2 {
+		t.Fatalf("expected the source lot plus one destination lot, got %d", len(taxLotRepo.lots))
+	}
+	destLot := taxLotRepo.lots[1]
+
+	// The lot's QUANTITY is in the destination asset's base units, because that
+	// is the asset it is a lot of.
+	if destLot.QuantityAcquired.Cmp(destQty) != 0 {
+		t.Errorf("the destination lot holds the arriving leg's quantity in the arriving asset's "+
+			"units: expected %s, got %s", destQty, destLot.QuantityAcquired)
+	}
+
+	// The BASIS is per whole token and therefore unchanged.
+	if destLot.AutoCostBasisPerUnit.Cmp(big.NewInt(basisPerToken)) != 0 {
+		t.Errorf("cost basis per WHOLE TOKEN survives a change of scale unchanged ($1.10) and must "+
+			"not be reset to bridge-time FMV ($200) nor rescaled by 10^Δ: got %s",
+			destLot.AutoCostBasisPerUnit)
+	}
+	if destLot.AutoCostBasisSource != CostBasisLinkedTransfer {
+		t.Errorf("expected basis source %s, got %s", CostBasisLinkedTransfer, destLot.AutoCostBasisSource)
+	}
+	if destLot.LinkedSourceLotID == nil || *destLot.LinkedSourceLotID != sourceLot.ID {
+		t.Error("the leg-pair marker must still link the destination lot to the consumed source lot " +
+			"even though the two legs now differ in quantity as well as in asset")
+	}
+
+	// The economic claim the whole thing exists to protect: the lot is worth
+	// what it cost, and that is unchanged by the bridge.
+	//   value = basis_per_token * qty / 10^decimals
+	destValue := new(big.Int).Mul(destLot.AutoCostBasisPerUnit, destLot.QuantityAcquired)
+	destValue.Div(destValue, new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
+
+	srcValue := new(big.Int).Mul(big.NewInt(basisPerToken), big.NewInt(sourceQty))
+	srcValue.Div(srcValue, new(big.Int).Exp(big.NewInt(10), big.NewInt(6), nil))
+
+	if destValue.Cmp(srcValue) != 0 {
+		t.Errorf("the carried basis must value the destination lot at what the source cost "+
+			"(%s), got %s — a mismatch here is the 10^Δ error reappearing as money", srcValue, destValue)
+	}
+}
