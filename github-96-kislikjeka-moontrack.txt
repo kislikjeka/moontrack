@@ -1,0 +1,102 @@
+1. TypeScript + React/Next.js (frontend) with Ethereum smart contract integration (ethers.js/web3.js)
+
+2. 
+- Identify the USDC bridge transaction classification logic in the transaction parser
+- Locate where ETH dust return swaps are incorrectly classified as USDC swaps
+- Fix the classification to distinguish between actual USDC bridge deposits and ETH→USDC swaps with dust returns
+- Add test case for the specific scenario (bridge deposit with ETH dust return)
+- Update UI to correctly display bridge transactions vs swaps
+
+```typescript
+// src/lib/transactionClassifier.ts
+import { Transaction } from '@/types/transaction';
+import { isUSDCBridgeDeposit, isETHToUSDCSwap } from '@/lib/specificityChecks';
+
+/**
+ * Classifies a transaction based on its characteristics.
+ * Fixes issue #96: USDC bridge deposits were incorrectly classified as swaps
+ * when ETH dust return was present.
+ */
+export function classifyTransaction(tx: Transaction): string {
+  // Priority order: bridge deposits > swaps > other
+  if (isUSDCBridgeDeposit(tx)) {
+    return 'bridge-deposit';
+  }
+  
+  if (isETHToUSDCSwap(tx)) {
+    return 'swap';
+  }
+  
+  // ... other classification logic
+  return 'unknown';
+}
+
+// src/lib/specificityChecks.ts
+import { Transaction } from '@/types/transaction';
+
+/**
+ * Checks if transaction is a USDC bridge deposit (not a swap).
+ * A bridge deposit has:
+ * - USDC as input token
+ * - Destination chain different from source chain
+ * - No ETH involved in the transaction
+ * - Proper bridge contract address in the transaction
+ */
+export function isUSDCBridgeDeposit(tx: Transaction): boolean {
+  // Check if transaction involves USDC
+  if (!tx.tokens?.some(t => t.symbol === 'USDC' && t.direction === 'in')) {
+    return false;
+  }
+  
+  // Verify it's not a swap (no output token conversion)
+  if (tx.tokens?.some(t => t.direction === 'out' && t.symbol !== 'USDC')) {
+    return false;
+  }
+  
+  // Check for bridge-specific contract address
+  const bridgeContract = getUSDCBridgeContractAddress();
+  if (tx.to !== bridgeContract && tx.from !== bridgeContract) {
+    return false;
+  }
+  
+  // Ensure no ETH dust return is present (ETH should not be in the transaction)
+  if (tx.tokens?.some(t => t.symbol === 'ETH')) {
+    return false;
+  }
+  
+  return true;
+}
+
+/**
+ * Checks if transaction is an ETH→USDC swap.
+ * A swap has:
+ * - ETH as input token
+ * - USDC as output token
+ * - No bridge contract involvement
+ */
+export function isETHToUSDCSwap(tx: Transaction): boolean {
+  // Must have ETH input
+  const hasETHInput = tx.tokens?.some(t => t.symbol === 'ETH' && t.direction === 'in');
+  if (!hasETHInput) {
+    return false;
+  }
+  
+  // Must have USDC output
+  const hasUSDCOutput = tx.tokens?.some(t => t.symbol === 'USDC' && t.direction === 'out');
+  if (!hasUSDCOutput) {
+    return false;
+  }
+  
+  // Must not involve bridge contract
+  const bridgeContract = getUSDCBridgeContractAddress();
+  if (tx.to === bridgeContract || tx.from === bridgeContract) {
+    return false;
+  }
+  
+  return true;
+}
+
+function getUSDCBridgeContractAddress(): string {
+  // Returns the canonical USDC bridge contract address for the network
+  // This should be configured per network (mainnet, optimism, arbitrum, etc.)
+  return process.env.NEXT_PUBLIC_USDC_BRIDGE_ADDRESS || '0x0000000000000000000000000000000
